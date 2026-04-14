@@ -1,0 +1,647 @@
+{
+  "contract_name": "DailyTaskRewards",
+  "contract_address": "0x3cC19de5b06Ce73C35Cf1D5ab3c6Cc3583dFe11f",
+  "tx_hash": "0x0181bb02154774e426d6a6cf90d7a881d0ab40689fd2db20b6db3c17924857c4",
+  "owner": "0x2D9644Fd40BABD64797884e0cb56F34cc063De71",
+  "gooddollar_token": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A",
+  "reward_amount": "100000000000000000000",
+  "reward_amount_g": "100.0 G$",
+  "chain_id": 42220,
+  "network": "Celo Mainnet",
+  "block_number": 62506325,
+  "gas_used": 1490775,
+  "compiler_version": "v0.8.21+commit.d9974bed",
+  "optimization": true,
+  "optimization_runs": 200,
+  "source_code": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.21;\n\ninterface IERC20 {\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(address indexed owner, address indexed spender, uint256 value);\n    function totalSupply() external view returns (uint256);\n    function balanceOf(address account) external view returns (uint256);\n    function transfer(address to, uint256 amount) external returns (bool);\n    function allowance(address owner, address spender) external view returns (uint256);\n    function approve(address spender, uint256 amount) external returns (bool);\n    function transferFrom(address from, address to, uint256 amount) external returns (bool);\n}\n\nlibrary Address {\n    function isContract(address account) internal view returns (bool) {\n        return account.code.length > 0;\n    }\n\n    function functionCall(address target, bytes memory data) internal returns (bytes memory) {\n        return functionCall(target, data, \"Address: low-level call failed\");\n    }\n\n    function functionCall(address target, bytes memory data, string memory errorMessage) internal returns (bytes memory) {\n        require(isContract(target), \"Address: call to non-contract\");\n        (bool success, bytes memory returndata) = target.call(data);\n        if (success) {\n            return returndata;\n        } else {\n            if (returndata.length > 0) {\n                assembly {\n                    let returndata_size := mload(returndata)\n                    revert(add(32, returndata), returndata_size)\n                }\n            } else {\n                revert(errorMessage);\n            }\n        }\n    }\n}\n\nlibrary SafeERC20 {\n    using Address for address;\n\n    function safeTransfer(IERC20 token, address to, uint256 value) internal {\n        _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));\n    }\n\n    function safeTransferFrom(IERC20 token, address from, address to, uint256 value) internal {\n        _callOptionalReturn(token, abi.encodeWithSelector(token.transferFrom.selector, from, to, value));\n    }\n\n    function safeApprove(IERC20 token, address spender, uint256 value) internal {\n        require((value == 0) || (token.allowance(address(this), spender) == 0), \"SafeERC20: approve from non-zero to non-zero allowance\");\n        _callOptionalReturn(token, abi.encodeWithSelector(token.approve.selector, spender, value));\n    }\n\n    function _callOptionalReturn(IERC20 token, bytes memory data) private {\n        bytes memory returndata = address(token).functionCall(data, \"SafeERC20: low-level call failed\");\n        if (returndata.length > 0) {\n            require(abi.decode(returndata, (bool)), \"SafeERC20: ERC20 operation did not succeed\");\n        }\n    }\n}\n\nabstract contract Context {\n    function _msgSender() internal view virtual returns (address) {\n        return msg.sender;\n    }\n    function _msgData() internal view virtual returns (bytes calldata) {\n        return msg.data;\n    }\n}\n\nabstract contract Ownable is Context {\n    address private _owner;\n\n    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);\n\n    constructor(address initialOwner) {\n        _transferOwnership(initialOwner);\n    }\n\n    modifier onlyOwner() {\n        _checkOwner();\n        _;\n    }\n\n    function owner() public view virtual returns (address) {\n        return _owner;\n    }\n\n    function _checkOwner() internal view virtual {\n        require(owner() == _msgSender(), \"Ownable: caller is not the owner\");\n    }\n\n    function renounceOwnership() public virtual onlyOwner {\n        _transferOwnership(address(0));\n    }\n\n    function transferOwnership(address newOwner) public virtual onlyOwner {\n        require(newOwner != address(0), \"Ownable: new owner is the zero address\");\n        _transferOwnership(newOwner);\n    }\n\n    function _transferOwnership(address newOwner) internal virtual {\n        address oldOwner = _owner;\n        _owner = newOwner;\n        emit OwnershipTransferred(oldOwner, newOwner);\n    }\n}\n\nabstract contract ReentrancyGuard {\n    uint256 private constant _NOT_ENTERED = 1;\n    uint256 private constant _ENTERED = 2;\n    uint256 private _status;\n\n    constructor() {\n        _status = _NOT_ENTERED;\n    }\n\n    modifier nonReentrant() {\n        require(_status != _ENTERED, \"ReentrancyGuard: reentrant call\");\n        _status = _ENTERED;\n        _;\n        _status = _NOT_ENTERED;\n    }\n}\n\nabstract contract Pausable is Context {\n    event Paused(address account);\n    event Unpaused(address account);\n\n    bool private _paused;\n\n    constructor() {\n        _paused = false;\n    }\n\n    modifier whenNotPaused() {\n        _requireNotPaused();\n        _;\n    }\n\n    modifier whenPaused() {\n        _requirePaused();\n        _;\n    }\n\n    function paused() public view virtual returns (bool) {\n        return _paused;\n    }\n\n    function _requireNotPaused() internal view virtual {\n        require(!paused(), \"Pausable: paused\");\n    }\n\n    function _requirePaused() internal view virtual {\n        require(paused(), \"Pausable: not paused\");\n    }\n\n    function _pause() internal virtual whenNotPaused {\n        _paused = true;\n        emit Paused(_msgSender());\n    }\n\n    function _unpause() internal virtual whenPaused {\n        _paused = false;\n        emit Unpaused(_msgSender());\n    }\n}\n\ncontract DailyTaskRewards is Ownable, ReentrancyGuard, Pausable {\n    using SafeERC20 for IERC20;\n\n    IERC20 public immutable goodDollarToken;\n\n    uint256 public rewardAmount;\n\n    uint256 public totalDeposited;\n    uint256 public totalDisbursed;\n    uint256 public totalWithdrawn;\n\n    mapping(address => uint256) public userTotalRewards;\n    mapping(address => uint256) public userRewardCount;\n    mapping(bytes32 => bool) public processedTasks;\n\n    event Deposited(address indexed from, uint256 amount, uint256 timestamp);\n    event RewardDisbursed(\n        address indexed recipient,\n        uint256 amount,\n        string taskId,\n        string platform,\n        bytes32 taskHash,\n        uint256 timestamp\n    );\n    event Withdrawn(address indexed to, uint256 amount, uint256 timestamp);\n    event RewardAmountUpdated(uint256 oldAmount, uint256 newAmount);\n    event EmergencyWithdraw(address indexed to, uint256 amount, uint256 timestamp);\n\n    constructor(\n        address _goodDollarToken,\n        uint256 _rewardAmount\n    ) Ownable(msg.sender) {\n        require(_goodDollarToken != address(0), \"Invalid token address\");\n        require(_rewardAmount > 0, \"Reward amount must be > 0\");\n\n        goodDollarToken = IERC20(_goodDollarToken);\n        rewardAmount = _rewardAmount;\n    }\n\n    function deposit(uint256 amount) external nonReentrant whenNotPaused {\n        require(amount > 0, \"Amount must be > 0\");\n\n        goodDollarToken.safeTransferFrom(msg.sender, address(this), amount);\n        totalDeposited += amount;\n\n        emit Deposited(msg.sender, amount, block.timestamp);\n    }\n\n    function depositFrom(address from, uint256 amount) external onlyOwner nonReentrant whenNotPaused {\n        require(amount > 0, \"Amount must be > 0\");\n        require(from != address(0), \"Invalid from address\");\n\n        goodDollarToken.safeTransferFrom(from, address(this), amount);\n        totalDeposited += amount;\n\n        emit Deposited(from, amount, block.timestamp);\n    }\n\n    function disburseReward(\n        address recipient,\n        string calldata taskId,\n        string calldata platform\n    ) external onlyOwner nonReentrant whenNotPaused returns (bytes32) {\n        require(recipient != address(0), \"Invalid recipient\");\n        require(bytes(taskId).length > 0, \"Invalid task ID\");\n        require(bytes(platform).length > 0, \"Invalid platform\");\n\n        bytes32 taskHash = keccak256(abi.encodePacked(recipient, taskId, platform));\n        require(!processedTasks[taskHash], \"Task reward already disbursed\");\n\n        uint256 balance = goodDollarToken.balanceOf(address(this));\n        require(balance >= rewardAmount, \"Insufficient contract balance\");\n\n        processedTasks[taskHash] = true;\n        userTotalRewards[recipient] += rewardAmount;\n        userRewardCount[recipient] += 1;\n        totalDisbursed += rewardAmount;\n\n        goodDollarToken.safeTransfer(recipient, rewardAmount);\n\n        emit RewardDisbursed(recipient, rewardAmount, taskId, platform, taskHash, block.timestamp);\n\n        return taskHash;\n    }\n\n    function withdraw(uint256 amount) external onlyOwner nonReentrant {\n        require(amount > 0, \"Amount must be > 0\");\n\n        uint256 balance = goodDollarToken.balanceOf(address(this));\n        require(balance >= amount, \"Insufficient balance\");\n\n        totalWithdrawn += amount;\n        goodDollarToken.safeTransfer(owner(), amount);\n\n        emit Withdrawn(owner(), amount, block.timestamp);\n    }\n\n    function withdrawAll() external onlyOwner nonReentrant {\n        uint256 balance = goodDollarToken.balanceOf(address(this));\n        require(balance > 0, \"No balance to withdraw\");\n\n        totalWithdrawn += balance;\n        goodDollarToken.safeTransfer(owner(), balance);\n\n        emit Withdrawn(owner(), balance, block.timestamp);\n    }\n\n    function emergencyWithdraw(address token) external onlyOwner nonReentrant {\n        IERC20 tokenContract = IERC20(token);\n        uint256 balance = tokenContract.balanceOf(address(this));\n        require(balance > 0, \"No balance\");\n\n        tokenContract.safeTransfer(owner(), balance);\n\n        emit EmergencyWithdraw(owner(), balance, block.timestamp);\n    }\n\n    function setRewardAmount(uint256 newAmount) external onlyOwner {\n        require(newAmount > 0, \"Amount must be > 0\");\n\n        uint256 oldAmount = rewardAmount;\n        rewardAmount = newAmount;\n\n        emit RewardAmountUpdated(oldAmount, newAmount);\n    }\n\n    function pause() external onlyOwner {\n        _pause();\n    }\n\n    function unpause() external onlyOwner {\n        _unpause();\n    }\n\n    function getContractBalance() external view returns (uint256) {\n        return goodDollarToken.balanceOf(address(this));\n    }\n\n    function getUserStats(address user) external view returns (\n        uint256 totalRewards,\n        uint256 rewardCount\n    ) {\n        return (userTotalRewards[user], userRewardCount[user]);\n    }\n\n    function getContractStats() external view returns (\n        uint256 balance,\n        uint256 deposited,\n        uint256 disbursed,\n        uint256 withdrawn\n    ) {\n        return (\n            goodDollarToken.balanceOf(address(this)),\n            totalDeposited,\n            totalDisbursed,\n            totalWithdrawn\n        );\n    }\n\n    function isTaskProcessed(bytes32 taskHash) external view returns (bool) {\n        return processedTasks[taskHash];\n    }\n\n    function isTaskRewarded(address recipient, string calldata taskId, string calldata platform) external view returns (bool) {\n        bytes32 taskHash = keccak256(abi.encodePacked(recipient, taskId, platform));\n        return processedTasks[taskHash];\n    }\n\n    function getTaskHash(address recipient, string calldata taskId, string calldata platform) external pure returns (bytes32) {\n        return keccak256(abi.encodePacked(recipient, taskId, platform));\n    }\n}",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_goodDollarToken",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "_rewardAmount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "Deposited",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "EmergencyWithdraw",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "previousOwner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "OwnershipTransferred",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Paused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "oldAmount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "newAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "RewardAmountUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "taskId",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "platform",
+          "type": "string"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes32",
+          "name": "taskHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "RewardDisbursed",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "account",
+          "type": "address"
+        }
+      ],
+      "name": "Unpaused",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "name": "Withdrawn",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "deposit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "depositFrom",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "taskId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "platform",
+          "type": "string"
+        }
+      ],
+      "name": "disburseReward",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        }
+      ],
+      "name": "emergencyWithdraw",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getContractBalance",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "getContractStats",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "balance",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "deposited",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "disbursed",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "withdrawn",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "taskId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "platform",
+          "type": "string"
+        }
+      ],
+      "name": "getTaskHash",
+      "outputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "stateMutability": "pure",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "user",
+          "type": "address"
+        }
+      ],
+      "name": "getUserStats",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "totalRewards",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "rewardCount",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "goodDollarToken",
+      "outputs": [
+        {
+          "internalType": "contract IERC20",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "taskHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "isTaskProcessed",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "recipient",
+          "type": "address"
+        },
+        {
+          "internalType": "string",
+          "name": "taskId",
+          "type": "string"
+        },
+        {
+          "internalType": "string",
+          "name": "platform",
+          "type": "string"
+        }
+      ],
+      "name": "isTaskRewarded",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "owner",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "paused",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "processedTasks",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "renounceOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "rewardAmount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "newAmount",
+          "type": "uint256"
+        }
+      ],
+      "name": "setRewardAmount",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalDeposited",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalDisbursed",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalWithdrawn",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "newOwner",
+          "type": "address"
+        }
+      ],
+      "name": "transferOwnership",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "unpause",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "userRewardCount",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "userTotalRewards",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "withdraw",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "withdrawAll",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ]
+}
