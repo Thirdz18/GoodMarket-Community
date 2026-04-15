@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ feature_name }} Unavailable - GoodMarket</title>
+    <meta name="theme-color" content="#7c3aed">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0B0F2A 0%, #130D35 50%, #1A103D 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(11, 15, 42, 0.92);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            z-index: 100;
+        }
+        .navbar a {
+            color: #a78bfa;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .navbar-brand {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #f1f5f9 !important;
+        }
+        .container {
+            text-align: center;
+            padding: 2rem;
+            max-width: 480px;
+        }
+        .icon {
+            font-size: 5rem;
+            margin-bottom: 1.5rem;
+            display: block;
+        }
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 0.75rem;
+        }
+        p {
+            color: rgba(241, 245, 249, 0.6);
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.9rem 2rem;
+            background: linear-gradient(135deg, #7c3aed, #4f46e5);
+            color: #fff;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            transition: opacity 0.2s;
+        }
+        .btn:hover { opacity: 0.85; }
+        .badge {
+            display: inline-block;
+            padding: 0.4rem 1rem;
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <a class="navbar-brand" href="/dashboard">GoodMarket</a>
+        <a href="/dashboard">← Back to Dashboard</a>
+    </nav>
+
+    <div class="container">
+        <span class="icon">🚫</span>
+        <div class="badge">Feature Unavailable</div>
+        <h1>{{ feature_name }} is Currently Hidden</h1>
+        <p>This feature has been temporarily disabled by the admin. Please check back later or contact support for more information.</p>
+        <a href="/dashboard" class="btn">Go to Dashboard</a>
+    </div>
+</body>
+</html>
