@@ -1,0 +1,15 @@
+{
+  "name": "goodmarket",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "GoodMarket Web3 Learn & Earn platform",
+  "main": "wc_service.js",
+  "scripts": {
+    "start": "node wc_service.js"
+  },
+  "dependencies": {
+    "@turnkey/api-key-stamper": "^0.6.5",
+    "@turnkey/sdk-server": "^5.3.0",
+    "@walletconnect/sign-client": "^2.23.9"
+  }
+}
