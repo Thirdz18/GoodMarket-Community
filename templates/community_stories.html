@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Community Stories - GoodDollar Analytics</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            min-height: 100vh;
+            color: #f1f5f9;
+            font-size: 14px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                padding: 2rem;
+            }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 20px;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (min-width: 768px) {
+            .card {
+                padding: 2rem;
+                margin-bottom: 2rem;
+            }
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        @media (min-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            border: none;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        @media (min-width: 768px) {
+            .btn {
+                padding: 1rem 2rem;
+                font-size: 1rem;
+            }
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 35px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+
+        .info-box {
+            background: rgba(99, 102, 241, 0.1);
+            padding: 0.875rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 3px solid #6366f1;
+            font-size: 0.85rem;
+        }
+
+        .info-box h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        @media (min-width: 768px) {
+            .info-box {
+                padding: 1rem;
+                font-size: 1rem;
+            }
+
+            .info-box h3 {
+                font-size: 1.1rem;
+            }
+        }
+
+        .warning-box {
+            background: rgba(251, 191, 36, 0.1);
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 3px solid #fbbf24;
+        }
+
+        .success-box {
+            background: rgba(16, 185, 129, 0.1);
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 3px solid #10b981;
+        }
+
+        .error-box {
+            background: rgba(239, 68, 68, 0.1);
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 3px solid #ef4444;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        ul {
+            margin-left: 1.5rem;
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Welcome Screen -->
+        <div id="welcomeScreen" class="card">
+            <h1>🌟 Welcome to Community Stories by GIMT Team! 🌟</h1>
+
+            <!-- Custom Message from Admin Settings -->
+            <div id="customMessageBox" class="info-box" style="white-space: pre-line;">
+                <!-- Message will be loaded dynamically -->
+            </div>
+
+            <div class="info-box" style="display: none;" id="defaultInfoBox">
+                <h3>💰 Earn G$ by sharing our story:</h3>
+                <ul>
+                    <li><strong>1,000 G$</strong> - Text post on Twitter/X</li>
+                    <li><strong>5,000 G$</strong> - Post with clear selfie showing GoodWallet screenshot</li>
+                </ul>
+            </div>
+
+            <div class="info-box" style="display: none;" id="defaultRequirementsBox">
+                <h3>📋 Requirements:</h3>
+                <ul>
+                    <li>Must use hashtags: <strong>@gooddollarorg @GoodDollarTeam</strong></li>
+                    <li>Post must be public</li>
+                    <li>Original content only</li>
+                    <li><strong>For higher reward (5,000 G$):</strong> Include selfie with GoodWallet app open</li>
+                </ul>
+                <p style="margin-top: 1rem; font-weight: 600; color: #6366f1;">📸 Selfie Example (for 5,000 G$ reward):</p>
+                <div id="requirementExamplesContainer" style="width: 100%; max-width: 600px; margin-top: 0.5rem;">
+                    <p style="text-align: center; color: rgba(241, 245, 249, 0.5); padding: 2rem;">Loading examples...</p>
+                </div>
+                <p style="margin-top: 0.5rem; font-size: 0.9rem; color: rgba(241, 245, 249, 0.8);">
+                    <strong>Tip:</strong> Include a selfie with your GoodWallet app visible to qualify for the higher 5,000 G$ reward!
+                </p>
+            </div>
+
+            <div class="warning-box">
+                <h3>📅 Participation Schedule:</h3>
+                <ul>
+                    <li><strong>Opens:</strong> 26th of each month at 12:00 AM UTC</li>
+                    <li><strong>Closes:</strong> 30th of each month at 11:59 PM UTC</li>
+                    <li><strong>Duration:</strong> 5 days only each month</li>
+                    <li><strong>After reward:</strong> Blocked until next 26th</li>
+                </ul>
+                <p style="margin-top: 0.5rem;"><strong>⚠️ Late submissions after 30th are NOT accepted!</strong></p>
+            </div>
+
+            <div id="statusMessage"></div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+                <button class="btn btn-primary" id="startBtn" onclick="showSubmitForm()">Start Now</button>
+                <button class="btn btn-secondary" onclick="showHistoryScreen()">📊 View History</button>
+                <button class="btn btn-secondary" onclick="window.location.href='/dashboard'">Back</button>
+            </div>
+        </div>
+
+        <!-- Submit Form -->
+        <div id="submitScreen" class="card hidden">
+            <h1>📝 Submit Your Tweet Link</h1>
+
+            <div class="info-box">
+                <p>Paste your Twitter/X post link below.</p>
+                <p style="margin-top: 0.5rem;"><strong>Requirements:</strong></p>
+                <ul>
+                    <li>✅ Must include @gooddollarorg @GoodDollarTeam mentions</li>
+                    <li>✅ Post must be public</li>
+                    <li>✅ Original content only</li>
+                    <li>✅ For higher reward: Include selfie with GoodWallet app visible</li>
+                </ul>
+                <p style="margin-top: 1rem; font-weight: 600; color: #6366f1;">📸 Selfie Example (for higher reward):</p>
+                <div id="submitFormExamplesContainer" style="width: 100%; max-width: 500px; margin-top: 0.5rem;">
+                    <p style="text-align: center; color: rgba(241, 245, 249, 0.5); padding: 1rem;">Loading examples...</p>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600;">Twitter/X Post URL:</label>
+                <input type="text" id="tweetUrlInput" placeholder="https://twitter.com/username/status/..." style="width: 100%; padding: 1rem; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; color: white; font-size: 1rem;">
+                <small style="color: rgba(241, 245, 249, 0.6); display: block; margin-top: 0.5rem;">
+                    Copy and paste your tweet link here
+                </small>
+            </div>
+
+            <div id="submitMessage"></div>
+
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn btn-primary" onclick="submitTweet()">✅ Submit & Claim</button>
+                <button class="btn btn-secondary" onclick="showWelcomeScreen()">Back</button>
+            </div>
+        </div>
+
+        <!-- Submission History -->
+        <div id="historyScreen" class="card hidden">
+            <h1>📊 My Submission History</h1>
+
+            <div id="userStats" class="info-box" style="margin-bottom: 1.5rem;">
+                <h3>📈 Your Statistics</h3>
+                <p id="statsContent">Loading...</p>
+            </div>
+
+            <div id="submissionHistory">
+                <p style="text-align: center; color: rgba(255,255,255,0.5);">Loading submission history...</p>
+            </div>
+
+            <div style="margin-top: 1.5rem;">
+                <button class="btn btn-secondary" onclick="showWelcomeScreen()">Back</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallet Connection Modal -->
+    <div id="walletModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: white; border-radius: 20px; padding: 2rem; max-width: 500px; width: 90%; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                <h2 style="font-size: 1.5rem; font-weight: 700; color: #1f2937; margin: 0;">Connect Your GoodDollar Wallet</h2>
+                <button onclick="closeWalletModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #6b7280;">×</button>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #1f2937;">GoodDollar Wallet Address</label>
+                <input type="text" id="walletAddressInput" placeholder="0x..." style="width: 100%; padding: 1rem; background: #f9fafb; border: 2px solid #e5e7eb; border-radius: 12px; font-size: 1rem;" autocomplete="off">
+            </div>
+
+            <button onclick="connectWalletNow()" id="connectBtn" style="width: 100%; background: linear-gradient(135deg, #6366f1, #a855f7); color: white; border: none; padding: 1rem; border-radius: 12px; font-weight: 600; font-size: 1.1rem; cursor: pointer;">
+                Connect Wallet
+            </button>
+
+            <div id="walletStatusMessage" style="margin-top: 1rem; padding: 1rem; border-radius: 12px; display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const wallet = "{{ wallet if wallet and wallet != 'None' else '' }}";
+        const isGuest = !wallet || wallet === '';
+
+        // Function to open wallet modal
+        function openWalletModal() {
+            const modal = document.getElementById('walletModal');
+            modal.style.display = 'flex';
+        }
+
+        // Function to close wallet modal
+        function closeWalletModal() {
+            const modal = document.getElementById('walletModal');
+            modal.style.display = 'none';
+            document.getElementById('walletStatusMessage').style.display = 'none';
+        }
+
+        // Function to connect wallet directly from community stories page
+        async function connectWalletNow() {
+            const walletAddress = document.getElementById('walletAddressInput').value.trim();
+            const statusDiv = document.getElementById('walletStatusMessage');
+            const connectBtn = document.getElementById('connectBtn');
+
+            if (!walletAddress) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#fee2e2';
+                statusDiv.style.color = '#dc2626';
+                statusDiv.textContent = 'Please enter your GoodDollar wallet address';
+                return;
+            }
+
+            // Validate wallet format
+            if (!walletAddress.startsWith('0x') || walletAddress.length !== 42) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#fee2e2';
+                statusDiv.style.color = '#dc2626';
+                statusDiv.textContent = 'Invalid GoodDollar wallet address format';
+                return;
+            }
+
+            // Show loading state
+            connectBtn.textContent = 'Connecting...';
+            connectBtn.disabled = true;
+
+            try {
+                // First, set the return flag
+                await fetch('/api/set-return-flag', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({return_to: 'community_stories'})
+                });
+
+                // Then verify UBI
+                const response = await fetch('/verify-ubi', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({wallet: walletAddress})
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = '#dcfce7';
+                    statusDiv.style.color = '#16a34a';
+                    statusDiv.textContent = '✅ Wallet connected! Redirecting...';
+
+                    // Redirect based on backend response
+                    setTimeout(() => {
+                        window.location.href = data.redirect_to || '/community-stories/';
+                    }, 1000);
+                } else {
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = '#fee2e2';
+                    statusDiv.style.color = '#dc2626';
+                    statusDiv.textContent = data.message || 'Connection failed';
+                    connectBtn.textContent = 'Connect Wallet';
+                    connectBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Connection error:', error);
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = '#fee2e2';
+                statusDiv.style.color = '#dc2626';
+                statusDiv.textContent = 'Network error. Please try again.';
+                connectBtn.textContent = 'Connect Wallet';
+                connectBtn.disabled = false;
+            }
+        }
+
+        // Function to redirect to login page with return flag (legacy)
+        async function redirectToLogin() {
+            openWalletModal();
+        }
+
+        // Legacy function for backward compatibility
+        async function setReturnFlag() {
+            return redirectToLogin();
+        }
+
+        async function checkStatus() {
+            try {
+                // If user is a guest, show login prompt
+                if (isGuest) {
+                    const statusMsg = document.getElementById('statusMessage');
+                    const startBtn = document.getElementById('startBtn');
+
+                    statusMsg.innerHTML = `
+                        <div class="warning-box">
+                            <strong>🔐 Connect Your Wallet to Participate</strong><br>
+                            You need to connect your GoodDollar wallet to submit posts and earn rewards.<br><br>
+                            <button onclick="redirectToLogin()" style="background: linear-gradient(135deg, #6366f1, #a855f7); color: white; border: none; padding: 12px 24px; border-radius: 12px; font-weight: 600; cursor: pointer; font-size: 1rem; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);">
+                                🔐 Connect Wallet
+                            </button>
+                        </div>
+                    `;
+                    startBtn.disabled = false;
+                    startBtn.textContent = 'Connect Wallet to Start';
+                    startBtn.style.cursor = 'pointer';
+                    startBtn.style.opacity = '1';
+                    startBtn.onclick = async function(e) {
+                        e.preventDefault();
+                        console.log('🔘 Connect Wallet button clicked (bottom)');
+                        redirectToLogin();
+                    };
+                    return;
+                }
+
+                const response = await fetch('/community-stories/api/status');
+                const data = await response.json();
+
+                if (data.success) {
+                    const statusMsg = document.getElementById('statusMessage');
+                    const startBtn = document.getElementById('startBtn');
+
+                    // Check if user has pending submission (HIGHEST PRIORITY)
+                    if (data.pending && data.pending.has_pending) {
+                        const submittedDate = new Date(data.pending.pending_submission.submitted_at).toLocaleString();
+                        statusMsg.innerHTML = `
+                            <div class="warning-box">
+                                <strong>⏳ Waiting for Admin Approval</strong><br>
+                                Submission ID: <strong>${data.pending.pending_submission.submission_id}</strong><br>
+                                Submitted: ${submittedDate}<br>
+                                Status: <strong>Pending Review</strong><br><br>
+                                <small>✅ Your submission is under review. You can only submit ONCE per month.</small><br>
+                                <small>🎯 After approval and reward, you can submit again next month (26th-30th).</small>
+                            </div>
+                        `;
+                        startBtn.disabled = true;
+                        startBtn.textContent = '⏳ Pending Admin Review';
+                    } else if (!data.window.is_open) {
+                        statusMsg.innerHTML = `
+                            <div class="error-box">
+                                <strong>❌ Participation window is closed!</strong><br>
+                                Current day: ${data.window.current_day}<br>
+                                Next window opens: ${new Date(data.window.next_window).toLocaleString()}
+                            </div>
+                        `;
+                        startBtn.disabled = true;
+                        startBtn.textContent = 'Start Now';
+                    } else if (!data.cooldown.can_participate) {
+                        statusMsg.innerHTML = `
+                            <div class="error-box">
+                                <strong>✅ You already received a reward this month!</strong><br>
+                                Next participation: ${new Date(data.cooldown.next_participation).toLocaleString()}
+                            </div>
+                        `;
+                        startBtn.disabled = true;
+                        startBtn.textContent = 'Start Now';
+                    } else {
+                        statusMsg.innerHTML = `
+                            <div class="success-box">
+                                <strong>✅ Participation window is OPEN! You can submit now.</strong>
+                            </div>
+                        `;
+                        startBtn.disabled = false;
+                        startBtn.textContent = 'Start Now';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking status:', error);
+            }
+        }
+
+        function showSubmitForm() {
+            // Redirect to homepage if guest - with return flag
+            if (isGuest) {
+                redirectToLogin();
+                return;
+            }
+
+            document.getElementById('welcomeScreen').classList.add('hidden');
+            document.getElementById('submitScreen').classList.remove('hidden');
+        }
+
+        function showWelcomeScreen() {
+            document.getElementById('submitScreen').classList.add('hidden');
+            document.getElementById('historyScreen').classList.add('hidden');
+            document.getElementById('welcomeScreen').classList.remove('hidden');
+        }
+
+        function showHistoryScreen() {
+            // Redirect to homepage if guest
+            if (isGuest) {
+                alert('Please connect your GoodDollar wallet first to view your history.');
+                window.location.href = '/';
+                return;
+            }
+
+            document.getElementById('welcomeScreen').classList.add('hidden');
+            document.getElementById('submitScreen').classList.add('hidden');
+            document.getElementById('historyScreen').classList.remove('hidden');
+            loadSubmissionHistory();
+        }
+
+        async function loadSubmissionHistory() {
+            try {
+                const response = await fetch('/community-stories/api/my-submissions');
+                const data = await response.json();
+
+                if (data.success) {
+                    // Display stats
+                    const stats = data.stats;
+                    const statsHtml = stats ? `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                            <div style="background: rgba(99, 102, 241, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: 700; color: #6366f1;">${stats.total_submissions || 0}</div>
+                                <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Total Submissions</div>
+                            </div>
+                            <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: 700; color: #10b981;">${parseFloat(stats.total_earned || 0).toLocaleString()} G$</div>
+                                <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Total Earned</div>
+                            </div>
+                            <div style="background: rgba(251, 191, 36, 0.1); padding: 1rem; border-radius: 8px; text-align: center;">
+                                <div style="font-size: 2rem; font-weight: 700; color: #fbbf24;">${parseFloat(stats.last_reward_amount || 0).toLocaleString()} G$</div>
+                                <div style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">Last Reward</div>
+                            </div>
+                        </div>
+                    ` : '<p style="color: rgba(255,255,255,0.7);">No submissions yet</p>';
+
+                    document.getElementById('statsContent').innerHTML = statsHtml;
+
+                    // Display submission history
+                    const submissions = data.submissions || [];
+
+                    if (submissions.length > 0) {
+                        const historyHtml = `
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+                                    <thead>
+                                        <tr style="background: rgba(99, 102, 241, 0.1); border-bottom: 2px solid rgba(99, 102, 241, 0.3);">
+                                            <th style="padding: 1rem; text-align: left;">Submission ID</th>
+                                            <th style="padding: 1rem; text-align: left;">Tweet Link</th>
+                                            <th style="padding: 1rem; text-align: center;">Status</th>
+                                            <th style="padding: 1rem; text-align: center;">Reward</th>
+                                            <th style="padding: 1rem; text-align: left;">Feedback</th>
+                                            <th style="padding: 1rem; text-align: left;">Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${submissions.map(sub => {
+                                            let statusBadge = '';
+                                            let rewardAmount = '-';
+                                            let feedback = '-';
+
+                                            if (sub.status === 'pending') {
+                                                statusBadge = '<span style="background: rgba(251, 191, 36, 0.2); color: #fbbf24; padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600;">⏳ Pending Review</span>';
+                                            } else if (sub.status === 'approved_low') {
+                                                statusBadge = '<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600;">✅ Approved (Low)</span>';
+                                                rewardAmount = `<strong style="color: #10b981;">${parseFloat(sub.reward_amount).toLocaleString()} G$</strong>`;
+                                                feedback = sub.transaction_hash ? `<a href="https://celoscan.io/tx/${sub.transaction_hash}" target="_blank" style="color: #3b82f6;">View TX</a>` : 'Approved';
+                                            } else if (sub.status === 'approved_high') {
+                                                statusBadge = '<span style="background: rgba(168, 85, 247, 0.2); color: #a855f7; padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600;">✅ Approved (High)</span>';
+                                                rewardAmount = `<strong style="color: #a855f7;">${parseFloat(sub.reward_amount).toLocaleString()} G$</strong>`;
+                                                feedback = sub.transaction_hash ? `<a href="https://celoscan.io/tx/${sub.transaction_hash}" target="_blank" style="color: #3b82f6;">View TX</a>` : 'Approved';
+                                            } else if (sub.status === 'rejected') {
+                                                statusBadge = '<span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.4rem 0.8rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600;">❌ Rejected</span>';
+                                                feedback = sub.admin_comment || 'Does not meet requirements';
+                                            }
+
+                                            return `
+                                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                                    <td style="padding: 1rem; font-family: monospace; font-size: 0.85rem;">${sub.submission_id}</td>
+                                                    <td style="padding: 1rem;">
+                                                        <a href="${sub.tweet_url}" target="_blank" style="color: #3b82f6; text-decoration: none; word-break: break-all;">
+                                                            ${sub.tweet_url.length > 40 ? sub.tweet_url.substring(0, 40) + '...' : sub.tweet_url}
+                                                        </a>
+                                                    </td>
+                                                    <td style="padding: 1rem; text-align: center;">${statusBadge}</td>
+                                                    <td style="padding: 1rem; text-align: center;">${rewardAmount}</td>
+                                                    <td style="padding: 1rem; color: rgba(255,255,255,0.7); font-size: 0.9rem;">${feedback}</td>
+                                                    <td style="padding: 1rem; color: rgba(255,255,255,0.5); font-size: 0.85rem;">${new Date(sub.submitted_at).toLocaleString()}</td>
+                                                </tr>
+                                            `;
+                                        }).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+
+                        document.getElementById('submissionHistory').innerHTML = historyHtml;
+                    } else {
+                        document.getElementById('submissionHistory').innerHTML = `
+                            <div style="padding: 2rem; text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1);">
+                                <p style="color: rgba(255,255,255,0.5); font-size: 1.1rem;">📭 No submissions yet</p>
+                                <p style="color: rgba(255,255,255,0.4); font-size: 0.9rem; margin-top: 0.5rem;">Submit your first tweet to start earning!</p>
+                            </div>
+                        `;
+                    }
+                } else {
+                    document.getElementById('submissionHistory').innerHTML = `<p style="color: #ef4444;">Error loading history</p>`;
+                }
+            } catch (error) {
+                console.error('Error loading history:', error);
+                document.getElementById('submissionHistory').innerHTML = `<p style="color: #ef4444;">Network error. Please try again.</p>`;
+            }
+        }
+
+        async function submitTweet() {
+            const tweetUrlInput = document.getElementById('tweetUrlInput');
+            const submitMsg = document.getElementById('submitMessage');
+
+            const tweetUrl = tweetUrlInput.value.trim();
+
+            if (!tweetUrl) {
+                submitMsg.innerHTML = '<div class="error-box">Please enter your Twitter/X post URL</div>';
+                return;
+            }
+
+            // Basic URL validation
+            if (!tweetUrl.includes('twitter.com') && !tweetUrl.includes('x.com')) {
+                submitMsg.innerHTML = '<div class="error-box">Please enter a valid Twitter/X URL</div>';
+                return;
+            }
+
+            try {
+                submitMsg.innerHTML = '<div class="warning-box">⏳ Submitting your tweet...</div>';
+
+                const response = await fetch('/community-stories/api/submit', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        tweet_url: tweetUrl
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    submitMsg.innerHTML = `
+                        <div class="success-box">
+                            <strong>✅ Submission received!</strong><br>
+                            ${data.message}<br>
+                            Submission ID: ${data.submission_id}<br><br>
+                            <small>An admin will review your submission soon.</small>
+                        </div>
+                    `;
+                    tweetUrlInput.value = '';
+
+                    setTimeout(() => {
+                        window.location.href = '/dashboard';
+                    }, 3000);
+                } else {
+                    if (data.error === 'Already received reward this month') {
+                        submitMsg.innerHTML = `
+                            <div class="error-box">
+                                <strong>✅ You already received a reward this month!</strong><br>
+                                Next participation: ${new Date(data.next_participation).toLocaleString()}
+                            </div>
+                        `;
+                    } else if (data.error === 'Participation window closed') {
+                        submitMsg.innerHTML = `
+                            <div class="error-box">
+                                <strong>❌ Participation window is closed!</strong><br>
+                                Next window: ${new Date(data.next_window).toLocaleString()}
+                            </div>
+                        `;
+                    } else {
+                        submitMsg.innerHTML = `<div class="error-box">❌ ${data.error}</div>`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error submitting:', error);
+                submitMsg.innerHTML = '<div class="error-box">Network error. Please try again.</div>';
+            }
+        }
+
+        // Function to load requirement examples (selfie example images)
+        async function loadRequirementExamples() {
+            try {
+                // Use the correct endpoint for requirement example images
+                const response = await fetch('/community-stories/api/requirement-example-images?limit=3');
+                const data = await response.json();
+
+                console.log('📸 Requirement examples response:', data);
+
+                if (data.success && data.images && data.images.length > 0) {
+                    const examplesHtml = `
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.5rem;">
+                            ${data.images.map(image => `
+                                <div style="position: relative; border-radius: 8px; overflow: hidden; border: 2px solid rgba(99, 102, 241, 0.3);">
+                                    <img src="${image.screenshot_url}" 
+                                         alt="Selfie Example" 
+                                         style="width: 100%; height: 150px; object-fit: cover;"
+                                         onerror="this.parentElement.innerHTML='<div style=\\'padding:1rem;text-align:center;color:rgba(255,255,255,0.5);\\''>Example not available</div>'">
+                                    <div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); padding: 0.5rem; font-size: 0.75rem; text-align: center; color: white;">
+                                        ✅ ${image.title || 'Good Example'}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+
+                    // Update both containers
+                    document.getElementById('requirementExamplesContainer').innerHTML = examplesHtml;
+                    const submitFormContainer = document.getElementById('submitFormExamplesContainer');
+                    if (submitFormContainer) {
+                        submitFormContainer.innerHTML = examplesHtml;
+                    }
+                } else {
+                    const noExamplesHtml = '<p style="text-align: center; color: rgba(241, 245, 249, 0.5); padding: 1rem;">No examples available yet. Admin will upload selfie examples soon!</p>';
+                    document.getElementById('requirementExamplesContainer').innerHTML = noExamplesHtml;
+                    const submitFormContainer = document.getElementById('submitFormExamplesContainer');
+                    if (submitFormContainer) {
+                        submitFormContainer.innerHTML = noExamplesHtml;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading requirement examples:', error);
+                const errorHtml = '<p style="text-align: center; color: rgba(239, 68, 68, 0.7); padding: 1rem;">Failed to load examples</p>';
+                document.getElementById('requirementExamplesContainer').innerHTML = errorHtml;
+                const submitFormContainer = document.getElementById('submitFormExamplesContainer');
+                if (submitFormContainer) {
+                    submitFormContainer.innerHTML = errorHtml;
+                }
+            }
+        }
+
+        // Function to load and display custom message
+        async function loadCustomMessage() {
+            try {
+                const response = await fetch('/community-stories/api/config');
+                const data = await response.json();
+
+                if (data.success && data.config.description) {
+                    const customMessageBox = document.getElementById('customMessageBox');
+                    customMessageBox.innerHTML = data.config.description;
+                    customMessageBox.style.display = 'block';
+
+                    console.log('✅ Custom message loaded from admin settings');
+                } else {
+                    // Show default boxes if no custom message
+                    document.getElementById('defaultInfoBox').style.display = 'block';
+                    document.getElementById('defaultRequirementsBox').style.display = 'block';
+                    document.getElementById('customMessageBox').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error loading custom message:', error);
+                // Show default boxes on error
+                document.getElementById('defaultInfoBox').style.display = 'block';
+                document.getElementById('defaultRequirementsBox').style.display = 'block';
+                document.getElementById('customMessageBox').style.display = 'none';
+            }
+        }
+
+        // Check status on load
+        checkStatus();
+
+        // Load custom message from admin settings
+        loadCustomMessage();
+
+        // Load requirement examples
+        loadRequirementExamples();
+    </script>
+</body>
+</html>
