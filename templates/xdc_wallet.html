@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XDC Wallet - GoodMarket</title>
+    <meta name="theme-color" content="#2563eb">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #060d1f 0%, #0d1a3a 50%, #0a1628 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(6, 13, 31, 0.92);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            padding: 0 1.5rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 1px 24px rgba(0,0,0,0.35);
+        }
+        .nav-container {
+            max-width: 1300px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 56px;
+            gap: 0.75rem;
+        }
+        .logo { font-size: 1.2rem; font-weight: 800; color: #2563eb; text-decoration: none; letter-spacing: -0.5px; white-space: nowrap; flex-shrink: 0; }
+        .nav-links { display: flex; gap: 0.1rem; align-items: center; flex-wrap: nowrap; overflow: hidden; }
+        .nav-links a { color: rgba(255,255,255,0.55); text-decoration: none; font-weight: 500; font-size: 0.875rem; white-space: nowrap; padding: 0.4rem 0.65rem; border-radius: 8px; transition: color 0.2s, background 0.2s; }
+        .nav-links a:hover { color: #60a5fa; background: rgba(37,99,235,0.1); }
+        .nav-links a.active { color: #fff; background: rgba(37,99,235,0.18); font-weight: 600; }
+        .nav-sep { width: 1px; height: 20px; background: rgba(255,255,255,0.12); margin: 0 0.4rem; flex-shrink: 0; }
+        .wallet-tag {
+            background: rgba(37,99,235,0.12);
+            border: 1px solid rgba(37,99,235,0.28);
+            border-radius: 20px;
+            padding: 0.28rem 0.8rem;
+            font-weight: 600;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.8rem;
+            color: #60a5fa;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .logout-btn {
+            background: rgba(239,68,68,0.1) !important;
+            border: 1px solid rgba(239,68,68,0.25) !important;
+            color: #f87171 !important;
+            padding: 0.28rem 0.85rem !important;
+            border-radius: 20px !important;
+            font-size: 0.85rem !important;
+            white-space: nowrap !important;
+            flex-shrink: 0;
+            transition: background 0.2s, color 0.2s !important;
+        }
+        .logout-btn:hover { background: rgba(239,68,68,0.2) !important; color: #fca5a5 !important; }
+        @media (max-width: 768px) {
+            .navbar { padding: 0 0.75rem; }
+            .nav-container { height: auto; padding: 0.5rem 0; flex-wrap: wrap; gap: 0.3rem; }
+            .nav-links { gap: 0; }
+            .nav-links a { font-size: 0.78rem; padding: 0.35rem 0.45rem; }
+        }
+
+        /* Main container */
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+
+        /* Header */
+        .page-header { margin-bottom: 2rem; }
+        .page-title { font-size: 1.75rem; font-weight: 800; color: #fff; }
+        .page-subtitle { font-size: 0.9rem; color: rgba(255,255,255,0.5); margin-top: 0.3rem; }
+
+        /* Network badge */
+        .network-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(135deg, rgba(37,99,235,0.2), rgba(16,185,129,0.15));
+            border: 1px solid rgba(37,99,235,0.35);
+            border-radius: 20px;
+            padding: 0.3rem 0.9rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #60a5fa;
+            margin-top: 0.75rem;
+        }
+        .network-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+        /* Cards */
+        .card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+        .card-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: rgba(255,255,255,0.7);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1.25rem;
+        }
+
+        /* Balance grid */
+        .balance-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .bal-item {
+            background: rgba(37,99,235,0.06);
+            border: 1px solid rgba(37,99,235,0.15);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .bal-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border-radius: 8px;
+            padding: 0.2rem 0.65rem;
+            margin-bottom: 0.6rem;
+            letter-spacing: 0.04em;
+        }
+        .bal-value {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1.2;
+        }
+        .bal-sub {
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.45);
+            margin-top: 0.25rem;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.25rem;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: rgba(255,255,255,0.6);
+            border-radius: 8px;
+            padding: 0.4rem 0.9rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.18s;
+        }
+        .tab-btn.active {
+            background: rgba(37,99,235,0.2);
+            border-color: rgba(37,99,235,0.45);
+            color: #60a5fa;
+        }
+        .tab-btn:hover:not(.active) { color: #fff; border-color: rgba(255,255,255,0.2); }
+
+        /* Form */
+        .form-group { margin-bottom: 1rem; }
+        .form-label { font-size: 0.82rem; color: rgba(255,255,255,0.6); font-weight: 500; display: block; margin-bottom: 0.4rem; }
+        .form-input {
+            width: 100%;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            padding: 0.7rem 1rem;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.18s;
+        }
+        .form-input:focus { border-color: rgba(37,99,235,0.5); }
+        .form-input::placeholder { color: rgba(255,255,255,0.25); }
+        .amount-row { display: flex; gap: 0.5rem; }
+        .amount-row .form-input { flex: 1; }
+        .max-btn {
+            background: rgba(37,99,235,0.15);
+            border: 1px solid rgba(37,99,235,0.3);
+            color: #60a5fa;
+            border-radius: 8px;
+            padding: 0 0.9rem;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.18s;
+        }
+        .max-btn:hover { background: rgba(37,99,235,0.25); }
+
+        .send-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            padding: 0.85rem;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.18s;
+            margin-top: 0.5rem;
+        }
+        .send-btn:hover:not(:disabled) { opacity: 0.88; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Alerts */
+        .alert { margin-top: 0.75rem; padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.88rem; display: none; }
+        .alert.show { display: block; }
+        .alert-success { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; }
+        .alert-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); color: #fca5a5; }
+        .tx-link { color: #60a5fa; text-decoration: none; word-break: break-all; }
+        .tx-link:hover { text-decoration: underline; }
+
+        /* No wallet warning */
+        .warn-box {
+            background: rgba(245,158,11,0.08);
+            border: 1px solid rgba(245,158,11,0.25);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            font-size: 0.82rem;
+            color: rgba(251,191,36,0.85);
+            margin-bottom: 1rem;
+        }
+
+        /* Transaction History */
+        .tx-list { list-style: none; }
+        .tx-item {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.85rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .tx-item:last-child { border-bottom: none; }
+        .tx-icon {
+            width: 34px; height: 34px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem; font-weight: 700; flex-shrink: 0;
+        }
+        .tx-icon.sent     { background: rgba(239,68,68,0.12); color: #f87171; }
+        .tx-icon.received { background: rgba(16,185,129,0.12); color: #6ee7b7; }
+        .tx-meta { flex: 1; min-width: 0; }
+        .tx-dir { font-weight: 700; font-size: 0.9rem; }
+        .tx-dir.sent { color: #f87171; }
+        .tx-dir.received { color: #6ee7b7; }
+        .tx-addr { font-size: 0.75rem; color: rgba(255,255,255,0.45); font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tx-time { font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-top: 2px; }
+        .tx-amount { font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
+        .tx-amount.sent { color: #f87171; }
+        .tx-amount.received { color: #6ee7b7; }
+        .tx-hash-link { font-size: 0.72rem; color: #60a5fa; text-decoration: none; display: block; text-align: right; }
+        .tx-hash-link:hover { text-decoration: underline; }
+        .empty-state { text-align: center; color: rgba(255,255,255,0.35); padding: 2rem 1rem; font-size: 0.9rem; }
+
+        /* Spinner */
+        .spinner-inline {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid rgba(255,255,255,0.25);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Info box */
+        .info-box {
+            background: rgba(37,99,235,0.08);
+            border: 1px solid rgba(37,99,235,0.2);
+            border-radius: 10px;
+            padding: 0.8rem 1rem;
+            font-size: 0.82rem;
+            color: rgba(147,197,253,0.85);
+            margin-bottom: 1rem;
+        }
+
+        /* Network switcher */
+        .network-switcher {
+            display: inline-flex;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 40px;
+            padding: 4px;
+            gap: 4px;
+            margin-top: 0.85rem;
+        }
+        .net-btn {
+            border: none;
+            border-radius: 36px;
+            padding: 0.4rem 1.1rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: rgba(255,255,255,0.45);
+            background: transparent;
+        }
+        .net-btn.active { background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; box-shadow: 0 2px 10px rgba(37,99,235,0.35); }
+        .net-btn:not(.active):hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.07); }
+        .net-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .net-dot.celo { background: #35a869; }
+        .net-dot.xdc  { background: #60a5fa; }
+
+        @media(max-width: 600px) {
+            .balance-grid { grid-template-columns: 1fr 1fr; }
+            .bal-value { font-size: 1.15rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/dashboard" class="logo">💠 XDC Wallet</a>
+            <div class="nav-links">
+                <a href="/overview">Overview</a>
+                <a href="/dashboard">Dashboard</a>
+                <a href="/wallet">Celo Wallet</a>
+                <a href="/xdc-wallet" class="active">XDC Wallet</a>
+                <a href="/profile">Profile</a>
+                <div class="nav-sep"></div>
+                {% if wallet and wallet != 'None' %}
+                <div class="wallet-tag">{{ wallet[:6] }}...{{ wallet[-4:] }}</div>
+                {% endif %}
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+
+        <!-- Header -->
+        <div class="page-header">
+            <h1 class="page-title">💠 XDC Wallet</h1>
+            <p class="page-subtitle">Manage your XDC and xUSDT tokens on the XDC Network</p>
+            <div class="network-badge">
+                <span class="network-dot"></span>
+                XDC Network (Mainnet) · Chain ID 50
+            </div>
+            <div>
+                <div class="network-switcher">
+                    <button class="net-btn" id="switchToCeloBtn" onclick="switchToCelo()">
+                        <span class="net-dot celo"></span> Celo Network
+                    </button>
+                    <button class="net-btn active" disabled>
+                        <span class="net-dot xdc"></span> XDC Network
+                    </button>
+                </div>
+            </div>
+            <div id="netSwitchStatus" style="font-size:0.8rem; color:rgba(255,255,255,0.45); margin-top:0.5rem; min-height:1.2em;"></div>
+        </div>
+
+        <!-- Balances -->
+        <div class="card">
+            <div class="card-title">Balances</div>
+            <div class="balance-grid">
+                <div class="bal-item">
+                    <div class="bal-badge">XDC</div>
+                    <div class="bal-value" id="xdcBalance">—</div>
+                    <div class="bal-sub">XinFin Coin</div>
+                </div>
+                <div class="bal-item">
+                    <div class="bal-badge" style="background: linear-gradient(135deg, #26a17b, #1a8a62);">xUSDT</div>
+                    <div class="bal-value" id="xusdtBalance">—</div>
+                    <div class="bal-sub">Tether on XDC</div>
+                </div>
+                <div class="bal-item" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(124,58,237,0.1), rgba(37,99,235,0.08)); border-color: rgba(124,58,237,0.25);">
+                    <div class="bal-badge" style="background: linear-gradient(135deg, #7c3aed, #5b21b6);">G$ on XDC</div>
+                    <div class="bal-value" id="gdXdcBalance" style="color: #a78bfa;">—</div>
+                    <div class="bal-sub">GoodDollar on XDC Network</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- G$ Claim on XDC -->
+        <div class="card" style="border-color: rgba(124,58,237,0.3); background: linear-gradient(135deg, rgba(124,58,237,0.06), rgba(37,99,235,0.04));">
+            <div class="card-title" style="color: #a78bfa;">🌟 Claim G$ on XDC Network</div>
+
+            <!-- Not whitelisted warning -->
+            <div id="xdcNotWhitelisted" style="display:none; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: #fbbf24; line-height: 1.6;">
+                ⚠️ <strong>You are not yet verified on XDC GoodDollar.</strong><br>
+                To claim G$ on XDC, you need to verify your identity on <a href="https://wallet.gooddollar.org" target="_blank" style="color:#fbbf24;">GoodWallet</a> using the same wallet address.
+            </div>
+
+            <!-- Entitlement display -->
+            <div id="xdcClaimInfo" style="display:none; margin-bottom: 1rem;">
+                <div style="display:flex; align-items:center; justify-content:space-between; background: rgba(124,58,237,0.1); border: 1px solid rgba(124,58,237,0.25); border-radius: 12px; padding: 1rem 1.2rem;">
+                    <div>
+                        <div style="font-size:0.78rem; color:rgba(255,255,255,0.5); margin-bottom:0.2rem;">Claimable Today</div>
+                        <div style="font-size:1.5rem; font-weight:800; color:#a78bfa;" id="xdcClaimableAmt">—</div>
+                    </div>
+                    <div style="font-size:2rem;">🪙</div>
+                </div>
+            </div>
+
+            <!-- No wallet warning + MetaMask setup instructions (only shown for non-custodial users) -->
+            <div id="xdcNoWalletInstructions" style="display:none; margin-bottom:1rem;">
+                <div style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.75rem; font-size: 0.85rem; color: #fbbf24;">
+                    ⚠️ <strong>No Web3 wallet detected.</strong> Please open this page in a Web3-compatible browser or wallet app.
+                </div>
+                <a href="https://metamask.io/download/" target="_blank" rel="noopener" style="display:inline-block; background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 8px; padding: 0.5rem 1rem; font-size: 0.85rem; font-weight: 600; text-decoration: none; margin-bottom: 1rem;">
+                    📥 Download MetaMask →
+                </a>
+            </div>
+
+            <!-- MetaMask XDC setup instructions (shown if XDC not in wallet) -->
+            <div id="xdcSetupInstructions" style="display:none; background: rgba(37,99,235,0.07); border: 1px solid rgba(37,99,235,0.2); border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem;">
+                <div style="font-weight:700; color:#60a5fa; font-size:0.88rem; margin-bottom:0.75rem;">📋 How to add XDC Network to MetaMask:</div>
+                <div style="font-size:0.82rem; color:rgba(255,255,255,0.65); line-height:1.8;">
+                    <div style="margin-bottom:0.4rem;">① Open MetaMask → click the network dropdown at the top</div>
+                    <div style="margin-bottom:0.4rem;">② Click <strong>"Add network"</strong> → <strong>"Add a network manually"</strong></div>
+                    <div style="margin-bottom:0.8rem;">③ Enter the following network details:</div>
+                    <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem 1rem; font-family: monospace; font-size: 0.8rem; color: #93c5fd; line-height: 2;">
+                        Network Name: <strong>XDC Network</strong><br>
+                        RPC URL: <strong>https://erpc.xinfin.network</strong><br>
+                        Chain ID: <strong>50</strong><br>
+                        Currency Symbol: <strong>XDC</strong><br>
+                        Block Explorer: <strong>https://xdcscan.com</strong>
+                    </div>
+                    <div style="margin-top:0.65rem;">④ Click <strong>"Save"</strong> — then try the Claim button again.</div>
+                </div>
+            </div>
+
+            <button id="btnClaimXDCGD" onclick="claimGDonXDC()" style="width:100%; background: linear-gradient(135deg, #7c3aed, #5b21b6); color:#fff; border:none; border-radius:12px; padding:0.9rem; font-size:1rem; font-weight:700; cursor:pointer; transition: opacity 0.18s; margin-bottom:0.5rem;">
+                <span id="claimXDCBtnText">🌟 Claim G$ on XDC</span>
+            </button>
+
+            <div id="claimXDCAlert" class="alert"></div>
+
+            <!-- Countdown Timer (shown after claim or when already claimed today) -->
+            <div id="xdcCountdownBox" style="display:none; text-align:center; margin-top:0.75rem;
+                background:rgba(0,0,0,0.25); border-radius:12px; padding:0.75rem 1rem;">
+                <div style="font-size:0.68rem; color:rgba(255,255,255,0.45); margin-bottom:0.3rem; letter-spacing:0.05em; text-transform:uppercase;">
+                    Next Claim Opens In
+                </div>
+                <div id="xdcCountdownDisplay" style="
+                    font-size:1.55rem; font-weight:800; letter-spacing:0.06em;
+                    background: linear-gradient(90deg, #a78bfa, #60a5fa);
+                    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+                    font-variant-numeric:tabular-nums; line-height:1.1;
+                ">--:--:--</div>
+                <div style="font-size:0.68rem; color:rgba(255,255,255,0.35); margin-top:0.25rem;">
+                    Resets at <strong style="color:rgba(255,255,255,0.55);">12:00 UTC</strong>
+                    &nbsp;·&nbsp; <strong style="color:rgba(255,255,255,0.55);">8:00 PM</strong> Philippine Time
+                </div>
+            </div>
+
+            <!-- Footer chips -->
+            <div style="display:flex; align-items:center; justify-content:center; gap:0.9rem; margin-top:0.85rem; flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:0.3rem;font-size:0.68rem;color:rgba(255,255,255,0.35);"><span>⚡</span><span>Very low gas on XDC</span></div>
+                <div style="display:flex;align-items:center;gap:0.3rem;font-size:0.68rem;color:rgba(255,255,255,0.35);"><span>🔒</span><span>Secured by GoodDollar</span></div>
+                <div style="display:flex;align-items:center;gap:0.3rem;font-size:0.68rem;color:rgba(255,255,255,0.35);"><span>⏰</span><span>Claimable daily</span></div>
+            </div>
+        </div>
+
+        <!-- Send Section -->
+        <div class="card">
+            <div class="card-title">Send Tokens</div>
+
+            <!-- No wallet warning -->
+            <div class="warn-box" id="noWalletWarn" style="display:none;">
+                <span id="noWalletText">⚠️ No Web3 wallet detected. Install MetaMask or open this page inside a Web3 browser, then add the XDC Network.</span>
+                <div style="margin-top:8px; font-size:0.78rem; color:rgba(251,191,36,0.7);">
+                    XDC Network RPC: <code style="color:#fbbf24;">https://erpc.xinfin.network</code> · Chain ID: <code style="color:#fbbf24;">50</code>
+                </div>
+            </div>
+
+            <!-- Info -->
+            <div class="info-box">
+                💡 Make sure your wallet (MetaMask / XDCPay) is connected to the <strong>XDC Network</strong> (Chain ID 50) before sending.
+            </div>
+
+            <!-- Token Tabs -->
+            <div class="tabs">
+                <button class="tab-btn active" id="tabXDC" onclick="switchTab('XDC')">Send XDC</button>
+                <button class="tab-btn" id="tabXUSDT" onclick="switchTab('XUSDT')">Send xUSDT</button>
+            </div>
+
+            <!-- XDC Send Form -->
+            <div id="formXDC">
+                <div class="form-group">
+                    <label class="form-label">Recipient Address (0x... or xdc...)</label>
+                    <input class="form-input" id="xdcTo" type="text" placeholder="0x... or xdc..." autocomplete="off" spellcheck="false">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (XDC)</label>
+                    <div class="amount-row">
+                        <input class="form-input" id="xdcAmount" type="number" min="0.0001" step="any" placeholder="0.00">
+                        <button class="max-btn" onclick="setMax('XDC')">MAX</button>
+                    </div>
+                </div>
+                <button class="send-btn" id="btnSendXDC" onclick="sendToken('XDC')">Send XDC</button>
+                <div class="alert" id="alertXDC"></div>
+            </div>
+
+            <!-- xUSDT Send Form -->
+            <div id="formXUSDT" style="display:none;">
+                <div class="form-group">
+                    <label class="form-label">Recipient Address (0x... or xdc...)</label>
+                    <input class="form-input" id="xusdtTo" type="text" placeholder="0x... or xdc..." autocomplete="off" spellcheck="false">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount (xUSDT)</label>
+                    <div class="amount-row">
+                        <input class="form-input" id="xusdtAmount" type="number" min="0.000001" step="any" placeholder="0.00">
+                        <button class="max-btn" onclick="setMax('XUSDT')">MAX</button>
+                    </div>
+                </div>
+                <button class="send-btn" id="btnSendXUSDT" onclick="sendToken('XUSDT')">Send xUSDT</button>
+                <div class="alert" id="alertXUSDT"></div>
+            </div>
+        </div>
+
+        <!-- Transaction History -->
+        <div class="card">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>XDC Transaction History</span>
+                <button onclick="loadHistory()" style="background:none;border:none;color:#60a5fa;font-size:0.82rem;cursor:pointer;font-weight:600;">↻ Refresh</button>
+            </div>
+            <ul class="tx-list" id="txList">
+                <li class="empty-state">
+                    <span class="spinner-inline"></span> Loading history...
+                </li>
+            </ul>
+        </div>
+
+        <!-- About XDC Network -->
+        <div class="card">
+            <div class="card-title">About XDC Network</div>
+            <div style="font-size:0.85rem; color:rgba(255,255,255,0.55); line-height:1.7;">
+                <p>XDC Network is an enterprise-grade, EVM-compatible blockchain focused on trade finance and real-world asset tokenization.</p>
+                <ul style="margin-top:0.75rem; padding-left:1.2rem;">
+                    <li>Block time: ~2 seconds</li>
+                    <li>Very low transaction fees</li>
+                    <li>EVM-compatible (supports MetaMask)</li>
+                    <li>Explorer: <a href="https://explorer.xinfin.network" target="_blank" rel="noopener" style="color:#60a5fa;">explorer.xinfin.network</a></li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const WALLET = "{{ wallet }}";
+        const XDC_CHAIN_ID = 50;
+        const XDC_CHAIN_ID_HEX = "0x32";
+        const isCustodialMode = {{ 'true' if is_custodial else 'false' }};
+
+        function _getEthProvider() {
+            if (!window.ethereum) return null;
+            if (window.ethereum.providers && window.ethereum.providers.length) {
+                const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
+                if (mm) return mm;
+                return window.ethereum.providers[0];
+            }
+            return window.ethereum;
+        }
+
+        let xdcBalanceVal = 0;
+        let xusdtBalanceVal = 0;
+
+        async function loadBalances() {
+            try {
+                const res = await fetch('/api/xdc/balances');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.success) return;
+
+                const xdc = data.xdc;
+                if (xdc && xdc.success) {
+                    xdcBalanceVal = xdc.balance || 0;
+                    document.getElementById('xdcBalance').textContent = xdcBalanceVal.toFixed(4) + ' XDC';
+                } else {
+                    document.getElementById('xdcBalance').textContent = '0 XDC';
+                }
+
+                const xusdt = data.xusdt;
+                if (xusdt && xusdt.success) {
+                    xusdtBalanceVal = xusdt.balance || 0;
+                    document.getElementById('xusdtBalance').textContent = xusdtBalanceVal.toFixed(4) + ' xUSDT';
+                } else {
+                    document.getElementById('xusdtBalance').textContent = '0 xUSDT';
+                }
+            } catch (e) {
+                document.getElementById('xdcBalance').textContent = 'Error';
+                document.getElementById('xusdtBalance').textContent = 'Error';
+            }
+        }
+
+        async function loadHistory() {
+            const list = document.getElementById('txList');
+            list.innerHTML = '<li class="empty-state"><span class="spinner-inline"></span> Loading...</li>';
+            try {
+                const res = await fetch('/api/xdc/history');
+                const data = await res.json();
+                if (!data.success || !data.transfers || data.transfers.length === 0) {
+                    list.innerHTML = '<li class="empty-state">No XDC transactions found.</li>';
+                    return;
+                }
+                list.innerHTML = '';
+                data.transfers.forEach(tx => {
+                    const dir = tx.direction;
+                    const counterpart = dir === 'sent' ? tx.to : tx.from;
+                    const shortAddr = counterpart ? counterpart.substring(0,8) + '...' + counterpart.slice(-6) : '—';
+                    const iconChar = dir === 'sent' ? '↑' : '↓';
+                    const li = document.createElement('li');
+                    li.className = 'tx-item';
+                    li.innerHTML = `
+                        <div class="tx-icon ${dir}">${iconChar}</div>
+                        <div class="tx-meta">
+                            <div class="tx-dir ${dir}">${dir === 'sent' ? 'Sent' : 'Received'}</div>
+                            <div class="tx-addr">${dir === 'sent' ? 'To: ' : 'From: '}${shortAddr}</div>
+                            <div class="tx-time">${tx.timestamp || 'Block #' + tx.block}</div>
+                        </div>
+                        <div>
+                            <div class="tx-amount ${dir}">${dir === 'sent' ? '−' : '+'}${tx.amount_formatted}</div>
+                            ${tx.tx_hash ? `<a class="tx-hash-link" href="${tx.explorer_url}" target="_blank" rel="noopener">View ↗</a>` : ''}
+                        </div>
+                    `;
+                    list.appendChild(li);
+                });
+            } catch (e) {
+                list.innerHTML = '<li class="empty-state">Failed to load history.</li>';
+            }
+        }
+
+        function switchTab(token) {
+            document.getElementById('formXDC').style.display   = token === 'XDC'   ? 'block' : 'none';
+            document.getElementById('formXUSDT').style.display = token === 'XUSDT' ? 'block' : 'none';
+            document.getElementById('tabXDC').classList.toggle('active',   token === 'XDC');
+            document.getElementById('tabXUSDT').classList.toggle('active', token === 'XUSDT');
+        }
+
+        function setMax(token) {
+            if (token === 'XDC') {
+                const reserved = 0.01;
+                const max = Math.max(0, xdcBalanceVal - reserved);
+                document.getElementById('xdcAmount').value = max > 0 ? max.toFixed(6) : '';
+            } else if (token === 'XUSDT') {
+                document.getElementById('xusdtAmount').value = xusdtBalanceVal > 0 ? xusdtBalanceVal.toFixed(6) : '';
+            }
+        }
+
+        function showAlert(id, type, html) {
+            const el = document.getElementById(id);
+            el.className = `alert ${type} show`;
+            el.innerHTML = html;
+        }
+        function clearAlert(id) {
+            const el = document.getElementById(id);
+            el.className = 'alert';
+            el.innerHTML = '';
+        }
+
+        async function ensureXDCNetwork(ep) {
+            try {
+                const chainId = await ep.request({ method: 'eth_chainId' });
+                if (parseInt(chainId, 16) === XDC_CHAIN_ID) return true;
+
+                try {
+                    await ep.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: XDC_CHAIN_ID_HEX }]
+                    });
+                    return true;
+                } catch (switchErr) {
+                    if (switchErr.code === 4902) {
+                        await ep.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: XDC_CHAIN_ID_HEX,
+                                chainName: 'XDC Network',
+                                rpcUrls: ['https://erpc.xinfin.network'],
+                                nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+                                blockExplorerUrls: ['https://explorer.xinfin.network']
+                            }]
+                        });
+                        return true;
+                    }
+                    return false;
+                }
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function normalizeAddr(addr) {
+            if (addr.toLowerCase().startsWith('xdc')) return '0x' + addr.slice(3);
+            return addr;
+        }
+
+        async function sendToken(token) {
+            const alertId = token === 'XDC' ? 'alertXDC' : 'alertXUSDT';
+            const btnId   = token === 'XDC' ? 'btnSendXDC' : 'btnSendXUSDT';
+            const toId    = token === 'XDC' ? 'xdcTo' : 'xusdtTo';
+            const amtId   = token === 'XDC' ? 'xdcAmount' : 'xusdtAmount';
+
+            clearAlert(alertId);
+
+            const toRaw  = document.getElementById(toId).value.trim();
+            const amount = document.getElementById(amtId).value.trim();
+            const toAddr = normalizeAddr(toRaw);
+
+            if (!toRaw) {
+                showAlert(alertId, 'alert-error', '❌ Please enter a recipient address');
+                return;
+            }
+            if (!toAddr.startsWith('0x') || toAddr.length !== 42) {
+                showAlert(alertId, 'alert-error', '❌ Invalid address. Use 0x... or xdc... format');
+                return;
+            }
+            if (!amount || parseFloat(amount) <= 0) {
+                showAlert(alertId, 'alert-error', '❌ Please enter a valid amount');
+                return;
+            }
+            if (toAddr.toLowerCase() === normalizeAddr(WALLET).toLowerCase()) {
+                showAlert(alertId, 'alert-error', '❌ Cannot send to your own address');
+                return;
+            }
+
+            const ep = _getEthProvider();
+            if (!ep) {
+                document.getElementById('noWalletWarn').style.display = 'block';
+                showAlert(alertId, 'alert-error', '❌ No Web3 wallet detected. Install MetaMask and add the XDC Network.');
+                return;
+            }
+
+            const btn = document.getElementById(btnId);
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-inline"></span> Preparing...';
+
+            try {
+                btn.innerHTML = '<span class="spinner-inline"></span> Switching to XDC Network...';
+                const switched = await ensureXDCNetwork(ep);
+                if (!switched) {
+                    showAlert(alertId, 'alert-error', '❌ Could not switch to XDC Network. Please switch manually in your wallet.');
+                    btn.disabled = false;
+                    btn.innerHTML = `Send ${token}`;
+                    return;
+                }
+
+                const prepRes = await fetch('/api/xdc/prepare-send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token, to: toRaw, amount })
+                });
+                const txData = await prepRes.json();
+
+                if (!txData.success) {
+                    showAlert(alertId, 'alert-error', '❌ ' + (txData.error || 'Failed to prepare transaction'));
+                    btn.disabled = false;
+                    btn.innerHTML = `Send ${token}`;
+                    return;
+                }
+
+                btn.innerHTML = '<span class="spinner-inline"></span> Requesting wallet...';
+                const accounts = await ep.request({ method: 'eth_requestAccounts' });
+                const from = accounts[0];
+
+                btn.innerHTML = '<span class="spinner-inline"></span> Confirm in wallet...';
+                const txParams = {
+                    from,
+                    to: txData.to,
+                    data: txData.data,
+                    value: txData.value,
+                    chainId: XDC_CHAIN_ID_HEX,
+                };
+
+                const txHash = await ep.request({
+                    method: 'eth_sendTransaction',
+                    params: [txParams]
+                });
+
+                showAlert(alertId, 'alert-success',
+                    `✅ Transaction sent!<br>
+                    <a class="tx-link" href="https://explorer.xinfin.network/txs/${txHash}" target="_blank" rel="noopener">
+                        View on XDC Explorer ↗ ${txHash.substring(0,10)}...${txHash.slice(-8)}
+                    </a>`
+                );
+
+                document.getElementById(toId).value = '';
+                document.getElementById(amtId).value = '';
+                setTimeout(() => { loadBalances(); loadHistory(); }, 3000);
+
+            } catch (err) {
+                let msg = err.message || 'Transaction failed';
+                if (err.code === 4001) msg = 'Transaction rejected by user.';
+                showAlert(alertId, 'alert-error', '❌ ' + msg);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `Send ${token}`;
+            }
+        }
+
+        let xdcGdClaimable = 0;
+        let xdcIdentityWhitelisted = false;
+        let _xdcCountdownInterval = null;
+
+        function getNextResetMs() {
+            const now  = new Date();
+            const next = new Date(Date.UTC(
+                now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+                12, 0, 0, 0
+            ));
+            if (now >= next) next.setUTCDate(next.getUTCDate() + 1);
+            return next.getTime() - now.getTime();
+        }
+
+        function formatCountdown(ms) {
+            if (ms <= 0) return '00:00:00';
+            const totalSec = Math.floor(ms / 1000);
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = totalSec % 60;
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+        }
+
+        function startXDCCountdown() {
+            const box     = document.getElementById('xdcCountdownBox');
+            const display = document.getElementById('xdcCountdownDisplay');
+            if (!box || !display) return;
+            box.style.display = 'block';
+            if (_xdcCountdownInterval) clearInterval(_xdcCountdownInterval);
+            function tick() {
+                const remaining = getNextResetMs();
+                display.textContent = formatCountdown(remaining);
+                if (remaining <= 0) {
+                    clearInterval(_xdcCountdownInterval);
+                    display.textContent = '00:00:00';
+                    document.getElementById('claimXDCAlert').className = 'alert alert-success show';
+                    document.getElementById('claimXDCAlert').textContent = '🎉 Claim window is now open! Refresh to claim.';
+                }
+            }
+            tick();
+            _xdcCountdownInterval = setInterval(tick, 1000);
+        }
+
+        async function loadGDInfo() {
+            try {
+                const res = await fetch('/api/xdc/gd-info');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.success) return;
+
+                const gdBal = data.gd_balance;
+                if (gdBal && gdBal.success) {
+                    document.getElementById('gdXdcBalance').textContent = gdBal.balance.toFixed(2) + ' G$';
+                } else {
+                    document.getElementById('gdXdcBalance').textContent = '0 G$';
+                }
+
+                const identity = data.identity;
+                xdcIdentityWhitelisted = identity && identity.whitelisted;
+
+                const ent = data.entitlement;
+                if (ent && ent.success) {
+                    xdcGdClaimable = ent.claimable || 0;
+                }
+
+                updateClaimUI();
+            } catch (e) {
+                document.getElementById('gdXdcBalance').textContent = '—';
+            }
+        }
+
+        function updateClaimUI() {
+            const notWhitelisted = document.getElementById('xdcNotWhitelisted');
+            const claimInfo = document.getElementById('xdcClaimInfo');
+            const claimAmt = document.getElementById('xdcClaimableAmt');
+            const btn = document.getElementById('btnClaimXDCGD');
+            const btnText = document.getElementById('claimXDCBtnText');
+
+            if (!xdcIdentityWhitelisted) {
+                notWhitelisted.style.display = 'block';
+                claimInfo.style.display = 'none';
+                btn.disabled = true;
+                btn.style.opacity = '0.45';
+                btn.title = 'GoodDollar identity verification required';
+                return;
+            }
+
+            notWhitelisted.style.display = 'none';
+            claimInfo.style.display = 'block';
+
+            if (xdcGdClaimable > 0) {
+                claimAmt.textContent = xdcGdClaimable.toFixed(2) + ' G$';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btnText.textContent = '🌟 Claim G$ on XDC';
+            } else {
+                claimAmt.textContent = 'Already claimed today';
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btnText.textContent = '✅ Already Claimed';
+                startXDCCountdown();
+            }
+        }
+
+        async function claimGDonXDC() {
+            const btn = document.getElementById('btnClaimXDCGD');
+            const btnText = document.getElementById('claimXDCBtnText');
+            const alertEl = document.getElementById('claimXDCAlert');
+            const noWallet = document.getElementById('xdcNoWalletInstructions');
+            const setupInstr = document.getElementById('xdcSetupInstructions');
+
+            function setAlert(type, html) {
+                alertEl.className = `alert ${type} show`;
+                alertEl.innerHTML = html;
+            }
+            function clearAlert() {
+                alertEl.className = 'alert';
+                alertEl.innerHTML = '';
+            }
+
+            clearAlert();
+            noWallet.style.display = 'none';
+            setupInstr.style.display = 'none';
+
+            btn.disabled = true;
+
+            // ── Turnkey / Custodial: server-side signing (no MetaMask needed) ──
+            if (isCustodialMode) {
+                btnText.textContent = '⏳ Signing via Turnkey...';
+                const XDC_UBI_SCHEME = '0x22867567E2D80f2049200E25C6F31CB6Ec2F0faf';
+                try {
+                    const res = await fetch('/api/server/sign-tx', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ to: XDC_UBI_SCHEME, data: '0x4e71d92d', value: '0x0', chain_id: XDC_CHAIN_ID })
+                    });
+                    const d = await res.json();
+                    if (d.success) {
+                        setAlert('alert-success',
+                            `✅ <strong>G$ claimed on XDC!</strong> ` +
+                            `<a href="https://xdcscan.com/tx/${d.tx_hash}" target="_blank" rel="noopener" style="color:#34d399;">` +
+                            `View on XDCScan ↗ ${d.tx_hash.slice(0,10)}...</a>`
+                        );
+                        btnText.textContent = '✅ Already Claimed';
+                        setTimeout(() => window.loadXDCGDInfo && window.loadXDCGDInfo(), 5000);
+                    } else {
+                        setAlert('alert-error', '❌ ' + (d.error || 'Claim failed'));
+                        btn.disabled = false;
+                        btnText.textContent = '🌟 Claim G$ on XDC';
+                    }
+                } catch(err) {
+                    setAlert('alert-error', '❌ ' + (err.message || 'Claim failed'));
+                    btn.disabled = false;
+                    btnText.textContent = '🌟 Claim G$ on XDC';
+                }
+                return;
+            }
+
+            // ── Browser wallet (MetaMask) flow ──
+            const ep = _getEthProvider();
+            if (!ep) {
+                noWallet.style.display = 'block';
+                setAlert('alert-error', '❌ No Web3 wallet detected. Please open this page in a Web3-compatible browser.');
+                btn.disabled = false;
+                return;
+            }
+
+            btnText.textContent = '⏳ Switching to XDC Network...';
+
+            try {
+                // Try to switch to XDC Network
+                const currentChain = await ep.request({ method: 'eth_chainId' });
+                if (parseInt(currentChain, 16) !== XDC_CHAIN_ID) {
+                    try {
+                        await ep.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: XDC_CHAIN_ID_HEX }]
+                        });
+                    } catch (switchErr) {
+                        if (switchErr.code === 4902) {
+                            // XDC not in MetaMask yet — try to auto-add
+                            try {
+                                await ep.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: XDC_CHAIN_ID_HEX,
+                                        chainName: 'XDC Network',
+                                        rpcUrls: ['https://erpc.xinfin.network'],
+                                        nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+                                        blockExplorerUrls: ['https://xdcscan.com']
+                                    }]
+                                });
+                            } catch (addErr) {
+                                // Auto-add failed — show manual instructions
+                                setupInstr.style.display = 'block';
+                                setAlert('alert-error', '❌ Could not add XDC Network automatically. Please follow the instructions below to add it manually in MetaMask.');
+                                btnText.textContent = '🌟 Claim G$ on XDC';
+                                btn.disabled = false;
+                                return;
+                            }
+                        } else if (switchErr.code === 4001) {
+                            setAlert('alert-error', '❌ Tinanggihan ang network switch. Kailangan ng XDC Network para mag-claim.');
+                            btnText.textContent = '🌟 Claim G$ on XDC';
+                            btn.disabled = false;
+                            return;
+                        } else {
+                            setupInstr.style.display = 'block';
+                            setAlert('alert-error', '❌ Could not switch to XDC Network. Please try the manual setup below.');
+                            btnText.textContent = '🌟 Claim G$ on XDC';
+                            btn.disabled = false;
+                            return;
+                        }
+                    }
+                }
+
+                btnText.textContent = '⏳ Requesting accounts...';
+                const accounts = await ep.request({ method: 'eth_requestAccounts' });
+                const from = accounts[0];
+
+                btnText.textContent = '⏳ Confirm in MetaMask...';
+
+                // Call UBIScheme.claim() — function selector: keccak256("claim()") = 0x4e71d92d
+                const txHash = await ep.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: from,
+                        to: '0x22867567E2D80f2049200E25C6F31CB6Ec2F0faf',
+                        data: '0x4e71d92d',
+                        chainId: XDC_CHAIN_ID_HEX,
+                    }]
+                });
+
+                setAlert('alert-success',
+                    `✅ <strong>G$ claimed on XDC Network!</strong><br>
+                    <a class="tx-link" href="https://xdcscan.com/tx/${txHash}" target="_blank" rel="noopener">
+                        View on XDCScan ↗ ${txHash.substring(0,10)}...${txHash.slice(-8)}
+                    </a>`
+                );
+
+                // Disable button and start countdown timer
+                btn.disabled = true;
+                btn.style.opacity = '0.5';
+                btnText.textContent = '✅ Already Claimed';
+                startXDCCountdown();
+
+                setTimeout(() => { loadGDInfo(); loadBalances(); }, 4000);
+
+            } catch (err) {
+                let msg = err.message || 'Transaction failed';
+                if (err.code === 4001) msg = 'Tinanggihan mo ang transaction sa MetaMask.';
+                setAlert('alert-error', '❌ ' + msg);
+            } finally {
+                btnText.textContent = '🌟 Claim G$ on XDC';
+                btn.disabled = false;
+            }
+        }
+
+        // ── Network Switcher ───────────────────────────────────
+        async function switchToCelo() {
+            const btn = document.getElementById('switchToCeloBtn');
+            const status = document.getElementById('netSwitchStatus');
+
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Switching...';
+            status.textContent = '';
+
+            // Custodial/Turnkey users don't need MetaMask — just redirect to Celo wallet
+            if (isCustodialMode) {
+                status.textContent = '✅ Redirecting to Celo Wallet...';
+                setTimeout(() => { window.location.href = '/wallet'; }, 800);
+                return;
+            }
+
+            const ep = _getEthProvider();
+            if (!ep) {
+                status.textContent = '⚠️ No Web3 wallet detected. Please open this page in a Web3-compatible browser.';
+                btn.disabled = false;
+                btn.innerHTML = '<span class="net-dot celo"></span> Celo Network';
+                return;
+            }
+
+            try {
+                try {
+                    await ep.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0xa4ec' }]  // Celo mainnet = 42220
+                    });
+                } catch (switchErr) {
+                    if (switchErr.code === 4902) {
+                        await ep.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0xa4ec',
+                                chainName: 'Celo Mainnet',
+                                rpcUrls: ['https://forno.celo.org'],
+                                nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                                blockExplorerUrls: ['https://celoscan.io']
+                            }]
+                        });
+                    } else if (switchErr.code === 4001) {
+                        status.textContent = '❌ Tinanggihan ang network switch.';
+                        btn.disabled = false;
+                        btn.innerHTML = '<span class="net-dot celo" style="background:#35a869;"></span> Celo Network';
+                        return;
+                    } else {
+                        throw switchErr;
+                    }
+                }
+                status.textContent = '✅ Switched! Redirecting to Celo Wallet...';
+                setTimeout(() => { window.location.href = '/wallet'; }, 1200);
+            } catch (err) {
+                status.textContent = '❌ ' + (err.message || 'Could not switch network.');
+                btn.disabled = false;
+                btn.innerHTML = '<span class="net-dot celo" style="background:#35a869;"></span> Celo Network';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBalances();
+            loadHistory();
+            loadGDInfo();
+        });
+    </script>
+</body>
+</html>
