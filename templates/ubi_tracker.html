@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UBI Tracker - GoodDollar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .wallet-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .wallet-input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .wallet-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .track-btn {
+            padding: 15px 30px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .track-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(79, 172, 254, 0.3);
+        }
+
+        .track-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .results-section {
+            margin-top: 30px;
+            padding: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            min-height: 200px;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .status-success {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+
+        .status-error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+
+        .status-loading {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #3b82f6;
+        }
+
+        .activity-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4facfe;
+        }
+
+        .activity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .activity-title {
+            color: white;
+            font-weight: 600;
+        }
+
+        .activity-amount {
+            background: linear-gradient(45deg, #4facfe, #00f2fe);
+            padding: 5px 12px;
+            border-radius: 20px;
+            color: white;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .activity-details {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            color: white;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4facfe;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .badge {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .back-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateX(-5px);
+        }
+
+        .network-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(76, 175, 80, 0.1);
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .celo-info {
+            margin: 15px 0;
+            padding: 12px;
+            background: linear-gradient(135deg, #fcff9e, #c67700);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .celo-badge {
+            font-size: 1rem;
+            font-weight: bold;
+            color: #1b5e20;
+            margin-bottom: 5px;
+        }
+
+        .celo-details {
+            font-size: 0.8rem;
+            color: #2d5016;
+            opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+            .input-group {
+                flex-direction: column;
+            }
+
+            .summary-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/dashboard" class="back-link">← Back to Dashboard</a>
+
+        <div class="header">
+            <h1>🎯 UBI Tracker</h1>
+            <p>Comprehensive UBI tracking across entire GoodDollar ecosystem</p>
+        </div>
+
+        <div class="wallet-section">
+            <h3 style="color: white; margin-bottom: 15px;">Track UBI Activity</h3>
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    id="walletInput" 
+                    class="wallet-input" 
+                    placeholder="Enter wallet address (0x...)"
+                    value="{{ wallet or '' }}"
+                />
+                <button id="trackBtn" class="track-btn" onclick="trackUBI()">
+                    <span id="trackBtnText">Track UBI</span>
+                </button>
+            </div>
+            <p style="color: rgba(255,255,255,0.7); font-size: 0.9rem;">
+                Analyzes {{ contract_count or 20 }}+ GoodDollar contracts for comprehensive UBI activity detection
+            </p>
+        </div>
+
+        <div class="results-section">
+            <div id="statusMessage" class="status-message" style="display: none;"></div>
+            <div id="resultsContainer" style="display: none;">
+                <div id="summaryStats" class="summary-stats"></div>
+                <div id="badges" class="badges"></div>
+                <div id="activitiesList"></div>
+            </div>
+            <div id="emptyState" style="color: rgba(255,255,255,0.6); text-align: center; padding: 50px 0;">
+                <p>💡 Enter a wallet address above to start comprehensive UBI tracking</p>
+                <p style="margin-top: 10px;">We'll check all GoodDollar contracts for UBI claims, staking, governance, and more!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function trackUBI() {
+            const wallet = document.getElementById('walletInput').value.trim();
+            const statusMsg = document.getElementById('statusMessage');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const emptyState = document.getElementById('emptyState');
+            const trackBtn = document.getElementById('trackBtn');
+            const trackBtnText = document.getElementById('trackBtnText');
+
+            if (!wallet) {
+                showStatus('⚠️ Please enter a wallet address', 'error');
+                return;
+            }
+
+            // Start tracking
+            trackBtn.disabled = true;
+            trackBtnText.innerHTML = '<div class="loading-spinner"></div> Tracking...';
+            emptyState.style.display = 'none';
+            resultsContainer.style.display = 'none';
+            showStatus('🔍 Analyzing entire GoodDollar ecosystem...', 'loading');
+
+            try {
+                const response = await fetch('/verify-ubi', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        wallet: wallet,
+                        track_analytics: true,
+                        source: 'ubi_tracker'
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    showStatus(`✅ ${data.message}`, 'success');
+                    displayResults(data);
+                } else {
+                    showStatus(`❌ ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showStatus('⚠️ Network error. Please try again.', 'error');
+                console.error('Error:', error);
+            } finally {
+                trackBtn.disabled = false;
+                trackBtnText.innerHTML = 'Track UBI';
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusMsg = document.getElementById('statusMessage');
+            statusMsg.innerHTML = message;
+            statusMsg.className = `status-message status-${type}`;
+            statusMsg.style.display = 'block';
+        }
+
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const summaryStats = document.getElementById('summaryStats');
+            const badgesContainer = document.getElementById('badges');
+            const activitiesList = document.getElementById('activitiesList');
+
+            // Clear previous results
+            summaryStats.innerHTML = '';
+            badgesContainer.innerHTML = '';
+            activitiesList.innerHTML = '';
+
+            // Display summary stats
+            const summary = data.summary || {};
+            summaryStats.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${summary.total_activities || 0}</div>
+                    <div class="stat-label">Total Activities</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${summary.transfers || 0}</div>
+                    <div class="stat-label">Transfers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${summary.events || 0}</div>
+                    <div class="stat-label">Events</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${summary.contracts_involved || 0}</div>
+                    <div class="stat-label">Contracts</div>
+                </div>
+            `;
+
+            // Display activities
+            const activities = data.activities || [];
+            if (activities.length > 0) {
+                activitiesList.innerHTML = '<h3 style="color: white; margin-bottom: 20px;">📋 Recent Activities</h3>';
+
+                activities.slice(0, 10).forEach(activity => {
+                    const activityCard = document.createElement('div');
+                    activityCard.className = 'activity-card';
+                    activityCard.innerHTML = `
+                        <div class="activity-header">
+                            <div class="activity-title">${activity.contract || 'Unknown Contract'}</div>
+                            <div class="activity-amount">${activity.amount || 'N/A'}</div>
+                        </div>
+                        <div class="activity-details">
+                            <div><strong>Method:</strong> ${activity.method || 'Transfer'}</div>
+                            <div><strong>Block:</strong> #${activity.block || 'N/A'}</div>
+                            <div><strong>Time:</strong> ${activity.timestamp || 'N/A'}</div>
+                            <div><strong>Tx:</strong> ${(activity.tx_hash || '').substr(0, 20)}...</div>
+                        </div>
+                    `;
+                    activitiesList.appendChild(activityCard);
+                });
+
+                if (activities.length > 10) {
+                    const moreInfo = document.createElement('p');
+                    moreInfo.style.color = 'rgba(255,255,255,0.7)';
+                    moreInfo.style.textAlign = 'center';
+                    moreInfo.style.marginTop = '20px';
+                    moreInfo.innerHTML = `... and ${activities.length - 10} more activities`;
+                    activitiesList.appendChild(moreInfo);
+                }
+            }
+
+            resultsContainer.style.display = 'block';
+        }
+
+        // Allow Enter key to submit
+        document.getElementById('walletInput').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                trackUBI();
+            }
+        });
+
+        // Auto-track if wallet is pre-filled
+        window.addEventListener('load', function() {
+            const wallet = document.getElementById('walletInput').value.trim();
+            if (wallet && wallet.startsWith('0x')) {
+                setTimeout(() => trackUBI(), 500);
+            }
+        });
+    </script>
+</body>
+</html>
