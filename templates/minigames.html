@@ -1,0 +1,442 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minigames - GoodDollar</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            min-height: 100vh;
+            color: #f1f5f9;
+        }
+
+        .navbar {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+            padding: 0.6rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-brand {
+            font-size: 1.1rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .back-btn {
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            color: white;
+            text-decoration: none;
+            padding: 0.35rem 1rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 1rem 1.5rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.25rem;
+        }
+
+        .games-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .game-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            padding: 1.2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .game-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(99, 102, 241, 0.3);
+        }
+
+        .game-icon {
+            font-size: 2.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .game-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+
+        .game-desc {
+            color: rgba(241, 245, 249, 0.7);
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .game-reward {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 0.3rem 0.75rem;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .play-btn {
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            color: white;
+            border: none;
+            padding: 0.55rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+            font-size: 0.9rem;
+        }
+
+        .play-btn:disabled {
+            background: rgba(100, 116, 139, 0.5);
+            cursor: not-allowed;
+        }
+
+        .game-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            padding: 2rem;
+            border-radius: 24px;
+            max-width: 800px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .close-modal {
+            background: rgba(239, 68, 68, 0.2);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            float: right;
+        }
+
+        #gameCanvas {
+            background: #1e293b;
+            border: 2px solid #6366f1;
+            border-radius: 12px;
+            display: block;
+            margin: 1rem auto;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(15, 23, 42, 0.95);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 16px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+            z-index: 10000;
+            display: none;
+        }
+
+        .withdrawal-section {
+            background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.1));
+            border: 2px solid rgba(251, 191, 36, 0.3);
+            border-radius: 16px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .progress-bar {
+            background: rgba(255, 255, 255, 0.1);
+            height: 8px;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .progress-fill {
+            background: linear-gradient(90deg, #fbbf24, #f59e0b);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🎮 Minigames</div>
+        <a href="/dashboard" class="back-btn">← Back to Dashboard</a>
+    </nav>
+
+    <div class="container">
+        {% if maintenance_mode %}
+        <div style="background: linear-gradient(135deg, rgba(251, 191, 36, 0.1), rgba(245, 158, 11, 0.1)); border: 2px solid rgba(251, 191, 36, 0.5); border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem; text-align: center;">
+            <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔧</div>
+            <h2 style="font-size: 1.4rem; color: #fbbf24; margin-bottom: 0.5rem;">Maintenance Mode</h2>
+            <p style="font-size: 0.95rem; color: rgba(255,255,255,0.9); line-height: 1.5;">{{ maintenance_message }}</p>
+        </div>
+        {% else %}
+        <div class="header">
+            <h1>🎮 Play & Earn G$</h1>
+            <p style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">Play fun games and earn GoodDollar rewards!</p>
+
+            <!-- Community Initiative Disclaimer -->
+            <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 0.75rem 1rem; margin-top: 0.75rem; text-align: left; max-width: 800px; margin-left: auto; margin-right: auto;">
+                <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                    <span style="font-size: 1.1rem;">ℹ️</span>
+                    <span style="color: #6366f1; font-weight: 700; font-size: 0.85rem;">Community Initiative</span>
+                    <span style="color: rgba(255,255,255,0.5); font-size: 0.78rem;">— Built by GIMT · NOT an official GoodDollar product</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Play & Earn Balance + Withdrawal Section -->
+        <div class="withdrawal-section" id="balanceSection">
+            <div style="display: flex; align-items: center; justify-content: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                <span style="font-size: 1.5rem;">💰</span>
+                <div>
+                    <div style="font-size: 0.85rem; color: #fbbf24; font-weight: 700;">Your Play & Earn Balance</div>
+                    <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">All minigames combined · Total withdrawn: <span id="totalWithdrawn">0</span> G$</div>
+                </div>
+                <div style="font-size: 1.8rem; font-weight: 800; color: #fbbf24;" id="balanceAmount">— G$</div>
+            </div>
+
+            <div class="progress-bar" style="max-width: 400px; margin: 0 auto 0.3rem;">
+                <div class="progress-fill" id="balanceProgress"></div>
+            </div>
+            <div style="color: rgba(255,255,255,0.5); font-size: 0.78rem; margin-bottom: 0.75rem;">
+                <span id="progressLabel">Loading...</span>
+            </div>
+
+            <button id="withdrawBtn" onclick="withdrawBalance()"
+                style="padding: 0.55rem 1.75rem; border-radius: 50px; border: none; font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: all 0.3s; display: none;">
+                💸 Withdraw to Wallet
+            </button>
+            <div id="withdrawMsg" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
+        </div>
+
+        <!-- Withdrawal History Section -->
+        <div id="withdrawalHistorySection" style="background: rgba(255,255,255,0.04); border: 1px solid rgba(99,102,241,0.2); border-radius: 14px; padding: 1rem; margin-bottom: 1rem; display: none;">
+            <h3 style="font-size: 0.95rem; font-weight: 700; color: #a855f7; margin-bottom: 0.75rem;">📋 Withdrawal History</h3>
+            <div id="withdrawalHistoryList"></div>
+        </div>
+
+        <!-- Game Info Section -->
+        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08)); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 0.75rem 1rem; margin-bottom: 1rem; text-align: center;">
+            <span style="font-size: 1rem; font-weight: 700; color: #10b981;">🎮 FREE Minigames!</span>
+            <span style="color: rgba(255,255,255,0.7); font-size: 0.85rem; margin-left: 0.5rem;">Click on any game below to play and view your history!</span>
+        </div>
+
+        <div class="games-grid">
+            <!-- Jumble Words Game -->
+            <div class="game-card" style="border-color: rgba(168, 85, 247, 0.4);">
+                <div class="game-icon">🔤</div>
+                <div class="game-title" style="color: #a855f7;">Jumble Words</div>
+                <div class="game-desc">Unscramble the letters to form the correct word and earn G$ rewards!</div>
+                <div class="game-reward">5 G$ per correct answer</div>
+                <div style="color: rgba(241,245,249,0.5); font-size: 0.78rem; margin-bottom: 0.75rem;">
+                    ⏱ 30 sec timer &nbsp;|&nbsp; Max 10 wins/day &nbsp;|&nbsp; Min withdraw 200 G$
+                </div>
+                <a href="/jumble/" style="display: block; text-decoration: none;">
+                    <button class="play-btn" style="background: linear-gradient(135deg, #a855f7, #6366f1);">Play Now →</button>
+                </a>
+            </div>
+
+            <!-- Price Prediction Game -->
+            <div class="game-card" style="border-color: rgba(16, 185, 129, 0.4);">
+                <div class="game-icon">📈</div>
+                <div class="game-title" style="color: #10b981;">Price Prediction</div>
+                <div class="game-desc">Predict whether BTC, ETH, or CELO will go UP or DOWN. Get it right and earn G$ rewards!</div>
+                <div class="game-reward">50 G$ for correct prediction</div>
+                <div style="color: rgba(241,245,249,0.5); font-size: 0.78rem; margin-bottom: 0.75rem;">
+                    ⏱ 5h / 12h / 24h timeframes &nbsp;|&nbsp; FREE to play &nbsp;|&nbsp; 1 prediction at a time
+                </div>
+                <a href="/price-prediction/" style="display: block; text-decoration: none;">
+                    <button class="play-btn" style="background: linear-gradient(135deg, #10b981, #06b6d4);">Play Now →</button>
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Game Modal -->
+    <div id="gameModal" class="game-modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="window.closeGameModal()">✕ Close</button>
+            <div id="gameContent"></div>
+        </div>
+    </div>
+
+    <div id="notification" class="notification"></div>
+
+    <script src="/static/minigames.js"></script>
+    <script>
+        async function loadBalance() {
+            try {
+                const res = await fetch('/minigames/api/balance');
+                const data = await res.json();
+                if (!data.success) return;
+
+                const balance = data.available_balance || 0;
+                const minW = data.min_withdrawal || 200;
+                const withdrawn = data.total_withdrawn || 0;
+                const canWithdraw = data.can_withdraw;
+
+                document.getElementById('balanceAmount').textContent = balance.toFixed(2) + ' G$';
+                document.getElementById('totalWithdrawn').textContent = withdrawn.toFixed(2);
+
+                const pct = Math.min((balance / minW) * 100, 100);
+                document.getElementById('balanceProgress').style.width = pct + '%';
+
+                if (canWithdraw) {
+                    document.getElementById('progressLabel').textContent = '✅ Ready to withdraw!';
+                } else {
+                    const needed = (minW - balance).toFixed(2);
+                    document.getElementById('progressLabel').textContent = `${balance.toFixed(2)} / ${minW} G$ — need ${needed} G$ more to withdraw`;
+                }
+
+                const btn = document.getElementById('withdrawBtn');
+                btn.style.display = 'inline-block';
+                if (canWithdraw) {
+                    btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                    btn.style.color = '#fff';
+                    btn.disabled = false;
+                } else {
+                    btn.style.background = 'rgba(255,255,255,0.1)';
+                    btn.style.color = 'rgba(255,255,255,0.4)';
+                    btn.disabled = true;
+                    btn.title = `Minimum withdrawal is ${minW} G$`;
+                }
+            } catch (e) {
+                console.error('Balance load error:', e);
+            }
+        }
+
+        async function withdrawBalance() {
+            const btn = document.getElementById('withdrawBtn');
+            const msg = document.getElementById('withdrawMsg');
+            btn.disabled = true;
+            btn.textContent = '⏳ Processing...';
+            msg.style.display = 'none';
+
+            try {
+                const res = await fetch('/minigames/api/withdraw', { method: 'POST' });
+                const data = await res.json();
+
+                msg.style.display = 'block';
+                if (data.success) {
+                    msg.style.color = '#10b981';
+                    msg.textContent = `✅ ${data.message || 'Withdrawal successful! G$ sent to your wallet.'}`;
+                    btn.textContent = '💸 Withdraw to Wallet';
+                    await loadBalance();
+                    await loadWithdrawalHistory();
+                } else {
+                    msg.style.color = '#ef4444';
+                    msg.textContent = `❌ ${data.error || 'Withdrawal failed. Please try again.'}`;
+                    btn.disabled = false;
+                    btn.textContent = '💸 Withdraw to Wallet';
+                }
+            } catch (e) {
+                msg.style.display = 'block';
+                msg.style.color = '#ef4444';
+                msg.textContent = '❌ Network error. Please try again.';
+                btn.disabled = false;
+                btn.textContent = '💸 Withdraw to Wallet';
+            }
+        }
+
+        async function loadWithdrawalHistory() {
+            try {
+                const res = await fetch('/minigames/api/withdrawal-history');
+                const data = await res.json();
+                const section = document.getElementById('withdrawalHistorySection');
+                const list = document.getElementById('withdrawalHistoryList');
+
+                if (!data.success || !data.withdrawals || data.withdrawals.length === 0) {
+                    section.style.display = 'none';
+                    return;
+                }
+
+                section.style.display = 'block';
+                list.innerHTML = data.withdrawals.map(w => {
+                    const date = w.withdrawal_date || '—';
+                    const amount = parseFloat(w.amount || 0).toFixed(2);
+                    const txHash = w.tx_hash || '';
+                    const shortTx = txHash ? txHash.slice(0, 10) + '...' + txHash.slice(-6) : '—';
+                    const explorerUrl = txHash ? `https://explorer.celo.org/mainnet/tx/${txHash}` : null;
+                    return `
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: rgba(255,255,255,0.04); border-radius: 12px; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div>
+                                <div style="font-weight: 700; color: #10b981; font-size: 1rem;">+${amount} G$</div>
+                                <div style="color: rgba(255,255,255,0.4); font-size: 0.78rem;">${date}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                ${explorerUrl
+                                    ? `<a href="${explorerUrl}" target="_blank" style="color: #6366f1; font-size: 0.82rem; text-decoration: none; font-family: monospace;">${shortTx} ↗</a>`
+                                    : `<span style="color: rgba(255,255,255,0.3); font-size: 0.82rem;">No TX</span>`
+                                }
+                            </div>
+                        </div>`;
+                }).join('');
+            } catch (e) {
+                console.error('Withdrawal history error:', e);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBalance();
+            loadWithdrawalHistory();
+        });
+    </script>
+</body>
+</html>
