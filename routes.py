@@ -5192,10 +5192,72 @@ def turnkey_create_wallet():
         data = request.get_json()
         user_id = data.get("userId") or session.get("wallet") or f"new_{int(time.time())}"
         user_name = data.get("userName", user_id)
+        referral_code = data.get("referral_code", None)
 
         result, err = create_turnkey_wallet(user_id, user_name)
         if err:
-            return jsonify({"status": "error", "message": err}), 500
+            # Vercel/serverless fallback: if local Turnkey sidecar is unavailable,
+            # create a custodial wallet in-session so "Create My Wallet" still works.
+            err_lower = str(err).lower()
+            is_sidecar_unavailable = (
+                "turnkey service unavailable" in err_lower
+                or "connection refused" in err_lower
+                or "failed to establish a new connection" in err_lower
+            )
+            if not is_sidecar_unavailable:
+                return jsonify({"status": "error", "message": err}), 500
+
+            from eth_account import Account
+            acct = Account.create()
+            wallet_address = acct.address
+            private_key = acct.key.hex()
+
+            fernet = _get_fernet()
+            encrypted_key = fernet.encrypt(private_key.encode()).decode()
+
+            session["wallet"] = wallet_address
+            session["verified"] = True
+            session["login_method"] = "custodial"
+            session["custodial_key_enc"] = encrypted_key
+            session.pop("turnkey_suborg_id", None)
+            session.pop("turnkey_sign_with", None)
+            session.permanent = True
+
+            analytics.track_verification_attempt(wallet_address, True)
+            analytics.track_user_session(wallet_address)
+
+            try:
+                from supabase_client import get_supabase_client
+                supabase = get_supabase_client()
+                if supabase:
+                    try:
+                        supabase.table("user_data").upsert({
+                            "wallet_address": wallet_address
+                        }, on_conflict="wallet_address").execute()
+                    except Exception:
+                        pass
+            except Exception as db_err:
+                logger.warning(f"Could not save fallback wallet to Supabase: {db_err}")
+
+            if referral_code and str(referral_code).strip():
+                try:
+                    from referral_program.referral_service import referral_service
+                    normalized_code = str(referral_code).strip().upper()
+                    validation = referral_service.validate_referral_code(normalized_code)
+                    if validation.get("valid"):
+                        referral_service.record_referral(
+                            referral_code=normalized_code,
+                            referee_wallet=wallet_address
+                        )
+                except Exception as ref_err:
+                    logger.warning(f"Referral processing error in fallback wallet creation: {ref_err}")
+
+            return jsonify({
+                "status": "success",
+                "wallet": wallet_address,
+                "mode": "custodial_fallback",
+                "warning": "Turnkey unavailable on this deployment; created a secure custodial wallet instead."
+            })
 
         wallet_address = result.get("address")
         suborg_id = result.get("subOrgId")
@@ -5210,6 +5272,19 @@ def turnkey_create_wallet():
         session["turnkey_sign_with"] = sign_with
         session["login_method"] = "turnkey"
         session.permanent = True
+
+        if referral_code and str(referral_code).strip():
+            try:
+                from referral_program.referral_service import referral_service
+                normalized_code = str(referral_code).strip().upper()
+                validation = referral_service.validate_referral_code(normalized_code)
+                if validation.get("valid"):
+                    referral_service.record_referral(
+                        referral_code=normalized_code,
+                        referee_wallet=wallet_address
+                    )
+            except Exception as ref_err:
+                logger.warning(f"Referral processing error in turnkey wallet creation: {ref_err}")
 
         return jsonify({
             "status": "success",
