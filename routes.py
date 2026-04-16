@@ -5117,14 +5117,14 @@ def _get_fernet():
 
 def _send_wallet_email_code(email: str, code: str) -> tuple[bool, str | None]:
     """Send wallet verification code via SMTP using environment configuration."""
-    smtp_host = os.environ.get("SMTP_HOST", "").strip()
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_host = os.environ.get("SMTP_HOST", "localhost").strip()
+    smtp_port = int(os.environ.get("SMTP_PORT", "25" if smtp_host == "localhost" else "587"))
     smtp_user = os.environ.get("SMTP_USER", "").strip()
     smtp_pass = os.environ.get("SMTP_PASS", "").strip()
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user).strip()
-
-    if not smtp_host or not smtp_from:
-        return False, "Email delivery is not configured on this server yet."
+    smtp_from = os.environ.get("SMTP_FROM", "").strip() or smtp_user or "no-reply@goodmarket.community"
+    smtp_use_tls = str(os.environ.get("SMTP_USE_TLS", "auto")).strip().lower()
+    if smtp_use_tls == "auto":
+        smtp_use_tls = "false" if smtp_host == "localhost" and not smtp_user else "true"
 
     msg = MIMEText(
         f"Your GoodMarket wallet verification code is: {code}\n\n"
@@ -5138,7 +5138,8 @@ def _send_wallet_email_code(email: str, code: str) -> tuple[bool, str | None]:
 
     try:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
-            server.starttls()
+            if smtp_use_tls == "true":
+                server.starttls()
             if smtp_user and smtp_pass:
                 server.login(smtp_user, smtp_pass)
             server.sendmail(smtp_from, [email], msg.as_string())
