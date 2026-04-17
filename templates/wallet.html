@@ -1663,22 +1663,8 @@
             icon.textContent = '⛽';
             setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
 
-            let gasReady = false;
             try {
-                const faucetRes = await fetch('/api/gas-faucet', { method: 'POST' });
-                const faucetData = await faucetRes.json();
-
-                if (!faucetData.success) {
-                    throw new Error(faucetData.reason || faucetData.error || 'Gas faucet request failed');
-                } else if (faucetData.topped_up) {
-                    label.textContent = 'Getting gas…';
-                    setStatus('⛽ Gas top-up confirmed from faucet contract.', '#34d399');
-                }
-
-                gasReady = !!faucetData.gas_ready;
-                if (!gasReady) {
-                    throw new Error(faucetData.reason || 'Kulang ang CELO balance para sa gas fee.');
-                }
+                await ensureGasReadyBeforeClaim();
             } catch (e) {
                 btn.disabled = false;
                 label.textContent = 'Claim G$';
@@ -1708,6 +1694,38 @@
             });
         }
 
+        async function ensureGasReadyBeforeClaim() {
+            const maxPolls = 8;
+            const pollDelayMs = 3000;
+
+            for (let i = 0; i < maxPolls; i++) {
+                const faucetRes = await fetch('/api/gas-faucet', { method: 'POST' });
+                const faucetData = await faucetRes.json();
+
+                if (!faucetData.success) {
+                    throw new Error(faucetData.reason || faucetData.error || 'Gas faucet request failed');
+                }
+                if (faucetData.gas_ready) {
+                    if (faucetData.topped_up) {
+                        setStatus('⛽ Gas top-up confirmed from faucet contract.', '#34d399');
+                    }
+                    return true;
+                }
+
+                const lastTry = i === (maxPolls - 1);
+                if (lastTry) {
+                    throw new Error(faucetData.reason || 'Kulang ang CELO balance para sa gas fee.');
+                }
+
+                label.textContent = 'Waiting for gas…';
+                setStatus(
+                    '⛽ Naghihintay ma-credit ang CELO top-up sa wallet bago mag-claim…',
+                    '#34d399'
+                );
+                await new Promise(resolve => setTimeout(resolve, pollDelayMs));
+            }
+        }
+
         async function ensureInjectedWalletClaim() {
             const provider = _getEthProvider();
             if (!provider) {
@@ -1716,11 +1734,20 @@
             }
 
             btn.disabled = true;
-            label.textContent = 'Connecting wallet…';
-            icon.textContent = '🔐';
-            setStatus('Connecting to wallet and requesting account access…', 'var(--text-dim)');
+            label.textContent = 'Checking gas…';
+            icon.textContent = '⛽';
+            setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
 
             try {
+                // Important UX fix:
+                // Wait for faucet top-up to actually make gas ready first,
+                // BEFORE triggering wallet approvals/transaction prompts.
+                await ensureGasReadyBeforeClaim();
+
+                label.textContent = 'Connecting wallet…';
+                icon.textContent = '🔐';
+                setStatus('Gas is ready. Connecting to wallet…', 'var(--text-dim)');
+
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
                 if (!accounts || !accounts.length) throw new Error('No wallet account available.');
                 const from = accounts[0];
@@ -1748,26 +1775,6 @@
                             }]
                         });
                     }
-                }
-
-                label.textContent = 'Checking gas…';
-                icon.textContent = '⛽';
-                setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
-
-                try {
-                    const faucetRes = await fetch('/api/gas-faucet', { method: 'POST' });
-                    const faucetData = await faucetRes.json();
-                    if (!faucetData.success) {
-                        throw new Error(faucetData.reason || faucetData.error || 'Gas faucet request failed');
-                    }
-                    if (faucetData.topped_up) {
-                        setStatus('⛽ Gas top-up requested. Waiting for confirmation…', '#34d399');
-                    }
-                    if (!faucetData.gas_ready) {
-                        throw new Error(faucetData.reason || 'Kulang ang CELO balance para sa gas fee.');
-                    }
-                } catch (e) {
-                    throw new Error((e && e.message) || 'Gas check failed');
                 }
 
                 label.textContent = 'Claiming…';
