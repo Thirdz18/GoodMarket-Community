@@ -12,8 +12,6 @@ import time
 import secrets
 import hashlib
 from datetime import datetime, timedelta, timezone
-import smtplib
-from email.mime.text import MIMEText
 
 # Initialize notification service
 notification_service = NotificationService()
@@ -5115,40 +5113,6 @@ def _get_fernet():
     return Fernet(fernet_key)
 
 
-def _send_wallet_email_code(email: str, code: str) -> tuple[bool, str | None]:
-    """Send wallet verification code via SMTP using environment configuration."""
-    smtp_host = os.environ.get("SMTP_HOST", "localhost").strip()
-    smtp_port = int(os.environ.get("SMTP_PORT", "25" if smtp_host == "localhost" else "587"))
-    smtp_user = os.environ.get("SMTP_USER", "").strip()
-    smtp_pass = os.environ.get("SMTP_PASS", "").strip()
-    smtp_from = os.environ.get("SMTP_FROM", "").strip() or smtp_user or "no-reply@goodmarket.community"
-    smtp_use_tls = str(os.environ.get("SMTP_USE_TLS", "auto")).strip().lower()
-    if smtp_use_tls == "auto":
-        smtp_use_tls = "false" if smtp_host == "localhost" and not smtp_user else "true"
-
-    msg = MIMEText(
-        f"Your GoodMarket wallet verification code is: {code}\n\n"
-        "This code expires in 10 minutes.",
-        "plain",
-        "utf-8",
-    )
-    msg["Subject"] = "Your GoodMarket verification code"
-    msg["From"] = smtp_from
-    msg["To"] = email
-
-    try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
-            if smtp_use_tls == "true":
-                server.starttls()
-            if smtp_user and smtp_pass:
-                server.login(smtp_user, smtp_pass)
-            server.sendmail(smtp_from, [email], msg.as_string())
-        return True, None
-    except Exception as e:
-        logger.error(f"Failed sending OTP email to {email}: {e}")
-        return False, "Failed to send verification email. Please try again."
-
-
 @routes.route("/api/turnkey/email/send-code", methods=["POST"])
 def turnkey_send_email_code():
     """Send a one-time email code used before wallet creation."""
@@ -5160,7 +5124,6 @@ def turnkey_send_email_code():
 
         session.pop("turnkey_email_verified", None)
 
-        # Preferred: delegate OTP delivery to Turnkey sidecar service.
         try:
             from turnkey_service import send_email_otp_turnkey
             _, tk_err = send_email_otp_turnkey(email)
@@ -5176,29 +5139,11 @@ def turnkey_send_email_code():
             }
             return jsonify({"success": True, "message": "Verification code sent."})
 
-        logger.warning(f"Turnkey OTP send unavailable, falling back to SMTP OTP: {tk_err}")
-
-        # Fallback: local session OTP + SMTP email.
-        code = "".join(secrets.choice("0123456789") for _ in range(6))
-        code_hash = hashlib.sha256(code.encode()).hexdigest()
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
-
-        session["turnkey_email_otp"] = {
-            "email": email,
-            "provider": "local",
-            "code_hash": code_hash,
-            "expires_at": expires_at.isoformat(),
-            "attempts": 0,
-        }
-
-        sent, err = _send_wallet_email_code(email, code)
-        if not sent:
-            return jsonify({
-                "success": False,
-                "message": "Turnkey OTP is unavailable and SMTP email is not configured."
-            }), 503
-
-        return jsonify({"success": True, "message": "Verification code sent."})
+        logger.warning(f"Turnkey OTP send unavailable: {tk_err}")
+        return jsonify({
+            "success": False,
+            "message": "Turnkey OTP is unavailable right now. Please try again later."
+        }), 503
     except Exception as e:
         logger.error(f"turnkey_send_email_code error: {e}")
         return jsonify({"success": False, "message": "Unable to send code right now."}), 500
@@ -5218,7 +5163,7 @@ def turnkey_verify_email_code():
         if otp_state.get("email") != email:
             return jsonify({"success": False, "message": "Email/code mismatch. Request a new code."}), 400
 
-        provider = str(otp_state.get("provider") or "local").lower()
+        provider = str(otp_state.get("provider") or "").lower()
         expires_raw = otp_state.get("expires_at")
         expires_at = datetime.fromisoformat(expires_raw) if expires_raw else None
         if not expires_at or datetime.now(timezone.utc) > expires_at:
@@ -5241,11 +5186,11 @@ def turnkey_verify_email_code():
                 session["turnkey_email_otp"] = otp_state
                 return jsonify({"success": False, "message": "Incorrect code."}), 400
         else:
-            code_hash = hashlib.sha256(code.encode()).hexdigest()
-            if code_hash != otp_state.get("code_hash"):
-                otp_state["attempts"] = attempts + 1
-                session["turnkey_email_otp"] = otp_state
-                return jsonify({"success": False, "message": "Incorrect code."}), 400
+            session.pop("turnkey_email_otp", None)
+            return jsonify({
+                "success": False,
+                "message": "Invalid OTP session. Please request a new Turnkey code."
+            }), 400
 
         session["turnkey_email_verified"] = {
             "email": email,
