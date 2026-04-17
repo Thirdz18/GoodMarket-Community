@@ -50,7 +50,7 @@ A Web3 earning platform built on the GoodDollar ecosystem. Users earn G$ tokens 
 The app gracefully degrades when these are missing, but full functionality requires:
 
 - `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_KEY` — Supabase API key
+- `SUPABASE_ANON_KEY` — Supabase API key
 - `SECRET_KEY` — Flask session secret key
 - `WALLETCONNECT_PROJECT_ID` — WalletConnect project ID
 - `CELO_RPC_URL` — Celo RPC endpoint (defaults to `https://forno.celo.org`)

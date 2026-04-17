@@ -5141,29 +5141,19 @@ def _ensure_email_wallet_links_table():
     global _email_wallet_links_ready
     if _email_wallet_links_ready:
         return True
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
+    supabase = get_supabase_client()
+    if not supabase:
+        logger.warning("Email wallet recovery requires SUPABASE_URL + SUPABASE_ANON_KEY.")
         return False
     try:
-        import psycopg
-        sql = """
-        CREATE TABLE IF NOT EXISTS email_wallet_links (
-            id SERIAL PRIMARY KEY,
-            email_hash VARCHAR(64) UNIQUE NOT NULL,
-            wallet_address VARCHAR(42) NOT NULL,
-            login_method VARCHAR(30) NOT NULL DEFAULT 'custodial',
-            custodial_key_enc TEXT,
-            turnkey_suborg_id TEXT,
-            turnkey_sign_with TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        );
-        CREATE INDEX IF NOT EXISTS idx_email_wallet_links_wallet ON email_wallet_links(wallet_address);
-        """
-        with psycopg.connect(database_url, connect_timeout=10) as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql)
-            conn.commit()
+        result = safe_supabase_operation(
+            lambda: supabase.table("email_wallet_links").select("id").limit(1).execute(),
+            fallback_result=None,
+            operation_name="email wallet links table check"
+        )
+        if result is None:
+            logger.warning("email_wallet_links table is missing or inaccessible in Supabase.")
+            return False
         _email_wallet_links_ready = True
         return True
     except Exception as err:
@@ -5175,20 +5165,22 @@ def _get_email_wallet_link(email: str):
     if not email or not _ensure_email_wallet_links_table():
         return None
     try:
-        import psycopg
-        from psycopg.rows import dict_row
-        with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=10, row_factory=dict_row) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT email_hash, wallet_address, login_method, custodial_key_enc, turnkey_suborg_id, turnkey_sign_with
-                    FROM email_wallet_links
-                    WHERE email_hash = %s
-                    LIMIT 1
-                    """,
-                    (_email_link_hash(email),)
-                )
-                return cur.fetchone()
+        supabase = get_supabase_client()
+        if not supabase:
+            return None
+
+        result = safe_supabase_operation(
+            lambda: supabase.table("email_wallet_links")
+            .select("email_hash, wallet_address, login_method, custodial_key_enc, turnkey_suborg_id, turnkey_sign_with")
+            .eq("email_hash", _email_link_hash(email))
+            .limit(1)
+            .execute(),
+            fallback_result=None,
+            operation_name="get email wallet recovery link"
+        )
+        if not result or not getattr(result, "data", None):
+            return None
+        return result.data[0]
     except Exception as err:
         logger.warning(f"Could not get email wallet recovery link: {err}")
     return None
@@ -5198,35 +5190,25 @@ def _save_email_wallet_link(email: str, wallet_address: str, login_method: str, 
     if not email or not wallet_address or not _ensure_email_wallet_links_table():
         return False
     try:
-        import psycopg
-        with psycopg.connect(os.environ["DATABASE_URL"], connect_timeout=10) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO email_wallet_links (
-                        email_hash, wallet_address, login_method, custodial_key_enc,
-                        turnkey_suborg_id, turnkey_sign_with, updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (email_hash) DO UPDATE SET
-                        wallet_address = EXCLUDED.wallet_address,
-                        login_method = EXCLUDED.login_method,
-                        custodial_key_enc = EXCLUDED.custodial_key_enc,
-                        turnkey_suborg_id = EXCLUDED.turnkey_suborg_id,
-                        turnkey_sign_with = EXCLUDED.turnkey_sign_with,
-                        updated_at = NOW()
-                    """,
-                    (
-                        _email_link_hash(email),
-                        wallet_address,
-                        login_method or "custodial",
-                        custodial_key_enc,
-                        turnkey_suborg_id,
-                        turnkey_sign_with
-                    )
-                )
-            conn.commit()
-        return True
+        supabase = get_supabase_client()
+        if not supabase:
+            return False
+
+        payload = {
+            "email_hash": _email_link_hash(email),
+            "wallet_address": wallet_address,
+            "login_method": login_method or "custodial",
+            "custodial_key_enc": custodial_key_enc,
+            "turnkey_suborg_id": turnkey_suborg_id,
+            "turnkey_sign_with": turnkey_sign_with
+        }
+
+        result = safe_supabase_operation(
+            lambda: supabase.table("email_wallet_links").upsert(payload, on_conflict="email_hash").execute(),
+            fallback_result=None,
+            operation_name="save email wallet recovery link"
+        )
+        return bool(result)
     except Exception as err:
         logger.warning(f"Could not save email wallet recovery link: {err}")
         return False
