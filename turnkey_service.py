@@ -7,7 +7,11 @@ from web3 import Web3
 
 logger = logging.getLogger(__name__)
 
-WC_SERVICE_URL = os.getenv('WC_SERVICE_URL', 'http://127.0.0.1:3001')
+_vercel_runtime_url = os.getenv('VERCEL_PROJECT_PRODUCTION_URL') or os.getenv('VERCEL_URL')
+if _vercel_runtime_url and not _vercel_runtime_url.startswith('http'):
+    _vercel_runtime_url = f"https://{_vercel_runtime_url}"
+
+WC_SERVICE_URL = os.getenv('WC_SERVICE_URL') or (_vercel_runtime_url.rstrip('/') + '/api/wc' if _vercel_runtime_url else 'http://127.0.0.1:3001')
 CELO_RPC = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
 CELO_CHAIN_ID = 42220
 
