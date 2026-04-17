@@ -1749,9 +1749,16 @@
             return { gasLimit, gasPrice, balance, required, gasReady: balance >= required };
         }
 
-        async function pollForGasArrival(maxPolls, pollDelayMs) {
-            for (let i = 0; i < maxPolls; i++) {
-                await new Promise(resolve => setTimeout(resolve, pollDelayMs));
+        async function pollForGasArrival(maxDurationMs = 180000) {
+            const startedAt = Date.now();
+            const backoffSchedule = [3000, 5000, 7000, 9000, 11000, 13000, 15000, 18000, 22000, 26000];
+            let attempt = 0;
+
+            while ((Date.now() - startedAt) < maxDurationMs) {
+                const delay = backoffSchedule[Math.min(attempt, backoffSchedule.length - 1)];
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt += 1;
+
                 const statusRes = await fetch('/api/faucet/status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1759,16 +1766,26 @@
                 });
                 const statusData = await statusRes.json();
                 if (statusData.success && statusData.gas_ready) {
-                    return statusData;
+                    return { gasReady: true, statusData };
+                }
+                if (statusData.success && statusData.status === 'recent_refill' && !statusData.gas_ready) {
+                    const cooldown = Number(statusData.recent_refill_cooldown_seconds || 0);
+                    return {
+                        gasReady: false,
+                        stopPolling: true,
+                        error: `Gas top-up blocked by cooldown (${cooldown}s remaining). Please wait, then retry.`
+                    };
                 }
                 setClaimGasUiState('waiting_credit');
             }
-            return null;
+            return {
+                gasReady: false,
+                stopPolling: true,
+                error: 'Gas did not arrive after extended checks (~3 minutes). Please contact support with your wallet address and faucet debug details.'
+            };
         }
 
         async function ensureGasReadyBeforeClaim() {
-            const maxPolls = 10;
-            const pollDelayMs = 3000;
             setClaimGasUiState('checking_balance');
 
             const statusRes = await fetch('/api/faucet/status', {
@@ -1796,12 +1813,25 @@
                 throw new Error(gasData.error || gasData.reason || 'Faucet unavailable.');
             }
 
-            const postFaucet = await pollForGasArrival(maxPolls, pollDelayMs);
-            if (postFaucet && postFaucet.gas_ready) {
+            if (gasData.status === 'recent_refill' && !gasData.gas_ready) {
+                const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
+                throw new Error(
+                    `Gas refill cooldown active (${cooldown}s remaining). Please wait and retry. If this keeps happening, contact support.`
+                );
+            }
+
+            if ((gasData.status === 'api_failed' || gasData.status === 'onchain_failed') && !gasData.gas_ready) {
+                throw new Error(
+                    `${gasData.error || gasData.reason || 'Gas top-up failed.'} Please retry shortly or contact support with your wallet and faucet debug values.`
+                );
+            }
+
+            const postFaucet = await pollForGasArrival(180000);
+            if (postFaucet && postFaucet.gasReady) {
                 setClaimGasUiState('gas_ready');
                 return { gasReady: true, toppedUp: true, source: gasData.topup_source || 'faucet' };
             }
-            throw new Error('Gas top-up did not arrive in time. Please retry in a few minutes.');
+            throw new Error((postFaucet && postFaucet.error) || 'Gas top-up did not arrive in time. Please retry in a few minutes.');
         }
 
         async function ensureInjectedWalletClaim() {
