@@ -1965,7 +1965,6 @@
             if (f) f.classList.add('visible');
         }
 
-        let otpBypassAllowed = false;
         let walletFormMode = 'create';
 
         function setCreateWalletButtonText(text) {
@@ -1975,7 +1974,6 @@
 
         function configureWalletForm(mode) {
             walletFormMode = mode;
-            otpBypassAllowed = false;
             const statusDiv = document.getElementById('createWalletStatus');
             const codeInput = document.getElementById('createEmailCode');
             const referralGroup = document.getElementById('createReferralCode')?.closest('.wallet-input-group');
@@ -2037,7 +2035,6 @@
                 const data = await resp.json();
 
                 if (resp.ok && data.success) {
-                    otpBypassAllowed = false;
                     if (codeInput) {
                         codeInput.disabled = false;
                         codeInput.placeholder = 'Enter code from your email';
@@ -2046,25 +2043,6 @@
                     statusDiv.className = 'status-message success';
                     statusDiv.textContent = '✅ Code sent! Check your email inbox, then enter the 6-digit code below.';
                 } else {
-                    const serverError = (data.error || data.message || '').toString();
-                    if (data.code === 'otp_unavailable' || serverError.toLowerCase().includes('turnkey service unavailable')) {
-                        if (walletFormMode === 'recover') {
-                            otpBypassAllowed = false;
-                            statusDiv.className = 'status-message error';
-                            statusDiv.textContent = 'Email sign-in code is required for wallet recovery. Please try again later.';
-                            return;
-                        }
-                        otpBypassAllowed = true;
-                        if (codeInput) {
-                            codeInput.value = '';
-                            codeInput.disabled = true;
-                            codeInput.placeholder = 'Code not required on this deployment';
-                        }
-                        setCreateWalletButtonText('Create Wallet');
-                        statusDiv.className = 'status-message info';
-                        statusDiv.textContent = 'ℹ️ Email code is unavailable on this deployment. Tap Create Wallet below to continue with this email.';
-                        return;
-                    }
                     statusDiv.className = 'status-message error';
                     statusDiv.textContent = data.error || data.message || 'Could not send code. Please try again.';
                     if (btn) btn.disabled = false;
@@ -2101,69 +2079,61 @@
                 return;
             }
 
-            if (!otpBypassAllowed && !/^\d{6}$/.test(code)) {
+            if (!/^\d{6}$/.test(code)) {
                 statusDiv.className = 'status-message error';
                 statusDiv.textContent = 'Please enter the 6-digit code from your email.';
                 return;
             }
 
             if (btn) btn.disabled = true;
-            if (otpBypassAllowed) {
-                btnText.textContent = 'Creating wallet…';
-                statusDiv.className = 'status-message info';
-                    statusDiv.textContent = '⏳ Creating your wallet...';
-            } else {
-                btnText.textContent = 'Verifying code…';
-                statusDiv.className = 'status-message info';
-                statusDiv.textContent = '⏳ Verifying your code...';
-            }
+            btnText.textContent = 'Verifying code…';
+            statusDiv.className = 'status-message info';
+            statusDiv.textContent = '⏳ Verifying your code...';
 
             try {
-                if (!otpBypassAllowed) {
-                    const verifyResp = await fetch('/api/turnkey/email/verify-code', {
+                const verifyResp = await fetch('/api/turnkey/email/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, code })
+                });
+                const verifyData = await verifyResp.json();
+                if (!(verifyResp.ok && verifyData.success)) {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
+                    if (btn) btn.disabled = false;
+                    btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet';
+                    return;
+                }
+
+                if (walletFormMode === 'recover') {
+                    btnText.textContent = 'Recovering wallet…';
+                    statusDiv.className = 'status-message info';
+                    statusDiv.textContent = '⏳ Code verified. Recovering your linked wallet...';
+                    const recoverResp = await fetch('/api/turnkey/email/recover-wallet', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email, code })
+                        body: JSON.stringify({ email })
                     });
-                    const verifyData = await verifyResp.json();
-                    if (!(verifyResp.ok && verifyData.success)) {
+                    const recoverData = await recoverResp.json();
+                    if (recoverResp.ok && recoverData.success && recoverData.wallet) {
+                        statusDiv.className = 'status-message success';
+                        statusDiv.textContent = `✅ Wallet recovered: ${recoverData.wallet.slice(0,8)}…${recoverData.wallet.slice(-4)} — Redirecting…`;
+                        setTimeout(() => { window.location.href = recoverData.redirect_to || '/wallet'; }, 1500);
+                    } else {
                         statusDiv.className = 'status-message error';
-                        statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
+                        statusDiv.textContent = recoverData.error || recoverData.message || 'No linked wallet found for this email.';
                         if (btn) btn.disabled = false;
-                        btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet';
-                        return;
+                        btnText.textContent = 'Verify Code & Recover Wallet';
                     }
-
-                    if (walletFormMode === 'recover') {
-                        btnText.textContent = 'Recovering wallet…';
-                        statusDiv.className = 'status-message info';
-                        statusDiv.textContent = '⏳ Code verified. Recovering your linked wallet...';
-                        const recoverResp = await fetch('/api/turnkey/email/recover-wallet', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email })
-                        });
-                        const recoverData = await recoverResp.json();
-                        if (recoverResp.ok && recoverData.success && recoverData.wallet) {
-                            statusDiv.className = 'status-message success';
-                            statusDiv.textContent = `✅ Wallet recovered: ${recoverData.wallet.slice(0,8)}…${recoverData.wallet.slice(-4)} — Redirecting…`;
-                            setTimeout(() => { window.location.href = recoverData.redirect_to || '/wallet'; }, 1500);
-                        } else {
-                            statusDiv.className = 'status-message error';
-                            statusDiv.textContent = recoverData.error || recoverData.message || 'No linked wallet found for this email.';
-                            if (btn) btn.disabled = false;
-                            btnText.textContent = 'Verify Code & Recover Wallet';
-                        }
-                        return;
-                    }
-
-                    createPayload.userId = email;
-                    createPayload.userName = email;
-                    createPayload.email = email;
-                    btnText.textContent = 'Creating wallet…';
-                    statusDiv.className = 'status-message info';
-                    statusDiv.textContent = '⏳ Code verified. Creating your wallet on Celo...';
+                    return;
                 }
+
+                createPayload.userId = email;
+                createPayload.userName = email;
+                createPayload.email = email;
+                btnText.textContent = 'Creating wallet…';
+                statusDiv.className = 'status-message info';
+                statusDiv.textContent = '⏳ Code verified. Creating your wallet on Celo...';
 
                 const createResp = await fetch('/api/turnkey/create-wallet', {
                     method: 'POST',
@@ -2180,13 +2150,13 @@
                     statusDiv.className = 'status-message error';
                     statusDiv.textContent = createData.message || 'Wallet creation failed. Please try again.';
                     if (btn) btn.disabled = false;
-                    btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : (otpBypassAllowed ? 'Create Wallet' : 'Verify Code & Create Wallet');
+                    btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet';
                 }
             } catch (err) {
                 statusDiv.className = 'status-message error';
                 statusDiv.textContent = 'Network error. Please try again.';
                 if (btn) btn.disabled = false;
-                btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : (otpBypassAllowed ? 'Create Wallet' : 'Verify Code & Create Wallet');
+                btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet';
             }
         }
 
