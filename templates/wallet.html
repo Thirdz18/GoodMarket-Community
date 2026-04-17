@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>GoodMarket</title>
-    <meta name="theme-color" content="#050510">
+    <meta name="theme-color" content="#87ceeb">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="/static/manifest.json">
@@ -14,26 +14,26 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #050510;
-            --bg2: #0a0a1e;
-            --card: rgba(255,255,255,0.04);
-            --card-border: rgba(255,255,255,0.08);
-            --blue: #00b4ff;
-            --blue-dim: rgba(0,180,255,0.15);
-            --blue-glow: rgba(0,180,255,0.4);
+            --bg: #87ceeb;
+            --bg2: #d9f4ff;
+            --card: rgba(255,255,255,0.55);
+            --card-border: rgba(3,105,161,0.18);
+            --blue: #0284c7;
+            --blue-dim: rgba(2,132,199,0.16);
+            --blue-glow: rgba(2,132,199,0.35);
             --green: #00e676;
             --green-dim: rgba(0,230,118,0.12);
             --red: #ff5252;
-            --text: #e8eaf6;
-            --text-dim: rgba(232,234,246,0.55);
-            --text-muted: rgba(232,234,246,0.3);
+            --text: #082f49;
+            --text-dim: rgba(8,47,73,0.72);
+            --text-muted: rgba(8,47,73,0.45);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg);
+            background: linear-gradient(180deg, #87ceeb 0%, #e0f2fe 100%);
             color: var(--text);
             min-height: 100vh;
             max-width: 480px;
@@ -49,13 +49,14 @@
             padding: 1rem 1.25rem 0.75rem;
             position: sticky;
             top: 0;
-            background: var(--bg);
+            background: rgba(135,206,235,0.95);
+            backdrop-filter: blur(8px);
             z-index: 50;
         }
         .top-bar-title {
             font-size: 1.1rem;
             font-weight: 700;
-            color: #fff;
+            color: #082f49;
             letter-spacing: -0.3px;
             text-align: center;
             line-height: 1.1;
@@ -64,7 +65,7 @@
             margin-top: 0.2rem;
             font-size: 0.62rem;
             font-weight: 600;
-            color: rgba(255,255,255,0.72);
+            color: rgba(8,47,73,0.72);
             letter-spacing: 0.04em;
             text-transform: uppercase;
             text-align: center;
@@ -73,23 +74,23 @@
             width: 40px; height: 40px;
             border-radius: 50%;
             border: none;
-            background: rgba(255,255,255,0.07);
+            background: rgba(14,116,144,0.12);
             color: var(--text-dim);
             display: flex; align-items: center; justify-content: center;
             cursor: pointer;
             font-size: 1.1rem;
             transition: background 0.2s;
         }
-        .icon-btn:hover { background: rgba(255,255,255,0.12); }
+        .icon-btn:hover { background: rgba(14,116,144,0.2); }
 
         /* ── Balance Card ── */
         .balance-card {
             margin: 0.5rem 1.25rem 1.25rem;
-            background: linear-gradient(145deg, #0d1b35 0%, #091226 100%);
-            border: 1px solid rgba(0,180,255,0.35);
+            background: linear-gradient(145deg, rgba(255,255,255,0.88) 0%, rgba(224,242,254,0.94) 100%);
+            border: 1px solid rgba(2,132,199,0.3);
             border-radius: 20px;
             padding: 1.25rem 1.4rem;
-            box-shadow: 0 0 30px rgba(0,180,255,0.12), inset 0 1px 0 rgba(0,180,255,0.15);
+            box-shadow: 0 10px 30px rgba(2,132,199,0.15), inset 0 1px 0 rgba(255,255,255,0.65);
             position: relative;
             overflow: hidden;
         }
@@ -179,15 +180,15 @@
         .action-circle {
             width: 58px; height: 58px;
             border-radius: 50%;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.58);
+            border: 1px solid rgba(2,132,199,0.18);
             display: flex; align-items: center; justify-content: center;
             font-size: 1.35rem;
             transition: all 0.2s;
         }
         .action-item:hover .action-circle {
-            background: rgba(0,180,255,0.12);
-            border-color: rgba(0,180,255,0.35);
+            background: rgba(2,132,199,0.16);
+            border-color: rgba(2,132,199,0.35);
         }
         .action-circle.claim-circle {
             background: rgba(0,180,255,0.1);
@@ -222,7 +223,7 @@
             border-right: none;
         }
         .tab.active {
-            color: #fff;
+            color: var(--text);
             border-bottom-color: var(--blue);
         }
 
@@ -253,7 +254,7 @@
         .token-symbol {
             font-size: 0.92rem;
             font-weight: 700;
-            color: #fff;
+            color: var(--text);
         }
         .token-name {
             font-size: 0.75rem;
@@ -263,7 +264,7 @@
         .token-amount {
             font-size: 0.92rem;
             font-weight: 700;
-            color: #fff;
+            color: var(--text);
         }
         .token-usd {
             font-size: 0.75rem;
@@ -698,14 +699,9 @@
 
     <!-- Action Buttons -->
     <div class="action-row">
-        <div class="action-item" onclick="openModal('claimModal');">
-            <div class="action-circle claim-circle">
-                <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
-                    <circle cx="16" cy="16" r="16" fill="rgba(0,180,255,0.2)"/>
-                    <text x="16" y="21" text-anchor="middle" font-size="14" fill="#00b4ff" font-weight="900" font-family="Inter,sans-serif">G$</text>
-                </svg>
-            </div>
-            <span class="action-label">Claim</span>
+        <div class="action-item" onclick="window.location.href='/swap'">
+            <div class="action-circle">⇌</div>
+            <span class="action-label">Uniswap V3</span>
         </div>
         <div class="action-item" onclick="openModal('sendModal')">
             <div class="action-circle">↑</div>
@@ -715,9 +711,14 @@
             <div class="action-circle">↓</div>
             <span class="action-label">Receive</span>
         </div>
-        <div class="action-item" onclick="window.location.href='/swap'">
-            <div class="action-circle">⇌</div>
-            <span class="action-label">Swap</span>
+        <div class="action-item" onclick="openModal('claimModal');">
+            <div class="action-circle claim-circle">
+                <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+                    <circle cx="16" cy="16" r="16" fill="rgba(0,180,255,0.2)"/>
+                    <text x="16" y="21" text-anchor="middle" font-size="14" fill="#00b4ff" font-weight="900" font-family="Inter,sans-serif">G$</text>
+                </svg>
+            </div>
+            <span class="action-label">Claim</span>
         </div>
         <div class="action-item" onclick="window.location.href='/savings'">
             <div class="action-circle">🏦</div>
