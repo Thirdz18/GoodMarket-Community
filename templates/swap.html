@@ -710,7 +710,10 @@
         const CELO_CHAIN_ID  = 42220;
         window.isCustodialMode = {{ (login_method in ['custodial', 'turnkey']) | tojson }};
         const LOGIN_METHOD = '{{ login_method }}';
+        const PREFER_WC_SIGNING = ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
         const CELO_RPC       = "https://forno.celo.org";
+        let _wcSessionId = null;
+        let _wcAddress = null;
 
         // Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet
         function _getEthProvider() {
@@ -742,9 +745,88 @@
             return String(chainId).toLowerCase();
         }
 
+        function _delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        async function _celoJsonRpc(method, params) {
+            const resp = await fetch(CELO_RPC, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params: params || [] })
+            });
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error.message || 'RPC error');
+            return data.result;
+        }
+
+        async function _wcConnectSwap() {
+            const uriResp = await fetch('/api/wc-uri');
+            const uriData = await uriResp.json();
+            if (!uriResp.ok || !uriData.success || !uriData.id || !uriData.uri) {
+                throw new Error(uriData.error || 'WalletConnect unavailable');
+            }
+            _wcSessionId = uriData.id;
+            showAlert('info',
+                '📲 Scan WalletConnect QR in your wallet app:<br>' +
+                `<div style="margin-top:8px"><img alt="WalletConnect QR" style="max-width:180px;border-radius:8px;background:#fff;padding:8px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uriData.uri)}"></div>`
+            );
+            for (let i = 0; i < 60; i++) {
+                await _delay(2000);
+                const stResp = await fetch('/api/wc-session/' + encodeURIComponent(_wcSessionId));
+                const stData = await stResp.json();
+                if (!stResp.ok || !stData.success) continue;
+                if (stData.status === 'approved' && stData.address) {
+                    _wcAddress = stData.address;
+                    if (_wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                        throw new Error('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.');
+                    }
+                    return _wcAddress;
+                }
+                if (stData.status === 'rejected') throw new Error('WalletConnect request was rejected.');
+            }
+            throw new Error('WalletConnect approval timed out.');
+        }
+
+        async function _wcBridgeRequest(method, params) {
+            if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                if (!_wcAddress) await _wcConnectSwap();
+                return [_wcAddress];
+            }
+            if (method === 'eth_chainId') return '0xa4ec';
+            if (method === 'net_version') return '42220';
+            if (method === 'wallet_switchEthereumChain' || method === 'wallet_addEthereumChain') return null;
+            if (method === 'eth_sendTransaction') {
+                if (!_wcSessionId) await _wcConnectSwap();
+                const txParams = (params && params[0]) ? params[0] : {};
+                const txResp = await fetch('/api/wc-tx/' + encodeURIComponent(_wcSessionId), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(txParams)
+                });
+                const txData = await txResp.json();
+                if (!txResp.ok || !txData.success || txData.error || !txData.txHash) {
+                    throw new Error(txData.error || 'WalletConnect transaction failed');
+                }
+                return txData.txHash;
+            }
+            return _celoJsonRpc(method, params || []);
+        }
+
         async function getConnectedSwapSigner() {
+            if (window.isCustodialMode || LOGIN_METHOD === 'custodial' || LOGIN_METHOD === 'turnkey') {
+                throw new Error('This account uses custodial/Turnkey signing. Please use automatic server signing mode.');
+            }
             const ethProvider = _getEthProvider();
-            if (!ethProvider) throw new Error("No wallet detected. Please connect your GoodMarket wallet.");
+            if (!ethProvider) {
+                if (!PREFER_WC_SIGNING) throw new Error("No wallet detected. Please connect your GoodMarket wallet.");
+                const wcBridgeProvider = { request: _wcBridgeRequest };
+                const wcProvider = new ethers.BrowserProvider(wcBridgeProvider);
+                const wcSigner = await wcProvider.getSigner();
+                const wcAddr = await wcSigner.getAddress();
+                if (wcAddr.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                    throw new Error("Wrong WalletConnect wallet connected. Please switch to your GoodMarket wallet.");
+                }
+                return wcSigner;
+            }
 
             const accounts = await ethProvider.request({ method: "eth_requestAccounts" });
             if (!accounts || !accounts.length) throw new Error("No wallet account available.");

@@ -1180,6 +1180,7 @@ def learn_earn_dashboard():
     resp = make_response(render_template(
         'learn_and_earn.html',
         wallet=wallet,
+        login_method=session.get('login_method', 'walletconnect'),
         escrow_address=achievement_nft_service.escrow_address,
         escrow_enabled=achievement_nft_service.is_escrow_configured
     ))

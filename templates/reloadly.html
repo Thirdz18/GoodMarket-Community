@@ -410,6 +410,9 @@ const GD_CONTRACT = "{{ gd_contract }}";
 const GD_DECIMALS = 18;
 const CELO_CHAIN_ID = 42220;
 const WC_PROJECT_ID = "{{ walletconnect_project_id }}";
+const WALLET_ADDRESS = "{{ wallet }}";
+const LOGIN_METHOD = "{{ login_method }}";
+const PREFER_WC_SIGNING = ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
 window.isCustodialMode = {{ (login_method in ['custodial', 'turnkey']) | tojson }};
 
 // ─── Live G$ price refresh (every 5 min from CoinGecko via backend) ──────────
@@ -433,6 +436,8 @@ let selectedGcProduct = null, selectedBiller = null;
 let currentOrderId = null;
 let _pendingOrderData = null;
 let _scanningActive = false;   // true while blockchain polling is running
+let _wcSessionId = null;
+let _wcAddress = null;
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
 function showToast(msg, type = 'success') {
@@ -498,7 +503,55 @@ function isDAppBrowser() {
     return !!(_getEthProvider());
 }
 
+function _delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function wcConnectForReloadly() {
+    const uriResp = await fetch('/api/wc-uri');
+    const uriData = await uriResp.json();
+    if (!uriResp.ok || !uriData.success || !uriData.id || !uriData.uri) {
+        throw new Error(uriData.error || 'WalletConnect is unavailable right now.');
+    }
+    _wcSessionId = uriData.id;
+    setDappStatus('info',
+        '<i class="fas fa-qrcode"></i> Scan WalletConnect QR in your wallet app:<br>' +
+        `<img alt="WalletConnect QR" style="margin-top:8px;max-width:180px;border-radius:8px;background:#fff;padding:8px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uriData.uri)}">`
+    );
+
+    for (let i = 0; i < 60; i++) {
+        await _delay(2000);
+        const stResp = await fetch('/api/wc-session/' + encodeURIComponent(_wcSessionId));
+        const stData = await stResp.json();
+        if (!stResp.ok || !stData.success) continue;
+        if (stData.status === 'approved' && stData.address) {
+            _wcAddress = stData.address;
+            if (WALLET_ADDRESS && _wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                throw new Error('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.');
+            }
+            return _wcAddress;
+        }
+        if (stData.status === 'rejected') throw new Error('WalletConnect request was rejected.');
+    }
+    throw new Error('WalletConnect approval timed out.');
+}
+
+async function wcSendTxReloadly(txParams) {
+    if (!_wcSessionId) await wcConnectForReloadly();
+    const txResp = await fetch('/api/wc-tx/' + encodeURIComponent(_wcSessionId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(txParams)
+    });
+    const txData = await txResp.json();
+    if (!txResp.ok || !txData.success || txData.error || !txData.txHash) {
+        throw new Error(txData.error || 'WalletConnect transaction failed');
+    }
+    return txData.txHash;
+}
+
 async function dappConnect() {
+    if (window.isCustodialMode || LOGIN_METHOD === 'custodial' || LOGIN_METHOD === 'turnkey') {
+        throw new Error('This account uses custodial/Turnkey signing. Please continue with automatic server signing.');
+    }
     const ep = _getEthProvider();
     await ep.request({ method: 'eth_requestAccounts' });
     const chainHex = await ep.request({ method: 'eth_chainId' });
@@ -513,6 +566,10 @@ async function dappConnect() {
         }
     }
     const accounts = await ep.request({ method: 'eth_accounts' });
+    if (!accounts || !accounts[0]) throw new Error('No wallet account found.');
+    if (WALLET_ADDRESS && accounts[0].toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+        throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+    }
     return accounts[0];
 }
 
@@ -559,7 +616,15 @@ async function dappSendPayment() {
             return;
         }
 
-        const from = await dappConnect();
+        const ep = _getEthProvider();
+        let from;
+        if (ep) {
+            from = await dappConnect();
+        } else if (PREFER_WC_SIGNING) {
+            from = await wcConnectForReloadly();
+        } else {
+            throw new Error('No wallet found. Use a dApp browser or WalletConnect login.');
+        }
 
         setDappStatus('info',
             '<i class="fas fa-spinner spin"></i> Confirm in wallet:<br>' +
@@ -568,15 +633,26 @@ async function dappSendPayment() {
             '<code style="font-size:10px">' + MERCHANT_ADDRESS.slice(0,10) + '...' + MERCHANT_ADDRESS.slice(-6) + '</code></small>'
         );
 
-        const txHash = await _getEthProvider().request({
-            method: 'eth_sendTransaction',
-            params: [{
+        let txHash;
+        if (ep) {
+            txHash = await ep.request({
+                method: 'eth_sendTransaction',
+                params: [{
+                    from: from,
+                    to: GD_CONTRACT,
+                    data: data,
+                    gas: '0x3D090'
+                }]
+            });
+        } else {
+            txHash = await wcSendTxReloadly({
                 from: from,
                 to: GD_CONTRACT,
                 data: data,
-                gas: '0x3D090'
-            }]
-        });
+                gas: '0x3D090',
+                value: '0x0'
+            });
+        }
 
         if (!txHash) throw new Error('No transaction hash returned by wallet');
 
@@ -700,11 +776,13 @@ async function openPayModal(order) {
 
     showStep('stepPay');
 
-    if (isDAppBrowser()) {
+    if (isDAppBrowser() || PREFER_WC_SIGNING) {
         // DApp browser — direct payment via window.ethereum
         document.getElementById('dappFlow').style.display = 'block';
         document.getElementById('dappGdAmt').textContent = order.gd_amount;
-        setDappStatus('info', '<i class="fas fa-mobile-alt"></i> Wallet detected! Click below to pay.');
+        setDappStatus('info', isDAppBrowser()
+            ? '<i class="fas fa-mobile-alt"></i> Wallet detected! Click below to pay.'
+            : '<i class="fas fa-link"></i> WalletConnect signing ready. Click below to connect and pay.');
         document.getElementById('dappPayBtn').disabled = false;
     } else {
         // Regular browser — manual send to merchant address

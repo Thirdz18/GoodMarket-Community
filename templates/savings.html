@@ -403,6 +403,7 @@
     const GD_CONTRACT = "{{ gd_contract }}";
     const CHAIN_ID = {{ chain_id }};
     const CELO_RPC = "https://forno.celo.org";
+    const LOGIN_METHOD = "{{ login_method }}";
     window.isCustodialMode = {{ (login_method in ['custodial', 'turnkey']) | tojson }};
 
     // ── Server-sign helper (custodial + managed wallets): encode calldata client-side, sign server-side ──
@@ -539,6 +540,9 @@
     }
 
     async function getSigner() {
+        if (window.isCustodialMode || LOGIN_METHOD === 'custodial' || LOGIN_METHOD === 'turnkey') {
+            throw new Error('This account uses custodial/Turnkey signing. Please continue with automatic server signing.');
+        }
         const ep = _getEthProvider();
         if (ep) {
             const accounts = await ep.request({ method: 'eth_requestAccounts' });

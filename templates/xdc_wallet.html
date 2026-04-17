@@ -579,6 +579,7 @@
         const WALLET = "{{ wallet }}";
         const XDC_CHAIN_ID = 50;
         const XDC_CHAIN_ID_HEX = "0x32";
+        const LOGIN_METHOD = "{{ login_method }}";
         const isCustodialMode = {{ 'true' if is_custodial else 'false' }};
 
         function _getEthProvider() {
@@ -791,6 +792,10 @@
                 btn.innerHTML = '<span class="spinner-inline"></span> Requesting wallet...';
                 const accounts = await ep.request({ method: 'eth_requestAccounts' });
                 const from = accounts[0];
+                if (!from) throw new Error('No wallet account found.');
+                if (!isCustodialMode && WALLET && normalizeAddr(from).toLowerCase() !== normalizeAddr(WALLET).toLowerCase()) {
+                    throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+                }
 
                 btn.innerHTML = '<span class="spinner-inline"></span> Confirm in wallet...';
                 const txParams = {
