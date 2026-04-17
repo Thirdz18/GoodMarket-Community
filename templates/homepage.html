@@ -1953,9 +1953,31 @@
             document.getElementById('walletOptions').style.display = 'none';
             const f = document.getElementById('createWalletForm');
             if (f) f.classList.add('visible');
+            setOtpBypassUI(false);
         }
 
         let otpBypassAllowed = false;
+
+        function setOtpBypassUI(enabled) {
+            otpBypassAllowed = !!enabled;
+            const codeInput = document.getElementById('createEmailCode');
+            const codeLabel = document.querySelector('label[for="createEmailCode"]');
+            const createWalletBtnText = document.getElementById('createWalletBtnText');
+            if (codeInput) {
+                codeInput.disabled = otpBypassAllowed;
+                codeInput.placeholder = otpBypassAllowed
+                    ? 'OTP unavailable in this deployment'
+                    : 'Enter code from your email';
+            }
+            if (codeLabel) {
+                codeLabel.style.opacity = otpBypassAllowed ? '0.65' : '1';
+            }
+            if (createWalletBtnText) {
+                createWalletBtnText.textContent = otpBypassAllowed
+                    ? 'Create Wallet (OTP Unavailable)'
+                    : 'Verify Code & Create Wallet';
+            }
+        }
 
         async function sendTurnkeyEmailCode() {
             const statusDiv = document.getElementById('createWalletStatus');
@@ -1983,15 +2005,15 @@
                 const data = await resp.json();
 
                 if (resp.ok && data.success) {
-                    otpBypassAllowed = false;
+                    setOtpBypassUI(false);
                     statusDiv.className = 'status-message success';
                     statusDiv.textContent = '✅ Code sent! Check your email inbox, then enter the 6-digit code below.';
                 } else {
                     const serverError = (data.error || data.message || '').toString();
                     if (data.code === 'otp_unavailable' || serverError.toLowerCase().includes('turnkey service unavailable')) {
-                        otpBypassAllowed = true;
+                        setOtpBypassUI(true);
                         statusDiv.className = 'status-message info';
-                        statusDiv.textContent = 'ℹ️ Email OTP is unavailable on this deployment. You can still create a wallet directly below.';
+                        statusDiv.textContent = 'ℹ️ Email OTP is unavailable right now. You can still continue with direct wallet creation.';
                         return;
                     }
                     statusDiv.className = 'status-message error';
@@ -2053,19 +2075,34 @@
                     });
                     const verifyData = await verifyResp.json();
                     if (!(verifyResp.ok && verifyData.success)) {
+                        const verifyError = (verifyData.error || verifyData.message || '').toString();
+                        if (verifyData.code === 'otp_unavailable' || verifyError.toLowerCase().includes('turnkey service unavailable')) {
+                            setOtpBypassUI(true);
+                            statusDiv.className = 'status-message info';
+                            statusDiv.textContent = 'ℹ️ OTP verification service is currently unavailable. Continuing with direct wallet creation...';
+                        } else {
+                            statusDiv.className = 'status-message error';
+                            statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
+                            if (btn) btn.disabled = false;
+                            btnText.textContent = 'Verify Code & Create Wallet';
+                            return;
+                        }
+                    } else {
+                        createPayload.userId = email;
+                        createPayload.userName = email;
+                        createPayload.email = email;
+                        btnText.textContent = 'Creating wallet…';
+                        statusDiv.className = 'status-message info';
+                        statusDiv.textContent = '⏳ Code verified. Creating your wallet on Celo...';
+                    }
+
+                    if (!otpBypassAllowed && !createPayload.email) {
                         statusDiv.className = 'status-message error';
-                        statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
+                        statusDiv.textContent = 'OTP verification did not complete. Please try again.';
                         if (btn) btn.disabled = false;
                         btnText.textContent = 'Verify Code & Create Wallet';
                         return;
                     }
-
-                    createPayload.userId = email;
-                    createPayload.userName = email;
-                    createPayload.email = email;
-                    btnText.textContent = 'Creating wallet…';
-                    statusDiv.className = 'status-message info';
-                    statusDiv.textContent = '⏳ Code verified. Creating your wallet on Celo...';
                 }
 
                 const createResp = await fetch('/api/turnkey/create-wallet', {
