@@ -2,6 +2,7 @@ import http from 'http';
 import { SignClient } from '@walletconnect/sign-client';
 import { Turnkey } from '@turnkey/sdk-server';
 import { encryptPrivateKeyToBundle } from '@turnkey/crypto';
+import { decryptExportBundle, generateP256KeyPair } from '@turnkey/crypto';
 
 const PROJECT_ID = process.env.WALLETCONNECT_PROJECT_ID;
 const PORT = parseInt(process.env.WC_SERVICE_PORT || '3001');
@@ -345,6 +346,66 @@ async function handleTurnkey(req, res, path) {
             });
         } catch (err) {
             console.error('Turnkey wallet info error:', err.message);
+            return sendJSON(res, 500, { error: err.message });
+        }
+    }
+
+    // POST /turnkey/export-wallet-account — export and decrypt private key for a wallet account
+    if (req.method === 'POST' && (path === '/turnkey/export-wallet-account' || path === '/turnkey/export-private-key')) {
+        try {
+            const { subOrgId, address } = await readBody(req);
+            if (!subOrgId || !address) {
+                return sendJSON(res, 400, { error: 'subOrgId and address required' });
+            }
+
+            const targetKeyPair = generateP256KeyPair();
+            let exportResult = null;
+            let lastExportError = null;
+
+            try {
+                exportResult = await client.exportWalletAccount({
+                    organizationId: subOrgId,
+                    address,
+                    targetPublicKey: targetKeyPair.publicKey
+                });
+            } catch (err) {
+                lastExportError = err;
+            }
+
+            // Fallback: some deployments only support uncompressed public keys.
+            if (!exportResult?.exportBundle) {
+                try {
+                    exportResult = await client.exportWalletAccount({
+                        organizationId: subOrgId,
+                        address,
+                        targetPublicKey: targetKeyPair.publicKeyUncompressed
+                    });
+                } catch (err) {
+                    lastExportError = err;
+                }
+            }
+
+            const exportBundle = exportResult?.exportBundle;
+            if (!exportBundle) {
+                throw new Error(lastExportError?.message || 'Turnkey export did not return exportBundle');
+            }
+
+            const privateKeyHex = await decryptExportBundle({
+                exportBundle,
+                embeddedKey: targetKeyPair.privateKey,
+                organizationId: subOrgId
+            });
+
+            if (!privateKeyHex || privateKeyHex.length !== 64) {
+                throw new Error('Invalid exported private key format');
+            }
+
+            return sendJSON(res, 200, {
+                success: true,
+                privateKey: '0x' + privateKeyHex
+            });
+        } catch (err) {
+            console.error('Turnkey export-wallet-account error:', err.message);
             return sendJSON(res, 500, { error: err.message });
         }
     }

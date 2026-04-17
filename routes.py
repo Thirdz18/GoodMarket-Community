@@ -5231,6 +5231,16 @@ def _clear_email_onboarding_session():
     session.pop("turnkey_email_fallback_at", None)
 
 
+def _turnkey_export_recently_verified(email: str, max_age_seconds: int = 10 * 60) -> bool:
+    verified_email = session.get("turnkey_export_email_verified")
+    verified_at = int(session.get("turnkey_export_email_verified_at") or 0)
+    if not verified_email or verified_email != _normalize_email(email):
+        return False
+    if not verified_at:
+        return False
+    return int(time.time()) - verified_at <= max_age_seconds
+
+
 @routes.route("/api/turnkey/login", methods=["POST"])
 def turnkey_login():
     """Login with a private key — derives address locally, stores encrypted key in session."""
@@ -5601,6 +5611,65 @@ def turnkey_email_recover_wallet():
     except Exception as e:
         logger.error(f"turnkey_email_recover_wallet error: {e}")
         return jsonify({"success": False, "error": "Wallet recovery failed"}), 500
+
+
+@routes.route("/api/turnkey/export/send-code", methods=["POST"])
+@auth_required
+def turnkey_export_send_code():
+    """Send OTP specifically for private key export re-authentication."""
+    if session.get("login_method") != "turnkey":
+        return jsonify({"success": False, "error": "Only available for Turnkey wallets"}), 403
+    try:
+        from turnkey_service import send_email_otp_turnkey
+        data = request.get_json() or {}
+        email = _normalize_email(data.get("email", ""))
+        if not email or "@" not in email:
+            return jsonify({"success": False, "error": "Valid email required"}), 400
+
+        result, err = send_email_otp_turnkey(email)
+        if err:
+            return jsonify({"success": False, "error": err}), 400
+
+        session["turnkey_export_email_pending"] = email
+        session["turnkey_export_email_verified"] = None
+        session["turnkey_export_email_verified_at"] = None
+        session.permanent = True
+        return jsonify({"success": True, "email": email, "result": result or {}})
+    except Exception as e:
+        logger.error(f"turnkey_export_send_code error: {e}")
+        return jsonify({"success": False, "error": "Failed to send export verification code"}), 500
+
+
+@routes.route("/api/turnkey/export/verify-code", methods=["POST"])
+@auth_required
+def turnkey_export_verify_code():
+    """Verify OTP specifically for private key export re-authentication."""
+    if session.get("login_method") != "turnkey":
+        return jsonify({"success": False, "error": "Only available for Turnkey wallets"}), 403
+    try:
+        from turnkey_service import verify_email_otp_turnkey
+        data = request.get_json() or {}
+        email = _normalize_email(data.get("email", ""))
+        code = str(data.get("code", "")).strip()
+        if not email or not code:
+            return jsonify({"success": False, "error": "email and code required"}), 400
+
+        pending_email = session.get("turnkey_export_email_pending")
+        if pending_email and pending_email != email:
+            return jsonify({"success": False, "error": "Email mismatch. Request a new code."}), 400
+
+        result, err = verify_email_otp_turnkey(email, code)
+        if err:
+            return jsonify({"success": False, "error": err}), 400
+
+        session["turnkey_export_email_pending"] = email
+        session["turnkey_export_email_verified"] = email
+        session["turnkey_export_email_verified_at"] = int(time.time())
+        session.permanent = True
+        return jsonify({"success": True, "email": email, "result": result or {}})
+    except Exception as e:
+        logger.error(f"turnkey_export_verify_code error: {e}")
+        return jsonify({"success": False, "error": "Code verification failed"}), 500
 
 
 @routes.route("/api/turnkey/sign-tx", methods=["POST"])
@@ -5984,18 +6053,44 @@ def turnkey_status():
 @auth_required
 def export_private_key():
     """Return the decrypted private key for custodial-mode users (session only)."""
-    if session.get("login_method") != "custodial":
-        return jsonify({"success": False, "error": "Only available for custodial wallets"}), 403
-    enc_key = session.get("custodial_key_enc")
-    if not enc_key:
-        return jsonify({"success": False, "error": "No key in session — please log in again"}), 401
-    try:
-        fernet = _get_fernet()
-        private_key = fernet.decrypt(enc_key.encode()).decode()
-        return jsonify({"success": True, "private_key": private_key})
-    except Exception as e:
-        logger.error(f"export-key error: {e}")
-        return jsonify({"success": False, "error": "Could not decrypt key"}), 500
+    login_method = session.get("login_method")
+    if login_method == "custodial":
+        enc_key = session.get("custodial_key_enc")
+        if not enc_key:
+            return jsonify({"success": False, "error": "No key in session — please log in again"}), 401
+        try:
+            fernet = _get_fernet()
+            private_key = fernet.decrypt(enc_key.encode()).decode()
+            return jsonify({"success": True, "private_key": private_key})
+        except Exception as e:
+            logger.error(f"export-key (custodial) error: {e}")
+            return jsonify({"success": False, "error": "Could not decrypt key"}), 500
+
+    if login_method == "turnkey":
+        try:
+            data = request.get_json(silent=True) or {}
+            email = _normalize_email(data.get("email", session.get("turnkey_export_email_verified", "")))
+            if not email or not _turnkey_export_recently_verified(email):
+                return jsonify({
+                    "success": False,
+                    "error": "Please verify your email code first to export this key."
+                }), 403
+
+            suborg_id = session.get("turnkey_suborg_id")
+            wallet = session.get("wallet")
+            if not suborg_id or not wallet:
+                return jsonify({"success": False, "error": "Turnkey wallet session missing. Please log in again."}), 401
+
+            from turnkey_service import export_wallet_account_turnkey
+            private_key, err = export_wallet_account_turnkey(suborg_id, wallet)
+            if err:
+                return jsonify({"success": False, "error": err}), 500
+            return jsonify({"success": True, "private_key": private_key})
+        except Exception as e:
+            logger.error(f"export-key (turnkey) error: {e}")
+            return jsonify({"success": False, "error": "Could not export Turnkey key"}), 500
+
+    return jsonify({"success": False, "error": "Only available for custodial and Turnkey wallets"}), 403
 
 
 @routes.route("/api/notifications", methods=["GET"])

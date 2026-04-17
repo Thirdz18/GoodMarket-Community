@@ -955,6 +955,29 @@
                 👁 Show Private Key
             </button>
             <div class="alert" id="pkAlert"></div>
+            {% elif login_method == 'turnkey' %}
+            <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Private Key Export (Turnkey)</div>
+
+            <div class="pk-warning">
+                ⚠️ <strong>Never share your private key with anyone.</strong><br>
+                Turnkey export requires an email OTP for security. GoodMarket staff will never ask for your private key.
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Email for OTP Verification</label>
+                <input class="form-input" id="pkEmailInput" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false">
+            </div>
+            <div class="form-group" style="display:flex;gap:0.5rem;">
+                <input class="form-input" id="pkOtpInput" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6-digit code" autocomplete="one-time-code" spellcheck="false" style="flex:1;">
+                <button class="btn-secondary" id="pkSendCodeBtn" onclick="sendTurnkeyExportCode()" style="margin-top:0;white-space:nowrap;padding:0 0.9rem;">Send Code</button>
+            </div>
+
+            <div class="pk-box" id="pkDisplay"></div>
+
+            <button class="btn-primary btn-danger" id="showPkBtn" onclick="revealPrivateKey()" style="background:rgba(255,82,82,0.12);border:1px solid rgba(255,82,82,0.3);color:#ff7070;">
+                👁 Verify OTP & Show Private Key
+            </button>
+            <div class="alert" id="pkAlert"></div>
             {% else %}
             <div style="background:rgba(0,180,255,0.07);border:1px solid rgba(0,180,255,0.2);border-radius:12px;padding:0.9rem 1rem;font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;">
                 ℹ️ Private key export is only available for custodial wallets created in GoodMarket.
@@ -1325,19 +1348,90 @@
 
     // ── Private Key Export ───────────────────────────────────
     let pkRevealed = false;
+    let turnkeyExportOtpVerified = false;
+
+    async function sendTurnkeyExportCode() {
+        clearAlert('pkAlert');
+        const emailEl = document.getElementById('pkEmailInput');
+        const btn = document.getElementById('pkSendCodeBtn');
+        if (!emailEl || !btn) return;
+
+        const email = (emailEl.value || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) {
+            showAlert('pkAlert', 'alert-error', '❌ Enter a valid email address');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+            const res = await fetch('/api/turnkey/export/send-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                showAlert('pkAlert', 'alert-error', '❌ ' + (data.error || 'Failed to send code'));
+                return;
+            }
+            turnkeyExportOtpVerified = false;
+            showAlert('pkAlert', 'alert-success', '✅ Code sent. Enter the 6-digit code then tap export.');
+        } catch (e) {
+            showAlert('pkAlert', 'alert-error', '❌ ' + (e.message || 'Network error'));
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Send Code';
+        }
+    }
+
     async function revealPrivateKey() {
         if (pkRevealed) {
             document.getElementById('pkDisplay').style.display = 'none';
-            document.getElementById('showPkBtn').textContent = '👁 Show Private Key';
+            document.getElementById('showPkBtn').textContent =
+                (LOGIN_METHOD === 'turnkey') ? '👁 Verify OTP & Show Private Key' : '👁 Show Private Key';
             pkRevealed = false;
             return;
         }
         const btn = document.getElementById('showPkBtn');
         btn.disabled = true;
-        btn.textContent = 'Loading…';
+        btn.textContent = (LOGIN_METHOD === 'turnkey') ? 'Verifying OTP…' : 'Loading…';
         clearAlert('pkAlert');
         try {
-            const res = await fetch('/api/wallet/export-key', { method: 'POST' });
+            let requestBody = {};
+            if (LOGIN_METHOD === 'turnkey') {
+                const email = (document.getElementById('pkEmailInput')?.value || '').trim().toLowerCase();
+                const code = (document.getElementById('pkOtpInput')?.value || '').trim();
+                if (!email || !email.includes('@')) {
+                    showAlert('pkAlert', 'alert-error', '❌ Enter your email first');
+                    return;
+                }
+                if (!turnkeyExportOtpVerified) {
+                    if (!/^\d{6}$/.test(code)) {
+                        showAlert('pkAlert', 'alert-error', '❌ Enter the 6-digit OTP code');
+                        return;
+                    }
+                    const verifyRes = await fetch('/api/turnkey/export/verify-code', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, code })
+                    });
+                    const verifyData = await verifyRes.json();
+                    if (!verifyRes.ok || !verifyData.success) {
+                        showAlert('pkAlert', 'alert-error', '❌ ' + (verifyData.error || 'OTP verification failed'));
+                        return;
+                    }
+                    turnkeyExportOtpVerified = true;
+                }
+                requestBody.email = email;
+                btn.textContent = 'Exporting…';
+            }
+
+            const res = await fetch('/api/wallet/export-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
             let data;
             try {
                 data = await res.json();

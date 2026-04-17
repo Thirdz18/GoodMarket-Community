@@ -147,6 +147,34 @@ def sign_message_turnkey(suborg_id, sign_with, message):
     return data.get('signature'), None
 
 
+def export_wallet_account_turnkey(suborg_id, address):
+    """Export + decrypt a Turnkey wallet account private key via sidecar."""
+    payload = {
+        "subOrgId": str(suborg_id),
+        "address": str(address),
+    }
+    candidate_paths = [
+        "/turnkey/export-wallet-account",
+        "/turnkey/export-private-key",
+    ]
+    last_err = None
+    for path in candidate_paths:
+        data, err = _call_wc("POST", path, payload, timeout=60)
+        if err:
+            last_err = err
+            continue
+        if isinstance(data, dict) and data.get("success") is False:
+            last_err = data.get("error") or data.get("message") or "Turnkey export failed"
+            continue
+        private_key = (data or {}).get("privateKey") or (data or {}).get("private_key")
+        if private_key:
+            if not private_key.startswith("0x"):
+                private_key = "0x" + private_key
+            return private_key, None
+        last_err = "No private key returned from Turnkey export"
+    return None, last_err or "Turnkey export unavailable"
+
+
 def build_and_sign_erc20_transfer(suborg_id, sign_with, from_address,
                                    to_address, amount_wei, contract_address,
                                    nonce=None, gas=None, gas_price=None):
