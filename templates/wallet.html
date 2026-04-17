@@ -57,6 +57,17 @@
             font-weight: 700;
             color: #fff;
             letter-spacing: -0.3px;
+            text-align: center;
+            line-height: 1.1;
+        }
+        .top-bar-subtitle {
+            margin-top: 0.2rem;
+            font-size: 0.62rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.72);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            text-align: center;
         }
         .icon-btn {
             width: 40px; height: 40px;
@@ -659,7 +670,10 @@
     <!-- Top Bar -->
     <div class="top-bar">
         <button class="icon-btn" onclick="openModal('settingsModal')" title="Settings">⚙️</button>
-        <div class="top-bar-title">GoodMarket</div>
+        <div>
+            <div class="top-bar-title">GoodMarket</div>
+            <div class="top-bar-subtitle">Powered by Community Moderators</div>
+        </div>
         <div style="display:flex;gap:0.3rem;align-items:center;">
             <a href="/dashboard" class="icon-btn" title="Dashboard" style="text-decoration:none;font-size:1rem;">📊</a>
             <a href="/overview" class="icon-btn" title="Overview" style="text-decoration:none;font-size:1rem;">🏠</a>
