@@ -1821,6 +1821,15 @@
                     <span class="option-arrow" style="color:#10b981;">→</span>
                 </button>
 
+                <button class="wallet-option-card" onclick="showRecoverWalletForm()" style="border-color: rgba(37,99,235,0.45); background: linear-gradient(135deg, rgba(37,99,235,0.09), rgba(29,78,216,0.05));">
+                    <div class="option-icon">📧</div>
+                    <div class="option-text">
+                        <div class="option-title" style="color:#2563eb;">Recover Email-Linked Wallet</div>
+                        <p class="option-desc">Already created a wallet with email? Send a code and sign back in</p>
+                    </div>
+                    <span class="option-arrow" style="color:#2563eb;">→</span>
+                </button>
+
                 <div style="text-align:center; padding-top: 0.25rem;">
                     <a href="https://t.me/GoodDollarX" target="_blank" rel="noopener noreferrer" style="color:#7c3aed; font-size:0.82rem; text-decoration:none;">
                         💬 Join our Telegram community t.me/GoodDollarX ↗
@@ -1833,8 +1842,8 @@
                 <button class="back-btn" onclick="showWalletOptions()">← Back</button>
 
                 <div style="background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(5,150,105,0.06)); border: 1px solid rgba(16,185,129,0.35); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.2rem;">
-                    <div style="font-weight:700; color:#10b981; font-size:0.9rem; margin-bottom:0.4rem;">🆕 Create Your GoodDollar Wallet</div>
-                    <div style="font-size:0.82rem; color:#1f2937; line-height:1.6;">
+                    <div id="createWalletTitle" style="font-weight:700; color:#10b981; font-size:0.9rem; margin-bottom:0.4rem;">🆕 Create Your GoodDollar Wallet</div>
+                    <div id="createWalletHelperText" style="font-size:0.82rem; color:#1f2937; line-height:1.6;">
                         Enter your email, get a one-time sign-in code, then create your wallet in one tap.
                     </div>
                 </div>
@@ -1950,18 +1959,63 @@
         }
 
         function showCreateWalletForm() {
+            configureWalletForm('create');
             document.getElementById('walletOptions').style.display = 'none';
             const f = document.getElementById('createWalletForm');
             if (f) f.classList.add('visible');
         }
 
         let otpBypassAllowed = false;
+        let walletFormMode = 'create';
+
+        function setCreateWalletButtonText(text) {
+            const btnText = document.getElementById('createWalletBtnText');
+            if (btnText) btnText.textContent = text;
+        }
+
+        function configureWalletForm(mode) {
+            walletFormMode = mode;
+            otpBypassAllowed = false;
+            const statusDiv = document.getElementById('createWalletStatus');
+            const codeInput = document.getElementById('createEmailCode');
+            const referralGroup = document.getElementById('createReferralCode')?.closest('.wallet-input-group');
+            const title = document.getElementById('createWalletTitle');
+            const helper = document.getElementById('createWalletHelperText');
+            if (statusDiv) {
+                statusDiv.className = 'status-message';
+                statusDiv.textContent = '';
+            }
+            if (codeInput) {
+                codeInput.value = '';
+                codeInput.disabled = false;
+                codeInput.placeholder = 'Enter code from your email';
+            }
+            if (mode === 'recover') {
+                if (title) title.textContent = '📧 Recover Your GoodDollar Wallet';
+                if (helper) helper.textContent = 'Enter the same email you used before, verify the sign-in code, then recover your linked wallet.';
+                if (referralGroup) referralGroup.style.display = 'none';
+                setCreateWalletButtonText('Verify Code & Recover Wallet');
+            } else {
+                if (title) title.textContent = '🆕 Create Your GoodDollar Wallet';
+                if (helper) helper.textContent = 'Enter your email, get a one-time sign-in code, then create your wallet in one tap.';
+                if (referralGroup) referralGroup.style.display = '';
+                setCreateWalletButtonText('Verify Code & Create Wallet');
+            }
+        }
+
+        function showRecoverWalletForm() {
+            configureWalletForm('recover');
+            document.getElementById('walletOptions').style.display = 'none';
+            const f = document.getElementById('createWalletForm');
+            if (f) f.classList.add('visible');
+        }
 
         async function sendTurnkeyEmailCode() {
             const statusDiv = document.getElementById('createWalletStatus');
             const btnText = document.getElementById('sendCodeBtnText');
             const btn = btnText ? btnText.closest('button') : null;
             const email = ((document.getElementById('createEmail') || {}).value || '').trim().toLowerCase();
+            const codeInput = document.getElementById('createEmailCode');
 
             if (!email || !email.includes('@')) {
                 statusDiv.className = 'status-message error';
@@ -1984,14 +2038,31 @@
 
                 if (resp.ok && data.success) {
                     otpBypassAllowed = false;
+                    if (codeInput) {
+                        codeInput.disabled = false;
+                        codeInput.placeholder = 'Enter code from your email';
+                    }
+                    setCreateWalletButtonText(walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet');
                     statusDiv.className = 'status-message success';
                     statusDiv.textContent = '✅ Code sent! Check your email inbox, then enter the 6-digit code below.';
                 } else {
                     const serverError = (data.error || data.message || '').toString();
                     if (data.code === 'otp_unavailable' || serverError.toLowerCase().includes('turnkey service unavailable')) {
+                        if (walletFormMode === 'recover') {
+                            otpBypassAllowed = false;
+                            statusDiv.className = 'status-message error';
+                            statusDiv.textContent = 'Email sign-in code is required for wallet recovery. Please try again later.';
+                            return;
+                        }
                         otpBypassAllowed = true;
+                        if (codeInput) {
+                            codeInput.value = '';
+                            codeInput.disabled = true;
+                            codeInput.placeholder = 'Code not required on this deployment';
+                        }
+                        setCreateWalletButtonText('Create Wallet');
                         statusDiv.className = 'status-message info';
-                        statusDiv.textContent = 'ℹ️ Email OTP is unavailable on this deployment. You can still create a wallet directly below.';
+                        statusDiv.textContent = 'ℹ️ Email code is unavailable on this deployment. Tap Create Wallet below to continue with this email.';
                         return;
                     }
                     statusDiv.className = 'status-message error';
@@ -2018,10 +2089,13 @@
             const email = ((document.getElementById('createEmail') || {}).value || '').trim().toLowerCase();
             const code = ((document.getElementById('createEmailCode') || {}).value || '').trim();
             const createPayload = {
-                referral_code: referral || null
+                referral_code: referral || null,
+                userId: email || undefined,
+                userName: email || undefined,
+                email: email || undefined
             };
 
-            if (!otpBypassAllowed && (!email || !email.includes('@'))) {
+            if (!email || !email.includes('@')) {
                 statusDiv.className = 'status-message error';
                 statusDiv.textContent = 'Please enter a valid email address.';
                 return;
@@ -2037,7 +2111,7 @@
             if (otpBypassAllowed) {
                 btnText.textContent = 'Creating wallet…';
                 statusDiv.className = 'status-message info';
-                statusDiv.textContent = '⏳ Creating your wallet (OTP fallback mode)...';
+                    statusDiv.textContent = '⏳ Creating your wallet...';
             } else {
                 btnText.textContent = 'Verifying code…';
                 statusDiv.className = 'status-message info';
@@ -2056,7 +2130,30 @@
                         statusDiv.className = 'status-message error';
                         statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
                         if (btn) btn.disabled = false;
-                        btnText.textContent = 'Verify Code & Create Wallet';
+                        btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : 'Verify Code & Create Wallet';
+                        return;
+                    }
+
+                    if (walletFormMode === 'recover') {
+                        btnText.textContent = 'Recovering wallet…';
+                        statusDiv.className = 'status-message info';
+                        statusDiv.textContent = '⏳ Code verified. Recovering your linked wallet...';
+                        const recoverResp = await fetch('/api/turnkey/email/recover-wallet', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email })
+                        });
+                        const recoverData = await recoverResp.json();
+                        if (recoverResp.ok && recoverData.success && recoverData.wallet) {
+                            statusDiv.className = 'status-message success';
+                            statusDiv.textContent = `✅ Wallet recovered: ${recoverData.wallet.slice(0,8)}…${recoverData.wallet.slice(-4)} — Redirecting…`;
+                            setTimeout(() => { window.location.href = recoverData.redirect_to || '/wallet'; }, 1500);
+                        } else {
+                            statusDiv.className = 'status-message error';
+                            statusDiv.textContent = recoverData.error || recoverData.message || 'No linked wallet found for this email.';
+                            if (btn) btn.disabled = false;
+                            btnText.textContent = 'Verify Code & Recover Wallet';
+                        }
                         return;
                     }
 
@@ -2083,13 +2180,13 @@
                     statusDiv.className = 'status-message error';
                     statusDiv.textContent = createData.message || 'Wallet creation failed. Please try again.';
                     if (btn) btn.disabled = false;
-                    btnText.textContent = 'Verify Code & Create Wallet';
+                    btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : (otpBypassAllowed ? 'Create Wallet' : 'Verify Code & Create Wallet');
                 }
             } catch (err) {
                 statusDiv.className = 'status-message error';
                 statusDiv.textContent = 'Network error. Please try again.';
                 if (btn) btn.disabled = false;
-                btnText.textContent = 'Verify Code & Create Wallet';
+                btnText.textContent = walletFormMode === 'recover' ? 'Verify Code & Recover Wallet' : (otpBypassAllowed ? 'Create Wallet' : 'Verify Code & Create Wallet');
             }
         }
 
