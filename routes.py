@@ -5189,10 +5189,22 @@ def turnkey_create_wallet():
     """Create a new Turnkey custodial wallet for the current user session."""
     try:
         from turnkey_service import create_turnkey_wallet
-        data = request.get_json()
+        data = request.get_json() or {}
         user_id = data.get("userId") or session.get("wallet") or f"new_{int(time.time())}"
         user_name = data.get("userName", user_id)
         referral_code = data.get("referral_code", None)
+        email = str(data.get("email", "")).strip().lower()
+
+        # If email is supplied, require a recent verified OTP session for that email.
+        if email:
+            verified_email = session.get("turnkey_email_pending")
+            verified_flag = bool(session.get("turnkey_email_verified"))
+            verified_at = int(session.get("turnkey_email_verified_at") or 0)
+            if not verified_flag or verified_email != email:
+                return jsonify({"status": "error", "message": "Please verify your email code first."}), 400
+            if int(time.time()) - verified_at > 15 * 60:
+                session["turnkey_email_verified"] = False
+                return jsonify({"status": "error", "message": "Verification expired. Request a new code."}), 400
 
         result, err = create_turnkey_wallet(user_id, user_name)
         if err:
@@ -5252,6 +5264,10 @@ def turnkey_create_wallet():
                 except Exception as ref_err:
                     logger.warning(f"Referral processing error in fallback wallet creation: {ref_err}")
 
+            session.pop("turnkey_email_pending", None)
+            session.pop("turnkey_email_verified", None)
+            session.pop("turnkey_email_verified_at", None)
+
             return jsonify({
                 "status": "success",
                 "wallet": wallet_address,
@@ -5286,6 +5302,10 @@ def turnkey_create_wallet():
             except Exception as ref_err:
                 logger.warning(f"Referral processing error in turnkey wallet creation: {ref_err}")
 
+        session.pop("turnkey_email_pending", None)
+        session.pop("turnkey_email_verified", None)
+        session.pop("turnkey_email_verified_at", None)
+
         return jsonify({
             "status": "success",
             "wallet": wallet_address,
@@ -5294,6 +5314,61 @@ def turnkey_create_wallet():
     except Exception as e:
         logger.error(f"Turnkey create-wallet error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@routes.route("/api/turnkey/email/send-code", methods=["POST"])
+def turnkey_email_send_code():
+    """Send Turnkey email OTP code for passwordless wallet onboarding."""
+    try:
+        from turnkey_service import send_email_otp_turnkey
+        data = request.get_json() or {}
+        email = str(data.get("email", "")).strip().lower()
+        if not email or "@" not in email:
+            return jsonify({"success": False, "error": "Valid email required"}), 400
+
+        result, err = send_email_otp_turnkey(email)
+        if err:
+            return jsonify({"success": False, "error": err}), 400
+
+        session["turnkey_email_pending"] = email
+        session["turnkey_email_verified"] = False
+        session.pop("turnkey_email_verified_at", None)
+        session.permanent = True
+
+        return jsonify({"success": True, "email": email, "result": result or {}})
+    except Exception as e:
+        logger.error(f"turnkey_email_send_code error: {e}")
+        return jsonify({"success": False, "error": "Failed to send verification code"}), 500
+
+
+@routes.route("/api/turnkey/email/verify-code", methods=["POST"])
+def turnkey_email_verify_code():
+    """Verify Turnkey email OTP code and mark the session as email-verified."""
+    try:
+        from turnkey_service import verify_email_otp_turnkey
+        data = request.get_json() or {}
+        email = str(data.get("email", "")).strip().lower()
+        code = str(data.get("code", "")).strip()
+        if not email or not code:
+            return jsonify({"success": False, "error": "email and code required"}), 400
+
+        pending_email = session.get("turnkey_email_pending")
+        if pending_email and pending_email != email:
+            return jsonify({"success": False, "error": "Email mismatch. Request a new code."}), 400
+
+        result, err = verify_email_otp_turnkey(email, code)
+        if err:
+            return jsonify({"success": False, "error": err}), 400
+
+        session["turnkey_email_pending"] = email
+        session["turnkey_email_verified"] = True
+        session["turnkey_email_verified_at"] = int(time.time())
+        session.permanent = True
+
+        return jsonify({"success": True, "email": email, "result": result or {}})
+    except Exception as e:
+        logger.error(f"turnkey_email_verify_code error: {e}")
+        return jsonify({"success": False, "error": "Code verification failed"}), 500
 
 
 @routes.route("/api/turnkey/sign-tx", methods=["POST"])

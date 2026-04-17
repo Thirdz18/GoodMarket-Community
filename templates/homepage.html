@@ -1828,15 +1828,46 @@
                 </div>
             </div>
 
-            <!-- Create New Wallet Form -->
+            <!-- Create New Wallet Form (Email OTP + Turnkey) -->
             <div class="wallet-form" id="createWalletForm">
                 <button class="back-btn" onclick="showWalletOptions()">← Back</button>
 
                 <div style="background: linear-gradient(135deg, rgba(16,185,129,0.1), rgba(5,150,105,0.06)); border: 1px solid rgba(16,185,129,0.35); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.2rem;">
                     <div style="font-weight:700; color:#10b981; font-size:0.9rem; margin-bottom:0.4rem;">🆕 Create Your GoodDollar Wallet</div>
                     <div style="font-size:0.82rem; color:#1f2937; line-height:1.6;">
-                        We'll create a new Celo wallet for you. Your wallet address will be ready in seconds — no app or seed phrase needed to get started.
+                        Enter your email, get a one-time sign-in code, then create your wallet in one tap.
                     </div>
+                </div>
+
+                <div class="wallet-input-group">
+                    <label class="wallet-label" for="createEmail">Email Address</label>
+                    <input
+                        type="email"
+                        id="createEmail"
+                        class="wallet-input"
+                        placeholder="you@example.com"
+                        autocomplete="email"
+                    />
+                </div>
+
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.9rem;">
+                    <button class="connect-btn" onclick="sendTurnkeyEmailCode()" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); min-width:180px;">
+                        <span id="sendCodeBtnText">Send Sign-In Code</span>
+                    </button>
+                    <span style="font-size:0.78rem;color:#6b7280;">Code expires in 10 minutes</span>
+                </div>
+
+                <div class="wallet-input-group">
+                    <label class="wallet-label" for="createEmailCode">6-digit Code</label>
+                    <input
+                        type="text"
+                        id="createEmailCode"
+                        class="wallet-input"
+                        inputmode="numeric"
+                        maxlength="6"
+                        placeholder="Enter code from your email"
+                        autocomplete="one-time-code"
+                    />
                 </div>
 
                 <div class="wallet-input-group">
@@ -1851,7 +1882,7 @@
                 </div>
 
                 <button class="connect-btn" onclick="createTurnkeyWallet()" style="background: linear-gradient(135deg, #059669, #047857);">
-                    <span id="createWalletBtnText">Create My Wallet</span>
+                    <span id="createWalletBtnText">Verify Code & Create Wallet</span>
                 </button>
 
                 <div id="createWalletStatus" class="status-message"></div>
@@ -1924,40 +1955,122 @@
             if (f) f.classList.add('visible');
         }
 
-        async function createTurnkeyWallet() {
+        async function sendTurnkeyEmailCode() {
             const statusDiv = document.getElementById('createWalletStatus');
-            const btnText = document.getElementById('createWalletBtnText');
+            const btnText = document.getElementById('sendCodeBtnText');
             const btn = btnText ? btnText.closest('button') : null;
-            const referral = (document.getElementById('createReferralCode') || {}).value || '';
+            const email = ((document.getElementById('createEmail') || {}).value || '').trim().toLowerCase();
+
+            if (!email || !email.includes('@')) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = 'Please enter a valid email address first.';
+                return;
+            }
 
             if (btn) btn.disabled = true;
-            btnText.textContent = 'Creating wallet…';
+            btnText.textContent = 'Sending code…';
             statusDiv.className = 'status-message info';
-            statusDiv.textContent = '⏳ Setting up your GoodDollar wallet on Celo. This may take up to 30 seconds…';
+            statusDiv.textContent = '⏳ Sending sign-in code to your email...';
 
             try {
-                const resp = await fetch('/api/turnkey/create-wallet', {
+                const resp = await fetch('/api/turnkey/email/send-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ referral_code: referral || null })
+                    body: JSON.stringify({ email })
                 });
                 const data = await resp.json();
 
-                if (data.status === 'success' && data.wallet) {
+                if (resp.ok && data.success) {
                     statusDiv.className = 'status-message success';
-                    statusDiv.textContent = `✅ Wallet created: ${data.wallet.slice(0,8)}…${data.wallet.slice(-4)} — Redirecting…`;
-                    setTimeout(() => { window.location.href = '/wallet'; }, 1500);
+                    statusDiv.textContent = '✅ Code sent! Check your email inbox, then enter the 6-digit code below.';
                 } else {
                     statusDiv.className = 'status-message error';
-                    statusDiv.textContent = data.message || 'Wallet creation failed. Please try again.';
+                    statusDiv.textContent = data.error || data.message || 'Could not send code. Please try again.';
                     if (btn) btn.disabled = false;
-                    btnText.textContent = 'Create My Wallet';
+                    btnText.textContent = 'Send Sign-In Code';
                 }
             } catch (err) {
                 statusDiv.className = 'status-message error';
                 statusDiv.textContent = 'Network error. Please try again.';
                 if (btn) btn.disabled = false;
-                btnText.textContent = 'Create My Wallet';
+                btnText.textContent = 'Send Sign-In Code';
+            } finally {
+                if (btn) btn.disabled = false;
+                btnText.textContent = 'Send Sign-In Code';
+            }
+        }
+
+        async function createTurnkeyWallet() {
+            const statusDiv = document.getElementById('createWalletStatus');
+            const btnText = document.getElementById('createWalletBtnText');
+            const btn = btnText ? btnText.closest('button') : null;
+            const referral = (document.getElementById('createReferralCode') || {}).value || '';
+            const email = ((document.getElementById('createEmail') || {}).value || '').trim().toLowerCase();
+            const code = ((document.getElementById('createEmailCode') || {}).value || '').trim();
+
+            if (!email || !email.includes('@')) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = 'Please enter a valid email address.';
+                return;
+            }
+
+            if (!/^\d{6}$/.test(code)) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = 'Please enter the 6-digit code from your email.';
+                return;
+            }
+
+            if (btn) btn.disabled = true;
+            btnText.textContent = 'Verifying code…';
+            statusDiv.className = 'status-message info';
+            statusDiv.textContent = '⏳ Verifying your code...';
+
+            try {
+                const verifyResp = await fetch('/api/turnkey/email/verify-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, code })
+                });
+                const verifyData = await verifyResp.json();
+                if (!(verifyResp.ok && verifyData.success)) {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = verifyData.error || verifyData.message || 'Invalid code. Please try again.';
+                    if (btn) btn.disabled = false;
+                    btnText.textContent = 'Verify Code & Create Wallet';
+                    return;
+                }
+
+                btnText.textContent = 'Creating wallet…';
+                statusDiv.className = 'status-message info';
+                statusDiv.textContent = '⏳ Code verified. Creating your wallet on Celo...';
+
+                const createResp = await fetch('/api/turnkey/create-wallet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: email,
+                        userName: email,
+                        email,
+                        referral_code: referral || null
+                    })
+                });
+                const createData = await createResp.json();
+
+                if (createData.status === 'success' && createData.wallet) {
+                    statusDiv.className = 'status-message success';
+                    statusDiv.textContent = `✅ Wallet created: ${createData.wallet.slice(0,8)}…${createData.wallet.slice(-4)} — Redirecting…`;
+                    setTimeout(() => { window.location.href = '/wallet'; }, 1500);
+                } else {
+                    statusDiv.className = 'status-message error';
+                    statusDiv.textContent = createData.message || 'Wallet creation failed. Please try again.';
+                    if (btn) btn.disabled = false;
+                    btnText.textContent = 'Verify Code & Create Wallet';
+                }
+            } catch (err) {
+                statusDiv.className = 'status-message error';
+                statusDiv.textContent = 'Network error. Please try again.';
+                if (btn) btn.disabled = false;
+                btnText.textContent = 'Verify Code & Create Wallet';
             }
         }
 
