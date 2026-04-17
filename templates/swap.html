@@ -723,6 +723,25 @@
             return window.ethereum;
         }
 
+        function _normalizeChainIdHex(chainId) {
+            if (chainId === null || chainId === undefined) return "";
+            if (typeof chainId === "string") {
+                const trimmed = chainId.trim();
+                if (!trimmed) return "";
+                if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) return trimmed.toLowerCase();
+                const asNumber = Number(trimmed);
+                if (Number.isFinite(asNumber)) return `0x${asNumber.toString(16)}`;
+                return trimmed.toLowerCase();
+            }
+            if (typeof chainId === "number" && Number.isFinite(chainId)) {
+                return `0x${chainId.toString(16)}`;
+            }
+            if (typeof chainId === "bigint") {
+                return `0x${chainId.toString(16)}`;
+            }
+            return String(chainId).toLowerCase();
+        }
+
         async function getConnectedSwapSigner() {
             const ethProvider = _getEthProvider();
             if (!ethProvider) throw new Error("No wallet detected. Please connect your GoodMarket wallet.");
@@ -736,7 +755,7 @@
 
             const celoChainHex = "0xa4ec";
             const currentChain = await ethProvider.request({ method: "eth_chainId" });
-            if ((currentChain || "").toLowerCase() !== celoChainHex) {
+            if (_normalizeChainIdHex(currentChain) !== celoChainHex) {
                 try {
                     await ethProvider.request({
                         method: "wallet_switchEthereumChain",
