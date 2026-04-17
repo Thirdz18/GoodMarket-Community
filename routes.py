@@ -6064,15 +6064,6 @@ def gas_faucet():
                     "error": "Invalid wallet for faucet top-up. Only your own wallet can be topped up."
                 }), 403
 
-        faucet_key = os.getenv("GAMES_KEY")
-        if not faucet_key:
-            return jsonify({
-                "success": False,
-                "topped_up": False,
-                "gas_ready": False,
-                "reason": "Faucet not configured (missing GAMES_KEY)"
-            }), 200
-
         w3 = Web3(Web3.HTTPProvider(CELO_RPC, request_kwargs={"timeout": 15}))
         checksum_wallet = Web3.to_checksum_address(wallet)
 
@@ -6102,59 +6093,94 @@ def gas_faucet():
                     "reason": f"Already topped up recently. Try again in {remaining_h:.1f}h."
                 })
 
-        # Build faucet wallet (GAMES_KEY)
-        key = faucet_key if faucet_key.startswith("0x") else "0x" + faucet_key
-        faucet_acct = Account.from_key(key)
-        faucet_bal_wei = w3.eth.get_balance(faucet_acct.address)
-        faucet_bal = float(w3.from_wei(faucet_bal_wei, "ether"))
+        tx_hash_hex = None
+        topup_reason = None
 
-        if faucet_bal < 0.001:
-            logger.warning(f"Gas faucet wallet low: {faucet_bal:.4f} CELO — cannot top up {wallet[:8]}...")
-            return jsonify({
-                "success": False,
-                "topped_up": False,
-                "gas_ready": False,
-                "reason": "Faucet wallet is low on funds. Contact support."
-            }), 200
-
-        nonce = w3.eth.get_transaction_count(faucet_acct.address, "pending")
-        gas_price = int(w3.eth.gas_price * 1.2)
-        faucet_contract = Web3.to_checksum_address(GOODDOLLAR_FAUCET_CONTRACT)
-        # topWallet(address) selector: 0x3771dcf8
-        call_data = "0x3771dcf8" + "000000000000000000000000" + checksum_wallet[2:].lower()
-
+        # Preferred path: call GoodDollar faucet API first (official topWallet flow).
+        # Fallback path below: on-chain topWallet(address) from GAMES_KEY.
         try:
-            gas_est = w3.eth.estimate_gas({
-                "from": faucet_acct.address,
+            import requests as req_lib
+            faucet_resp = req_lib.post(
+                "https://goodserver.gooddollar.org/verify/topWallet",
+                json={"chainId": 42220, "account": checksum_wallet},
+                timeout=15,
+                headers={"Content-Type": "application/json"}
+            )
+            faucet_body = faucet_resp.json()
+            if faucet_body.get("ok", -1) == 1:
+                topup_reason = "goodserver_topwallet_ok"
+                tx_hash_hex = faucet_body.get("txHash") or faucet_body.get("tx_hash")
+                logger.info(f"Gas faucet topWallet() accepted by goodserver for {wallet[:8]}...")
+            else:
+                topup_reason = faucet_body.get("error") or "goodserver_topwallet_declined"
+                logger.warning(f"Goodserver topWallet declined for {wallet[:8]}...: {topup_reason}")
+        except Exception as e:
+            topup_reason = f"goodserver_error:{e}"
+            logger.warning(f"Goodserver topWallet request failed for {wallet[:8]}...: {e}")
+
+        if topup_reason != "goodserver_topwallet_ok":
+            faucet_key = os.getenv("GAMES_KEY")
+            if not faucet_key:
+                return jsonify({
+                    "success": False,
+                    "topped_up": False,
+                    "gas_ready": False,
+                    "reason": "Faucet not configured (missing GAMES_KEY and goodserver topWallet unavailable)"
+                }), 200
+
+            # Build fallback faucet wallet (GAMES_KEY)
+            key = faucet_key if faucet_key.startswith("0x") else "0x" + faucet_key
+            faucet_acct = Account.from_key(key)
+            faucet_bal_wei = w3.eth.get_balance(faucet_acct.address)
+            faucet_bal = float(w3.from_wei(faucet_bal_wei, "ether"))
+
+            if faucet_bal < 0.001:
+                logger.warning(f"Gas faucet wallet low: {faucet_bal:.4f} CELO — cannot top up {wallet[:8]}...")
+                return jsonify({
+                    "success": False,
+                    "topped_up": False,
+                    "gas_ready": False,
+                    "reason": "Faucet wallet is low on funds. Contact support."
+                }), 200
+
+            nonce = w3.eth.get_transaction_count(faucet_acct.address, "pending")
+            gas_price = int(w3.eth.gas_price * 1.2)
+            faucet_contract = Web3.to_checksum_address(GOODDOLLAR_FAUCET_CONTRACT)
+            # topWallet(address) selector: 0x3771dcf8
+            call_data = "0x3771dcf8" + "000000000000000000000000" + checksum_wallet[2:].lower()
+
+            try:
+                gas_est = w3.eth.estimate_gas({
+                    "from": faucet_acct.address,
+                    "to": faucet_contract,
+                    "data": call_data,
+                })
+            except Exception:
+                gas_est = 140000
+
+            tx = {
+                "chainId": CELO_CHAIN_ID,
+                "nonce": nonce,
+                "gasPrice": gas_price,
+                "gas": int(gas_est * 1.2),
                 "to": faucet_contract,
+                "value": 0,
                 "data": call_data,
-            })
-        except Exception:
-            gas_est = 140000
+            }
+            signed = faucet_acct.sign_transaction(tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+            tx_hash_hex = "0x" + tx_hash.hex()
 
-        tx = {
-            "chainId": CELO_CHAIN_ID,
-            "nonce": nonce,
-            "gasPrice": gas_price,
-            "gas": int(gas_est * 1.2),
-            "to": faucet_contract,
-            "value": 0,
-            "data": call_data,
-        }
-        signed = faucet_acct.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-        tx_hash_hex = "0x" + tx_hash.hex()
-
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=90)
-        if not receipt or receipt.get("status") != 1:
-            logger.error(f"Gas faucet tx failed for {wallet[:8]}... tx={tx_hash_hex}")
-            return jsonify({
-                "success": False,
-                "topped_up": False,
-                "gas_ready": False,
-                "reason": "Gas faucet transaction failed",
-                "tx_hash": tx_hash_hex
-            }), 200
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=90)
+            if not receipt or receipt.get("status") != 1:
+                logger.error(f"Gas faucet tx failed for {wallet[:8]}... tx={tx_hash_hex}")
+                return jsonify({
+                    "success": False,
+                    "topped_up": False,
+                    "gas_ready": False,
+                    "reason": "Gas faucet transaction failed",
+                    "tx_hash": tx_hash_hex
+                }), 200
 
         # Confirm user balance after faucet disbursement
         updated_celo_wei = w3.eth.get_balance(checksum_wallet)
@@ -6170,7 +6196,8 @@ def gas_faucet():
             "topped_up": True,
             "gas_ready": gas_ready,
             "tx_hash": tx_hash_hex,
-            "balance": updated_celo_bal
+            "balance": updated_celo_bal,
+            "topup_source": "goodserver" if topup_reason == "goodserver_topwallet_ok" else "onchain_fallback"
         })
 
     except Exception as e:
