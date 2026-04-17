@@ -5,9 +5,8 @@ Handles incoming Telegram bot updates and opens GoodMarket as a Mini App.
 import os
 import json
 import logging
-import hmac
-import hashlib
 import requests
+from urllib.parse import urlsplit, urlunsplit
 from flask import Blueprint, request, jsonify
 from config import PRODUCTION_DOMAIN
 
@@ -17,7 +16,25 @@ telegram_bot = Blueprint("telegram_bot", __name__)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
-APP_URL = PRODUCTION_DOMAIN  # e.g. https://goodmarket.live
+TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", "")
+
+
+def _normalize_base_url(url: str) -> str:
+    """Normalize to scheme://host[:port] and remove paths/query/fragments."""
+    raw_url = (url or "").strip()
+    if not raw_url:
+        return ""
+
+    parsed = urlsplit(raw_url)
+
+    # If env var is set without scheme, assume HTTPS.
+    if not parsed.scheme:
+        parsed = urlsplit(f"https://{raw_url}")
+
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
+
+
+APP_URL = _normalize_base_url(os.getenv("TELEGRAM_WEB_APP_URL", "") or PRODUCTION_DOMAIN)
 
 
 def send_message(chat_id, text, reply_markup=None):
@@ -125,6 +142,12 @@ def webhook():
         logger.error("TELEGRAM_BOT_TOKEN not set")
         return jsonify({"ok": False}), 500
 
+    if TELEGRAM_WEBHOOK_SECRET_TOKEN:
+        provided_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if provided_secret != TELEGRAM_WEBHOOK_SECRET_TOKEN:
+            logger.warning("Rejected Telegram webhook: invalid secret token header")
+            return jsonify({"ok": False, "error": "forbidden"}), 403
+
     update = request.get_json(silent=True)
     if not update:
         return jsonify({"ok": False}), 400
@@ -185,7 +208,12 @@ def setup_webhook():
         json={
             "url": webhook_url,
             "allowed_updates": ["message", "callback_query"],
-            "drop_pending_updates": True
+            "drop_pending_updates": True,
+            **(
+                {"secret_token": TELEGRAM_WEBHOOK_SECRET_TOKEN}
+                if TELEGRAM_WEBHOOK_SECRET_TOKEN
+                else {}
+            )
         },
         timeout=15
     )

@@ -189,9 +189,21 @@ The WalletConnect sidecar (`wc_service.js`) is started automatically by the Flas
 | `PRODUCTION_DOMAIN` | Production domain (e.g. `https://goodmarket.live`) |
 | `PAYMENT_LINK_ENC_KEY` | Encryption key for payment links |
 | `CELOSCAN_API_KEY` | Celoscan API key (optional) |
+| `TELEGRAM_BOT_TOKEN` | Bot token from BotFather (required for Telegram bot routes) |
+| `TELEGRAM_WEB_APP_URL` | Public base URL opened by Telegram Mini App buttons (e.g. `https://good-market-community.vercel.app`) |
+| `TELEGRAM_WEBHOOK_SECRET_TOKEN` | Optional shared secret for validating Telegram webhook calls |
 
 ## Replit Setup Notes
 
 - `pyproject.toml` was created during Replit import to enable `uv sync` for Python dependency management
 - `package.json` was created during Replit import for Node.js WalletConnect dependencies
 - Workflow: "Start application" runs on port 5000 (webview)
+
+## Telegram Bot Integration Notes
+
+- Webhook endpoint: `POST /telegram/webhook`
+- Setup endpoint: `GET /telegram/setup-webhook` (registers webhook with Telegram)
+- Status endpoint: `GET /telegram/webhook-info`
+- Use a **base domain only** for `TELEGRAM_WEB_APP_URL` / `PRODUCTION_DOMAIN` (do not include `/wallet` path).  
+  Example ✅ `https://good-market-community.vercel.app`  
+  Example ❌ `https://good-market-community.vercel.app/wallet`
