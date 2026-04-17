@@ -3949,7 +3949,8 @@ def learn_earn_page():
     analytics.track_page_view(wallet, "learn_earn")
 
     return render_template("learn_and_earn.html",
-                         wallet=wallet)
+                         wallet=wallet,
+                         login_method=session.get("login_method", "walletconnect"))
 
 # Username functionality removed
 
@@ -4741,6 +4742,29 @@ def wc_sign(session_id):
         f"/sign/{safe_id}",
         body={"message": message, "address": address},
         timeout=45,
+    )
+    if err:
+        return jsonify({"success": False, "error": err}), status
+    if status >= 400:
+        return jsonify({"success": False, **(data or {})}), status
+    return jsonify({"success": True, **(data or {})}), 200
+
+
+@routes.route("/api/wc-tx/<session_id>", methods=["POST"])
+def wc_tx(session_id):
+    safe_id = str(session_id).strip()
+    if not safe_id:
+        return jsonify({"success": False, "error": "session_id required"}), 400
+
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"success": False, "error": "invalid request body"}), 400
+
+    data, status, err = _wc_proxy(
+        "POST",
+        f"/tx/{safe_id}",
+        body=body,
+        timeout=60,
     )
     if err:
         return jsonify({"success": False, "error": err}), status

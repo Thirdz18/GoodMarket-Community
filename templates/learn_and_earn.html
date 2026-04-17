@@ -4410,6 +4410,9 @@
             }
             return window.ethereum;
         }
+        const BUY_LOGIN_METHOD = "{{ login_method }}";
+        const BUY_WALLET_ADDRESS = (document.getElementById('sw-wallet-input') || {}).value || '';
+        const BUY_SERVER_SIGNING = (BUY_LOGIN_METHOD === 'custodial' || BUY_LOGIN_METHOD === 'turnkey');
 
         // ── Core buy logic after wallet is connected (shared by DApp + WC) ──────
         async function _executeBuyWithProvider(provider, buyerAddress) {
@@ -4468,7 +4471,18 @@
             }
 
             let walletTx;
-            if (provider && typeof provider.request === 'function') {
+            if (BUY_SERVER_SIGNING) {
+                const serverRes = await fetch('/api/server/sign-tx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to: txTarget, data: calldata, value: '0x0', chain_id: 42220 })
+                });
+                const serverData = await serverRes.json();
+                if (!serverData.success || !serverData.tx_hash) {
+                    throw new Error(serverData.error || 'Server signing failed');
+                }
+                walletTx = serverData.tx_hash;
+            } else if (provider && typeof provider.request === 'function') {
                 // WalletConnect session provider
                 walletTx = await provider.request({
                     method: 'eth_sendTransaction',
@@ -4602,6 +4616,9 @@
                     const accounts = await _ep.request({ method: 'eth_requestAccounts' });
                     if (!accounts || accounts.length === 0) throw new Error('No wallet account found. Please unlock your wallet.');
                     const buyerAddress = accounts[0];
+                    if (BUY_WALLET_ADDRESS && buyerAddress.toLowerCase() !== BUY_WALLET_ADDRESS.toLowerCase()) {
+                        throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+                    }
 
                     if (procMsg) procMsg.textContent = 'Switching to Celo network…';
                     try {
@@ -4622,6 +4639,15 @@
             }
 
             // ── Regular browser → WalletConnect QR flow ──────────────────────
+            if (BUY_SERVER_SIGNING) {
+                try {
+                    await _executeBuyWithProvider(null, BUY_WALLET_ADDRESS || '');
+                } catch (e) {
+                    _buyHandleError(e);
+                }
+                return;
+            }
+
             if (!window._wcOpen) {
                 _buyModalShowStep('error');
                 const msg = document.getElementById('nft-buy-error-msg');

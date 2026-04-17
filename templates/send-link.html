@@ -185,6 +185,10 @@
         const OTP_ADDRESS   = "0xB27D247f5C2a61D2Cb6b6E67FEE51d839447e97d";
         const GD_DECIMALS   = 18;
         const LS_KEY        = "goodmarket_sent_payments";
+        const WALLET_ADDRESS = "{{ wallet }}";
+        const LOGIN_METHOD = "{{ login_method }}";
+        const IS_SERVER_SIGNING = ["custodial", "turnkey"].includes(LOGIN_METHOD);
+        const PREFER_WC_SIGNING = ["walletconnect", "manual", "manual_address"].includes((LOGIN_METHOD || "").toLowerCase());
 
         // Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet
         function _getEthProvider() {
@@ -202,6 +206,54 @@
 
         let gdBalanceNum = 0;
         let currentLinkUrl = "";
+        let _wcSessionId = null;
+        let _wcAddress = null;
+
+        function _delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        async function _connectWalletConnect(alertType = "alert-info") {
+            const uriResp = await fetch('/api/wc-uri');
+            const uriData = await uriResp.json();
+            if (!uriResp.ok || !uriData.success || !uriData.id || !uriData.uri) {
+                throw new Error(uriData.error || 'WalletConnect is unavailable right now.');
+            }
+            _wcSessionId = uriData.id;
+            showAlert(alertType,
+                '📲 Scan this WalletConnect QR in your wallet app:<br>' +
+                `<div style="margin-top:8px"><img alt="WalletConnect QR" style="max-width:180px;border-radius:8px;background:#fff;padding:8px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uriData.uri)}"></div>` +
+                '<div style="margin-top:8px;font-size:12px;opacity:0.85">Waiting for approval…</div>'
+            );
+
+            for (let i = 0; i < 60; i++) {
+                await _delay(2000);
+                const stResp = await fetch('/api/wc-session/' + encodeURIComponent(_wcSessionId));
+                const st = await stResp.json();
+                if (!stResp.ok || !st.success) continue;
+                if (st.status === 'approved' && st.address) {
+                    _wcAddress = st.address;
+                    if (WALLET_ADDRESS && _wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                        throw new Error('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.');
+                    }
+                    return _wcAddress;
+                }
+                if (st.status === 'rejected') throw new Error('WalletConnect request was rejected.');
+            }
+            throw new Error('WalletConnect approval timed out.');
+        }
+
+        async function _sendTxViaWalletConnect(txParams, alertType = "alert-info") {
+            if (!_wcSessionId) await _connectWalletConnect(alertType);
+            const txResp = await fetch('/api/wc-tx/' + encodeURIComponent(_wcSessionId), {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(txParams)
+            });
+            const txData = await txResp.json();
+            if (!txResp.ok || !txData.success || txData.error || !txData.txHash) {
+                throw new Error(txData.error || 'WalletConnect transaction failed');
+            }
+            return txData.txHash;
+        }
 
         // ── LocalStorage helpers ───────────────────────────────────────────────
         function lsLoad()  { try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; } }
@@ -334,51 +386,87 @@
         async function startSend() {
             const rawVal = document.getElementById("amountInput").value.trim();
             if (!rawVal || parseFloat(rawVal) <= 0) { showAlert("alert-error", "Please enter a valid amount."); return; }
-            const ep = _getEthProvider();
-            if (!ep) { showAlert("alert-error", "⚠️ No Web3 wallet detected. Open in MetaMask, MiniPay, or a Celo-compatible wallet."); return; }
             clearAlert(); hideLink();
 
             try {
-                setBtnState('<span class="spinner-inline"></span> Connecting wallet...', true);
-                await ep.request({ method: "eth_requestAccounts" });
-
-                const chainIdHex = await ep.request({ method: "eth_chainId" });
-                if (parseInt(chainIdHex, 16) !== CELO_CHAIN_ID) {
-                    try { await ep.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CELO_CHAIN_ID.toString(16) }] }); }
-                    catch { await ep.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x" + CELO_CHAIN_ID.toString(16), chainName: "Celo Mainnet", nativeCurrency: { name:"CELO", symbol:"CELO", decimals:18 }, rpcUrls: ["https://forno.celo.org"], blockExplorerUrls: ["https://celoscan.io"] }] }); }
-                }
-
-                const provider   = new ethers.BrowserProvider(ep);
-                const signer     = await provider.getSigner();
-                const userAddr   = await signer.getAddress();
                 const amountWei  = ethers.parseUnits(rawVal, GD_DECIMALS);
-
-                setBtnState('<span class="spinner-inline"></span> Checking balance...', true);
-                const gdRead   = new ethers.Contract(GD_ADDRESS, ["function balanceOf(address) view returns (uint256)"], provider);
-                const onChainBal = await gdRead.balanceOf(userAddr);
-                if (onChainBal < amountWei) {
-                    const b = parseFloat(ethers.formatUnits(onChainBal, GD_DECIMALS)).toFixed(2);
-                    showAlert("alert-error", `❌ Insufficient balance. Your wallet has <strong>${b} G$</strong>.`);
-                    setBtnState(`Generate Link → ${rawVal} G$`, false);
-                    return;
-                }
-
                 const paymentWallet = ethers.Wallet.createRandom();
                 const paymentId     = paymentWallet.address;
                 const privateKey    = paymentWallet.privateKey;
                 const data          = ethers.AbiCoder.defaultAbiCoder().encode(['address'], [paymentId]);
+                let txHash = null;
 
-                setBtnState('<span class="spinner-inline"></span> Confirm in wallet...', true);
-                showAlert("alert-info", '<span class="spinner-inline"></span> Confirm the transaction in your wallet to lock G$ in escrow.');
+                if (IS_SERVER_SIGNING) {
+                    setBtnState('<span class="spinner-inline"></span> Signing with GoodMarket wallet...', true);
+                    showAlert("alert-info", '<span class="spinner-inline"></span> Processing with your custodial/Turnkey signer...');
+                    const iface = new ethers.Interface(["function transferAndCall(address,uint256,bytes) returns (bool)"]);
+                    const callData = iface.encodeFunctionData("transferAndCall", [OTP_ADDRESS, amountWei, data]);
+                    const signRes = await fetch('/api/server/sign-tx', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ to: GD_ADDRESS, data: callData, value: '0x0', chain_id: CELO_CHAIN_ID })
+                    });
+                    const signData = await signRes.json();
+                    if (!signData.success || !signData.tx_hash) {
+                        throw new Error(signData.error || 'Server signing failed');
+                    }
+                    txHash = signData.tx_hash;
+                } else {
+                    const ep = _getEthProvider();
+                    if (!ep && !PREFER_WC_SIGNING) { showAlert("alert-error", "⚠️ No Web3 wallet detected. Open in MetaMask, MiniPay, or a Celo-compatible wallet."); return; }
 
-                const gdSigner = new ethers.Contract(GD_ADDRESS, GD_ABI, signer);
-                const tx = await gdSigner.transferAndCall(OTP_ADDRESS, amountWei, data);
+                    if (ep) {
+                        setBtnState('<span class="spinner-inline"></span> Connecting wallet...', true);
+                        await ep.request({ method: "eth_requestAccounts" });
 
-                setBtnState('<span class="spinner-inline"></span> Waiting for confirmation...', true);
-                showAlert("alert-info", '<span class="spinner-inline"></span> Transaction submitted. Waiting for Celo network...');
-                const receipt = await tx.wait();
+                        const chainIdHex = await ep.request({ method: "eth_chainId" });
+                        if (parseInt(chainIdHex, 16) !== CELO_CHAIN_ID) {
+                            try { await ep.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CELO_CHAIN_ID.toString(16) }] }); }
+                            catch { await ep.request({ method: "wallet_addEthereumChain", params: [{ chainId: "0x" + CELO_CHAIN_ID.toString(16), chainName: "Celo Mainnet", nativeCurrency: { name:"CELO", symbol:"CELO", decimals:18 }, rpcUrls: ["https://forno.celo.org"], blockExplorerUrls: ["https://celoscan.io"] }] }); }
+                        }
 
-                const entry = { paymentId, privateKey, amount: rawVal, txHash: receipt.hash, timestamp: Date.now(), status: "active" };
+                        const provider   = new ethers.BrowserProvider(ep);
+                        const signer     = await provider.getSigner();
+                        const userAddr   = await signer.getAddress();
+                        if (WALLET_ADDRESS && userAddr.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                            throw new Error("Wrong wallet connected. Please switch to your GoodMarket wallet.");
+                        }
+
+                        setBtnState('<span class="spinner-inline"></span> Checking balance...', true);
+                        const gdRead   = new ethers.Contract(GD_ADDRESS, ["function balanceOf(address) view returns (uint256)"], provider);
+                        const onChainBal = await gdRead.balanceOf(userAddr);
+                        if (onChainBal < amountWei) {
+                            const b = parseFloat(ethers.formatUnits(onChainBal, GD_DECIMALS)).toFixed(2);
+                            showAlert("alert-error", `❌ Insufficient balance. Your wallet has <strong>${b} G$</strong>.`);
+                            setBtnState(`Generate Link → ${rawVal} G$`, false);
+                            return;
+                        }
+
+                        setBtnState('<span class="spinner-inline"></span> Confirm in wallet...', true);
+                        showAlert("alert-info", '<span class="spinner-inline"></span> Confirm the transaction in your wallet to lock G$ in escrow.');
+
+                        const gdSigner = new ethers.Contract(GD_ADDRESS, GD_ABI, signer);
+                        const tx = await gdSigner.transferAndCall(OTP_ADDRESS, amountWei, data);
+                        setBtnState('<span class="spinner-inline"></span> Waiting for confirmation...', true);
+                        showAlert("alert-info", '<span class="spinner-inline"></span> Transaction submitted. Waiting for Celo network...');
+                        const receipt = await tx.wait();
+                        txHash = receipt.hash;
+                    } else {
+                        setBtnState('<span class="spinner-inline"></span> Connecting WalletConnect...', true);
+                        const from = await _connectWalletConnect("alert-info");
+                        setBtnState('<span class="spinner-inline"></span> Confirm in WalletConnect...', true);
+                        const iface = new ethers.Interface(["function transferAndCall(address,uint256,bytes) returns (bool)"]);
+                        const wcData = iface.encodeFunctionData("transferAndCall", [OTP_ADDRESS, amountWei, data]);
+                        txHash = await _sendTxViaWalletConnect({
+                            from,
+                            to: GD_ADDRESS,
+                            data: wcData,
+                            value: "0x0"
+                        }, "alert-info");
+                    }
+                }
+
+                const entry = { paymentId, privateKey, amount: rawVal, txHash: txHash || "", timestamp: Date.now(), status: "active" };
 
                 // Save to both localStorage AND database
                 lsAdd(entry);
@@ -481,17 +569,46 @@
         }
 
         async function cancelPayment(paymentId, btn) {
-            const ep = _getEthProvider();
-            if (!ep) { alert("No wallet detected."); return; }
             if (!confirm("Cancel this payment and refund G$ to your wallet?")) return;
             btn.disabled = true; btn.textContent = "Cancelling...";
             try {
-                const provider  = new ethers.BrowserProvider(ep);
-                const signer    = await provider.getSigner();
-                const otpSigner = new ethers.Contract(OTP_ADDRESS, OTP_ABI, signer);
-                const tx = await otpSigner.cancel(paymentId);
-                btn.textContent = "Waiting...";
-                await tx.wait();
+                if (IS_SERVER_SIGNING) {
+                    const iface = new ethers.Interface(["function cancel(address)"]);
+                    const data = iface.encodeFunctionData("cancel", [paymentId]);
+                    const res = await fetch('/api/server/sign-tx', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ to: OTP_ADDRESS, data, value: '0x0', chain_id: CELO_CHAIN_ID })
+                    });
+                    const d = await res.json();
+                    if (!d.success) throw new Error(d.error || 'Cancel failed');
+                } else {
+                    const ep = _getEthProvider();
+                    if (ep) {
+                        const provider  = new ethers.BrowserProvider(ep);
+                        const signer    = await provider.getSigner();
+                        const signerAddr = await signer.getAddress();
+                        if (WALLET_ADDRESS && signerAddr.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                            throw new Error("Wrong wallet connected. Please switch to your GoodMarket wallet.");
+                        }
+                        const otpSigner = new ethers.Contract(OTP_ADDRESS, OTP_ABI, signer);
+                        const tx = await otpSigner.cancel(paymentId);
+                        btn.textContent = "Waiting...";
+                        await tx.wait();
+                    } else if (PREFER_WC_SIGNING) {
+                        const from = await _connectWalletConnect("alert-info");
+                        const iface = new ethers.Interface(["function cancel(address)"]);
+                        const data = iface.encodeFunctionData("cancel", [paymentId]);
+                        await _sendTxViaWalletConnect({
+                            from,
+                            to: OTP_ADDRESS,
+                            data,
+                            value: "0x0"
+                        }, "alert-info");
+                    } else {
+                        throw new Error("No wallet detected.");
+                    }
+                }
                 lsUpdateStatus(paymentId, "cancelled");
                 apiUpdateStatus(paymentId, "cancelled");
                 await loadBalance();
