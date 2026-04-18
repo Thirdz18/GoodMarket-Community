@@ -6,6 +6,7 @@
     <title>XDC Wallet - GoodMarket</title>
     <meta name="theme-color" content="#2563eb">
     <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -546,6 +547,57 @@
             </div>
         </div>
 
+        <!-- XSwap (XDC) -->
+        <div class="card" style="border-color: rgba(56,189,248,0.28); background: linear-gradient(135deg, rgba(2,132,199,0.08), rgba(59,130,246,0.04));">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>💠 X Swap (XDC)</span>
+                <span style="font-size:0.72rem;color:rgba(255,255,255,0.55);font-weight:600;">XSwap V2 Router</span>
+            </div>
+
+            <div class="info-box" style="margin-bottom:0.9rem;">
+                Swap directly between <strong>G$ on XDC</strong> and <strong>native XDC</strong>. Configure slippage and preview minimum output before confirming.
+            </div>
+
+            <div class="tabs" style="margin-bottom:0.8rem;">
+                <button class="tab-btn active" id="xswapDirGDtoXDC" onclick="setXswapDirection('GD_TO_XDC')">G$ XDC → XDC</button>
+                <button class="tab-btn" id="xswapDirXDCtoGD" onclick="setXswapDirection('XDC_TO_GD')">XDC → G$ XDC</button>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Amount In</label>
+                <div class="amount-row">
+                    <input class="form-input" id="xswapAmountIn" type="number" min="0.000000000000000001" step="any" placeholder="0.00" oninput="xswapQuoteReady=false;">
+                    <button class="max-btn" onclick="setXswapMax()">MAX</button>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label">Slippage (%)</label>
+                    <input class="form-input" id="xswapSlippage" type="number" min="0.1" max="20" step="0.1" value="1.0">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label">Deadline (minutes)</label>
+                    <input class="form-input" id="xswapDeadline" type="number" min="1" max="120" step="1" value="20">
+                </div>
+            </div>
+
+            <div id="xswapPreview" style="display:none;background:rgba(15,23,42,0.48);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.8rem 0.9rem;margin-bottom:0.8rem;">
+                <div style="font-size:0.76rem;color:rgba(255,255,255,0.6);margin-bottom:0.35rem;">Route Preview</div>
+                <div id="xswapRoute" style="font-size:0.85rem;color:#93c5fd;font-weight:700;">—</div>
+                <div style="display:flex;justify-content:space-between;gap:0.8rem;margin-top:0.55rem;font-size:0.78rem;">
+                    <span style="color:rgba(255,255,255,0.65);">Estimated Out: <strong id="xswapEstimatedOut" style="color:#e2e8f0;">—</strong></span>
+                    <span style="color:rgba(255,255,255,0.65);">Min Out: <strong id="xswapMinOut" style="color:#86efac;">—</strong></span>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+                <button class="send-btn" id="btnXswapQuote" onclick="quoteXswap()" style="margin:0;flex:1 1 180px;background:linear-gradient(135deg,#0ea5e9,#0284c7);">Get Quote</button>
+                <button class="send-btn" id="btnXswapExec" onclick="executeXswap()" style="margin:0;flex:1 1 180px;background:linear-gradient(135deg,#2563eb,#1d4ed8);">Swap Now</button>
+            </div>
+            <div class="alert" id="xswapAlert"></div>
+        </div>
+
         <!-- Transaction History -->
         <div class="card">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -581,6 +633,18 @@
         const XDC_CHAIN_ID_HEX = "0x32";
         const LOGIN_METHOD = "{{ login_method }}";
         const isCustodialMode = {{ 'true' if is_custodial else 'false' }};
+        const XSWAP_V2_ROUTER = "0xf9c5E4f6E627201aB2d6FB6391239738Cf4bDcf9";
+        const WXDC_ADDRESS = "0x951857744785E80e2De051c32EE7b25f9c458C42";
+        const XDC_GD_TOKEN = "0xEC2136843a983885AebF2feB3931F73A8eBEe50c";
+        const XSWAP_ROUTER_ABI = [
+            "function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)",
+            "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
+            "function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)"
+        ];
+        const ERC20_ABI = [
+            "function approve(address spender, uint256 value) external returns (bool)",
+            "function allowance(address owner, address spender) external view returns (uint256)"
+        ];
 
         function _getEthProvider() {
             if (!window.ethereum) return null;
@@ -594,6 +658,9 @@
 
         let xdcBalanceVal = 0;
         let xusdtBalanceVal = 0;
+        let xswapDirection = "GD_TO_XDC";
+        let xswapQuoteReady = false;
+        let xswapQuoteData = null;
 
         async function loadBalances() {
             try {
@@ -620,6 +687,184 @@
             } catch (e) {
                 document.getElementById('xdcBalance').textContent = 'Error';
                 document.getElementById('xusdtBalance').textContent = 'Error';
+            }
+        }
+
+        function showXswapAlert(type, msg) {
+            const el = document.getElementById('xswapAlert');
+            if (!el) return;
+            el.className = `alert ${type} show`;
+            el.innerHTML = msg;
+        }
+
+        function clearXswapAlert() {
+            const el = document.getElementById('xswapAlert');
+            if (!el) return;
+            el.className = 'alert';
+            el.innerHTML = '';
+        }
+
+        function setXswapDirection(direction) {
+            xswapDirection = direction;
+            xswapQuoteReady = false;
+            xswapQuoteData = null;
+            const preview = document.getElementById('xswapPreview');
+            if (preview) preview.style.display = 'none';
+            document.getElementById('xswapDirGDtoXDC').classList.toggle('active', direction === 'GD_TO_XDC');
+            document.getElementById('xswapDirXDCtoGD').classList.toggle('active', direction === 'XDC_TO_GD');
+        }
+
+        function setXswapMax() {
+            const amountEl = document.getElementById('xswapAmountIn');
+            const gdText = (document.getElementById('gdXdcBalance').textContent || '0').replace(/[^\d.]/g, '');
+            const gdBal = parseFloat(gdText || '0') || 0;
+            const max = xswapDirection === 'XDC_TO_GD'
+                ? Math.max(0, (xdcBalanceVal || 0) - 0.01)
+                : Math.max(0, gdBal);
+            amountEl.value = max > 0 ? max.toFixed(6) : '0';
+            xswapQuoteReady = false;
+        }
+
+        function _xswapPath() {
+            return xswapDirection === 'GD_TO_XDC'
+                ? [XDC_GD_TOKEN, WXDC_ADDRESS]
+                : [WXDC_ADDRESS, XDC_GD_TOKEN];
+        }
+
+        async function _xswapReadProvider() {
+            if (!isCustodialMode) {
+                const ep = _getEthProvider();
+                if (ep) return new ethers.BrowserProvider(ep);
+            }
+            return new ethers.JsonRpcProvider('https://erpc.xinfin.network');
+        }
+
+        async function quoteXswap() {
+            clearXswapAlert();
+            const amountStr = document.getElementById('xswapAmountIn').value.trim();
+            const slippagePct = parseFloat(document.getElementById('xswapSlippage').value || '1');
+            if (!amountStr || parseFloat(amountStr) <= 0) return showXswapAlert('alert-error', '❌ Enter a valid amount to quote.');
+            if (!Number.isFinite(slippagePct) || slippagePct < 0.1 || slippagePct > 20) {
+                return showXswapAlert('alert-error', '❌ Slippage must be between 0.1% and 20%.');
+            }
+
+            const quoteBtn = document.getElementById('btnXswapQuote');
+            quoteBtn.disabled = true;
+            quoteBtn.innerHTML = '<span class="spinner-inline"></span> Quoting...';
+            try {
+                const provider = await _xswapReadProvider();
+                const router = new ethers.Contract(XSWAP_V2_ROUTER, XSWAP_ROUTER_ABI, provider);
+                const amountInWei = ethers.parseUnits(amountStr, 18);
+                const path = _xswapPath();
+                const amounts = await router.getAmountsOut(amountInWei, path);
+                const amountOutWei = amounts[amounts.length - 1];
+                const bps = BigInt(Math.floor(slippagePct * 100));
+                const minOutWei = amountOutWei * (10000n - bps) / 10000n;
+
+                const outSymbol = xswapDirection === 'GD_TO_XDC' ? 'XDC' : 'G$';
+                const inSymbol = xswapDirection === 'GD_TO_XDC' ? 'G$' : 'XDC';
+                document.getElementById('xswapRoute').textContent = `${inSymbol} → WXDC → ${outSymbol}`;
+                document.getElementById('xswapEstimatedOut').textContent = `${parseFloat(ethers.formatUnits(amountOutWei, 18)).toFixed(6)} ${outSymbol}`;
+                document.getElementById('xswapMinOut').textContent = `${parseFloat(ethers.formatUnits(minOutWei, 18)).toFixed(6)} ${outSymbol}`;
+                document.getElementById('xswapPreview').style.display = 'block';
+
+                xswapQuoteData = { amountInWei, minOutWei, path };
+                xswapQuoteReady = true;
+                showXswapAlert('alert-success', '✅ Quote ready. Review min output, then click Swap Now.');
+            } catch (err) {
+                showXswapAlert('alert-error', '❌ Quote failed: ' + (err.message || 'No route / low liquidity.'));
+            } finally {
+                quoteBtn.disabled = false;
+                quoteBtn.innerHTML = 'Get Quote';
+            }
+        }
+
+        async function _sendXswapTx({ to, data, valueHex = '0x0' }) {
+            if (isCustodialMode) {
+                const res = await fetch('/api/server/sign-tx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to, data, value: valueHex, chain_id: XDC_CHAIN_ID, wait_receipt: true })
+                });
+                const d = await res.json();
+                if (!d.success) throw new Error(d.error || 'Server-side transaction failed');
+                return d.tx_hash;
+            }
+
+            const ep = _getEthProvider();
+            if (!ep) throw new Error('No Web3 wallet found.');
+            const switched = await ensureXDCNetwork(ep);
+            if (!switched) throw new Error('Could not switch to XDC network.');
+            const accounts = await ep.request({ method: 'eth_requestAccounts' });
+            const from = accounts[0];
+            if (!from) throw new Error('No wallet account found.');
+            if (WALLET && normalizeAddr(from).toLowerCase() !== normalizeAddr(WALLET).toLowerCase()) {
+                throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+            }
+
+            return await ep.request({
+                method: 'eth_sendTransaction',
+                params: [{ from, to, data, value: valueHex, chainId: XDC_CHAIN_ID_HEX }]
+            });
+        }
+
+        async function executeXswap() {
+            clearXswapAlert();
+            if (!xswapQuoteReady || !xswapQuoteData) return showXswapAlert('alert-error', '❌ Please click Get Quote first.');
+
+            const deadlineMin = parseInt(document.getElementById('xswapDeadline').value || '20', 10);
+            if (!Number.isFinite(deadlineMin) || deadlineMin < 1 || deadlineMin > 120) {
+                return showXswapAlert('alert-error', '❌ Deadline must be between 1 and 120 minutes.');
+            }
+
+            const btn = document.getElementById('btnXswapExec');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-inline"></span> Preparing...';
+            try {
+                const routerIface = new ethers.Interface(XSWAP_ROUTER_ABI);
+                const erc20Iface = new ethers.Interface(ERC20_ABI);
+                const deadline = Math.floor(Date.now() / 1000) + deadlineMin * 60;
+                const toAddr = normalizeAddr(WALLET);
+                let txHash;
+
+                if (xswapDirection === 'XDC_TO_GD') {
+                    btn.innerHTML = '<span class="spinner-inline"></span> Confirm swap...';
+                    const data = routerIface.encodeFunctionData('swapExactETHForTokens', [xswapQuoteData.minOutWei, xswapQuoteData.path, toAddr, deadline]);
+                    txHash = await _sendXswapTx({ to: XSWAP_V2_ROUTER, data, valueHex: ethers.toBeHex(xswapQuoteData.amountInWei) });
+                } else {
+                    btn.innerHTML = '<span class="spinner-inline"></span> Checking allowance...';
+                    const readProvider = await _xswapReadProvider();
+                    const gd = new ethers.Contract(XDC_GD_TOKEN, ERC20_ABI, readProvider);
+                    const allowance = await gd.allowance(toAddr, XSWAP_V2_ROUTER);
+                    if (allowance < xswapQuoteData.amountInWei) {
+                        btn.innerHTML = '<span class="spinner-inline"></span> Approving G$...';
+                        const approveData = erc20Iface.encodeFunctionData('approve', [XSWAP_V2_ROUTER, ethers.MaxUint256]);
+                        await _sendXswapTx({ to: XDC_GD_TOKEN, data: approveData });
+                    }
+
+                    btn.innerHTML = '<span class="spinner-inline"></span> Confirm swap...';
+                    const data = routerIface.encodeFunctionData('swapExactTokensForETH', [
+                        xswapQuoteData.amountInWei,
+                        xswapQuoteData.minOutWei,
+                        xswapQuoteData.path,
+                        toAddr,
+                        deadline
+                    ]);
+                    txHash = await _sendXswapTx({ to: XSWAP_V2_ROUTER, data });
+                }
+
+                xswapQuoteReady = false;
+                showXswapAlert('alert-success',
+                    `✅ Swap submitted successfully!<br><a class="tx-link" href="https://xdcscan.com/tx/${txHash}" target="_blank" rel="noopener">View on XDCScan ↗ ${txHash.substring(0,10)}...${txHash.slice(-8)}</a>`
+                );
+                setTimeout(() => { loadBalances(); loadGDInfo(); loadHistory(); }, 3500);
+            } catch (err) {
+                let msg = err.message || 'Swap failed';
+                if (err.code === 4001) msg = 'Swap rejected by user.';
+                showXswapAlert('alert-error', '❌ ' + msg);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Swap Now';
             }
         }
 
