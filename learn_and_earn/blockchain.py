@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_DOWN
 from datetime import datetime
 from web3 import Web3
 from eth_account import Account
+from web3.exceptions import TimeExhausted
 from config import LEARN_EARN_CONTRACT_ADDRESS as _CONFIG_LEARN_EARN_ADDRESS
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class LearnBlockchainService:
         self.gooddollar_address = os.getenv('GOODDOLLAR_CONTRACT', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
         self.contract_address = _CONFIG_LEARN_EARN_ADDRESS or None
         self._wallet_key = os.getenv('LEARN_WALLET_PRIVATE_KEY')
+        self.tx_receipt_timeout = int(os.getenv('TX_RECEIPT_TIMEOUT', '300'))
 
         self.w3 = Web3(Web3.HTTPProvider(self.celo_rpc_url, request_kwargs={'timeout': 30}))
         self.contract = None
@@ -247,7 +249,7 @@ class LearnBlockchainService:
                 tx_hash_hex = '0x' + tx_hash_hex
 
             logger.info(f"Direct transfer sent: {tx_hash_hex}")
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            receipt = self._wait_for_receipt(tx_hash)
 
             if receipt.status == 1:
                 logger.info(f"Direct transfer success: {amount} G$ → {wallet_address[:10]} TX: {tx_hash_hex}")
@@ -347,7 +349,7 @@ class LearnBlockchainService:
 
         logger.info(f"Transaction sent: {tx_hash_hex}")
 
-        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        receipt = self._wait_for_receipt(tx_hash)
 
         if receipt.status == 1:
             logger.info(f"Reward sent successfully: {amount} G$ - TX: {tx_hash_hex} - Block: {receipt.blockNumber} - Gas: {receipt.gasUsed}")
@@ -381,6 +383,33 @@ class LearnBlockchainService:
                 "tx_hash": tx_hash_hex,
                 "explorer_url": f"https://celoscan.io/tx/{tx_hash_hex}"
             }
+
+    def _wait_for_receipt(self, tx_hash):
+        """
+        Wait for transaction receipt with configurable timeout and manual fallback polling.
+        Prevents frequent 120s false-failure during temporary Celo congestion.
+        """
+        try:
+            return self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=self.tx_receipt_timeout)
+        except TimeExhausted:
+            tx_hex = tx_hash.hex() if hasattr(tx_hash, 'hex') else str(tx_hash)
+            logger.warning(
+                f"Receipt timeout after {self.tx_receipt_timeout}s for tx {tx_hex}. "
+                "Polling manually for final status..."
+            )
+            manual_poll_seconds = 60
+            deadline = time.time() + manual_poll_seconds
+            while time.time() < deadline:
+                try:
+                    receipt = self.w3.eth.get_transaction_receipt(tx_hash)
+                    if receipt:
+                        return receipt
+                except Exception:
+                    pass
+                time.sleep(3)
+            raise TimeExhausted(
+                f"Transaction not mined after {self.tx_receipt_timeout + manual_poll_seconds}s total wait"
+            )
 
     def _sanitize_error(self, error_msg: str) -> str:
         """Remove sensitive info from error messages shown to users"""

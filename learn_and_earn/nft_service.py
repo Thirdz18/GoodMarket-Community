@@ -9,9 +9,11 @@ need CELO for gas. Marketplace balances are tracked in Supabase.
 import os
 import json
 import logging
+import time
 from datetime import datetime
 from web3 import Web3
 from eth_account import Account
+from web3.exceptions import TimeExhausted
 from config import (
     ESCROW_MARKETPLACE_ADDRESS as _CONFIG_ESCROW_ADDRESS,
     GOODDOLLAR_CONTRACT_ADDRESS as _CONFIG_GD_ADDRESS,
@@ -174,6 +176,7 @@ class AchievementNFTService:
         self._wallet_key = os.getenv('LEARN_WALLET_PRIVATE_KEY')
         self._escrow_address = _CONFIG_ESCROW_ADDRESS
         self._g_dollar_address = _CONFIG_GD_ADDRESS
+        self.tx_receipt_timeout = int(os.getenv('TX_RECEIPT_TIMEOUT', '300'))
 
         self.w3 = Web3(Web3.HTTPProvider(self.celo_rpc_url, request_kwargs={'timeout': 30}))
         self.contract = None
@@ -262,7 +265,7 @@ class AchievementNFTService:
                 if not tx_hash_hex.startswith('0x'):
                     tx_hash_hex = '0x' + tx_hash_hex
 
-                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+                receipt = self._wait_for_receipt(tx_hash)
 
                 if receipt.status != 1:
                     logger.error(f"❌ Transaction REVERTED on-chain: tx={tx_hash_hex} status={receipt.status} gasUsed={receipt.gasUsed}")
@@ -306,6 +309,32 @@ class AchievementNFTService:
                 return {"success": False, "error": str(e)}
 
         return {"success": False, "error": str(last_error) if last_error else "Unknown transaction error"}
+
+    def _wait_for_receipt(self, tx_hash):
+        """
+        Wait for tx receipt with a longer, configurable timeout.
+        Handles Web3 TimeExhausted by performing manual polling before failing.
+        """
+        try:
+            return self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=self.tx_receipt_timeout)
+        except TimeExhausted:
+            logger.warning(
+                f"Receipt timeout after {self.tx_receipt_timeout}s for tx {tx_hash.hex() if hasattr(tx_hash, 'hex') else tx_hash}. "
+                "Polling manually for final status..."
+            )
+            manual_poll_seconds = 60
+            deadline = time.time() + manual_poll_seconds
+            while time.time() < deadline:
+                try:
+                    receipt = self.w3.eth.get_transaction_receipt(tx_hash)
+                    if receipt:
+                        return receipt
+                except Exception:
+                    pass
+                time.sleep(3)
+            raise TimeExhausted(
+                f"Transaction not mined after {self.tx_receipt_timeout + manual_poll_seconds}s total wait"
+            )
 
     def mint_nft(self, to_address: str, quiz_id: str, score: int, total: int,
                  quiz_name: str) -> dict:
