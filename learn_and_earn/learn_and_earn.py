@@ -33,12 +33,14 @@ _NFT_BALANCE_TTL    = 30    # 30 seconds – blockchain call, per user
 _MARKETPLACE_TTL    = 30    # 30 seconds – changes on list/delist/buy
 _MY_NFTS_TTL        = 30    # 30 seconds – per user
 _QUIZ_HISTORY_TTL   = 60    # 60 seconds – per user, changes after quiz submit
+_CARD_SALES_TTL     = 60    # 60 seconds – per user, changes after card sale
 
 _quiz_questions_cache: dict = {"data": None, "expires": 0}   # shared (no user key)
 _nft_balance_cache:    dict = {}   # {wallet: (data, expires)}
 _marketplace_cache:    dict = {"data": None, "expires": 0}
 _my_nfts_cache:        dict = {}   # {wallet: (data, expires)}
 _quiz_history_cache:   dict = {}   # {wallet: (data, expires)}
+_card_sales_cache:     dict = {}   # {wallet: (data, expires)}
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -1775,6 +1777,9 @@ def sell_achievement_card(current_user):
         }
 
         supabase.table('achievement_card_sales').insert(card_sale_data).execute()
+        for cache_key in list(_card_sales_cache.keys()):
+            if cache_key.startswith(f"{current_user}:"):
+                _card_sales_cache.pop(cache_key, None)
 
         logger.info(f"✅ Achievement card sold successfully!")
         logger.info(f"💰 User received: {sell_price} G$")
@@ -1908,6 +1913,12 @@ def get_card_sale_history(current_user):
     """Get achievement card sell transaction history for the current user"""
     try:
         limit = int(request.args.get('limit', 50))
+        now = time.time()
+        cache_key = f"{current_user}:{limit}"
+        cached = _card_sales_cache.get(cache_key)
+        if cached and now < cached[1]:
+            logger.info(f"📦 Using cached card sale history for {current_user[:8]}... (limit={limit})")
+            return jsonify(cached[0])
 
         supabase = get_supabase_client()
         if not supabase:
@@ -1925,12 +1936,14 @@ def get_card_sale_history(current_user):
 
         logger.info(f"📜 Card sale history for {current_user[:8]}...: {len(sales)} records, total {total_earned} G$")
 
-        return jsonify({
+        response = {
             'success': True,
             'sales': sales,
             'sale_count': len(sales),
             'total_earned': total_earned
-        })
+        }
+        _card_sales_cache[cache_key] = (response, now + _CARD_SALES_TTL)
+        return jsonify(response)
 
     except Exception as e:
         logger.error(f"❌ Error fetching card sale history: {e}")
