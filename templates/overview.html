@@ -762,7 +762,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div style="font-size: 0.78rem; color: rgba(255,255,255,0.65); margin-top: 0.25rem;">
                                     GoodMarket has successfully verified <strong style="color:#fff;">{{ gm_verified }} users</strong> through the platform.
                                 </div>
-                                <div style="font-size: 0.7rem; color: rgba(255,255,255,0.35); margin-top: 0.4rem;">April 12, 2026</div>
+                                <div id="gm-milestone-date-range" style="font-size: 0.7rem; color: rgba(255,255,255,0.35); margin-top: 0.4rem;">March 31, 2026 - April 12, 2026</div>
                             </div>
                             {% endif %}
                             <div class="stat-row">
@@ -1564,6 +1564,24 @@ document.addEventListener('DOMContentLoaded', function() {
     </iframe>
 
     <script>
+        function updateGoodMarketMilestoneDateRange() {
+            const dateRangeElement = document.getElementById('gm-milestone-date-range');
+            if (!dateRangeElement) return;
+
+            const fromDate = new Date(Date.UTC(2026, 2, 31)); // March 31, 2026 (hardcoded)
+            const today = new Date();
+
+            const formatDate = (date) => date.toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+            });
+
+            dateRangeElement.textContent = `${formatDate(fromDate)} - ${formatDate(today)}`;
+        }
+
+        updateGoodMarketMilestoneDateRange();
+
         var musicPlaying = false;
         var musicStarted = false;
         var MUSIC_SRC = 'https://www.youtube.com/embed/H4kVafIdANI?autoplay=1&loop=1&playlist=H4kVafIdANI&controls=0&mute=0&enablejsapi=1';
