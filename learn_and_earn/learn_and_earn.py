@@ -1450,6 +1450,9 @@ def submit_quiz(current_user):
             'submission_allowed': True # Submission is always allowed, reward is conditional
         }
 
+        # Prefer validated questions from scoring path to avoid missing-session save failures
+        questions_for_log = quiz_result.get('questions') or stored_questions or []
+
         # Save quiz attempt to database
         quiz_log = None
         loop = asyncio.new_event_loop()
@@ -1457,7 +1460,7 @@ def submit_quiz(current_user):
         try:
             quiz_log = loop.run_until_complete(quiz_manager.save_quiz_attempt(
                 current_user,
-                stored_questions,
+                questions_for_log,
                 user_answers,
                 0,  # no G$ reward — NFT is the reward now
                 feature_info_for_log
