@@ -2047,6 +2047,7 @@
         }
 
         async function pollForGasArrival(maxDurationMs = 180000) {
+            const correlationId = window.__claimFaucetCorrelationId || `claim-${Date.now().toString(36)}`;
             const startedAt = Date.now();
             const backoffSchedule = [3000, 5000, 7000, 9000, 11000, 13000, 15000, 18000, 22000, 26000];
             let attempt = 0;
@@ -2058,8 +2059,8 @@
 
                 const statusRes = await fetch('/api/faucet/status', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wallet: WALLET })
+                    headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                    body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId })
                 });
                 const statusData = await statusRes.json();
                 if (statusData.success && statusData.gas_ready) {
@@ -2083,12 +2084,14 @@
         }
 
         async function ensureGasReadyBeforeClaim() {
+            const correlationId = `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            window.__claimFaucetCorrelationId = correlationId;
             setClaimGasUiState('checking_balance');
 
             const statusRes = await fetch('/api/faucet/status', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ wallet: WALLET })
+                headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId })
             });
             const statusData = await statusRes.json();
             if (!statusData.success) {
@@ -2102,40 +2105,27 @@
             setClaimGasUiState('requesting_faucet');
             const gasRes = await fetch('/api/faucet/gas', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ wallet: WALLET })
+                headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId })
             });
             const gasData = await gasRes.json();
-
-            // Defensive fallback: if /api/faucet/gas returns api_failed without attempting
-            // on-chain top-up, explicitly call /api/faucet/onchain (GAMES_KEY signer path).
-            if (gasData.status === 'api_failed' && !gasData.gas_ready && !gasData.onchain_result) {
-                const onchainRes = await fetch('/api/faucet/onchain', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wallet: WALLET })
-                });
-                const onchainData = await onchainRes.json();
-                gasData.onchain_result = onchainData;
-                if (onchainData && onchainData.success) {
-                    gasData.success = true;
-                    gasData.status = onchainData.status || 'onchain_sent';
-                    gasData.topup_source = 'onchain';
-                }
-            }
+            const terminal = gasData.terminal_status || gasData.status;
 
             if (!gasData.success && !gasData.gas_ready) {
                 throw new Error(gasData.error || gasData.reason || 'Faucet unavailable.');
             }
 
-            if (gasData.status === 'recent_refill' && !gasData.gas_ready) {
+            if (terminal === 'recent_refill' && !gasData.gas_ready) {
                 const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
                 throw new Error(
                     `Gas refill cooldown active (${cooldown}s remaining). Please wait and retry. If this keeps happening, contact support.`
                 );
             }
 
-            if ((gasData.status === 'api_failed' || gasData.status === 'onchain_failed') && !gasData.gas_ready) {
+            if (
+                (terminal === 'onchain_failed' || terminal === 'not_configured' || terminal === 'api_failed') &&
+                !gasData.gas_ready
+            ) {
                 throw new Error(
                     `${gasData.error || gasData.reason || 'Gas top-up failed.'} Please retry shortly or contact support with your wallet and faucet debug values.`
                 );
@@ -2150,6 +2140,21 @@
         }
 
         async function ensureInjectedWalletClaim() {
+            const isInsufficientFundsError = (err) => {
+                const raw = String(
+                    (err && (err.shortMessage || err.message || err?.data?.message || err?.error?.message)) || ''
+                ).toLowerCase();
+                return raw.includes('insufficient funds') || raw.includes('code -32000') || raw.includes('overshot');
+            };
+
+            const sendClaimTransaction = async (provider, from) => {
+                setClaimGasUiState('approve_wallet');
+                return provider.request({
+                    method: 'eth_sendTransaction',
+                    params: [{ from, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
+                });
+            };
+
             const provider = _getEthProvider();
             if (!provider) {
                 setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
@@ -2202,11 +2207,27 @@
                     }
                 }
 
-                setClaimGasUiState('approve_wallet');
-                const txHash = await provider.request({
-                    method: 'eth_sendTransaction',
-                    params: [{ from, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
-                });
+                // Preflight one more time right before sending tx because gas price can spike.
+                let finalGasSnap = await getProviderGasSnapshot(provider);
+                if (!finalGasSnap.gasReady) {
+                    setStatus('Gas changed while preparing tx. Retrying faucet top-up…', 'var(--text-dim)');
+                    await ensureGasReadyBeforeClaim();
+                    finalGasSnap = await getProviderGasSnapshot(provider);
+                    if (!finalGasSnap.gasReady) {
+                        throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
+                    }
+                }
+
+                let txHash;
+                try {
+                    txHash = await sendClaimTransaction(provider, from);
+                } catch (sendErr) {
+                    // Automatic one-time recovery for the common -32000 insufficient funds race.
+                    if (!isInsufficientFundsError(sendErr)) throw sendErr;
+                    setStatus('Gas became insufficient at send time. Re-running faucet fallback once…', '#facc15');
+                    await ensureGasReadyBeforeClaim();
+                    txHash = await sendClaimTransaction(provider, from);
+                }
                 label.textContent = 'Confirming…';
                 setStatus('Transaction sent! Waiting for confirmation…', 'var(--text-dim)');
                 pollReceipt(txHash, 20);
