@@ -2260,8 +2260,44 @@
             return sig.startsWith('0x') ? sig : '0x' + sig;
         }
 
+        async function signWithWallet(address) {
+            const provider = _getEthProvider();
+            if (!provider) {
+                throw new Error('No wallet detected. Open this page in MiniPay, MetaMask, Trust Wallet, or WalletConnect.');
+            }
+
+            const accounts = await provider.request({ method: 'eth_requestAccounts' });
+            if (!accounts || !accounts.length) {
+                throw new Error('No wallet account available for signing.');
+            }
+
+            const connected = accounts[0];
+            if (connected.toLowerCase() !== address.toLowerCase()) {
+                throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet and try again.');
+            }
+
+            const msg = FV_IDENTIFIER_MSG2.replace('<account>', address);
+            try {
+                const sig = await provider.request({
+                    method: 'personal_sign',
+                    params: [msg, connected]
+                });
+                if (!sig) throw new Error('Wallet did not return a signature.');
+                return sig.startsWith('0x') ? sig : '0x' + sig;
+            } catch (personalErr) {
+                const sig = await provider.request({
+                    method: 'eth_sign',
+                    params: [connected, msg]
+                });
+                if (!sig) throw new Error((personalErr && personalErr.message) || 'Wallet signing rejected.');
+                return sig.startsWith('0x') ? sig : '0x' + sig;
+            }
+        }
+
         window._fvGenerateLink = async function(address) {
-            const sig = await signServerSide(address);
+            const sig = window.isCustodialMode
+                ? await signServerSide(address)
+                : await signWithWallet(address);
             return buildFVLink(address, sig);
         };
 
