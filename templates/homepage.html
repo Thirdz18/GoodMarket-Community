@@ -1867,6 +1867,9 @@
                 </div>
                 <button class="connect-btn" onclick="verifyManualAddress()">Continue Without Signature</button>
                 <div id="manualAddressStatus" class="status-message"></div>
+                <div style="margin-top:0.7rem;font-size:0.8rem;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:0.7rem 0.8rem;line-height:1.6;">
+                    ⚠️ Please use MetaMask / TrustWallet dapp wallet browser to access goodmarket.live full features.
+                </div>
             </div>
 
             <!-- Step 2B: Turnkey options -->
@@ -2239,10 +2242,15 @@
                 showWalletStatus('manualAddressStatus', 'Please enter a valid EVM address (0x...)', 'error');
                 return;
             }
-            showWalletStatus('manualAddressStatus', 'ℹ️ Manual wallet mode cannot login without a signature. Use this address as a copy helper, then connect/sign with WalletConnect or injected wallet.', 'warning');
+            sessionStorage.setItem('manual_wallet_address', raw);
             if (referral) {
                 sessionStorage.setItem('pending_referral_code', referral);
             }
+            showWalletStatus('manualAddressStatus', '✅ Address saved. Please use MetaMask / TrustWallet dapp wallet browser to access goodmarket.live full features, then continue with injected wallet or WalletConnect signature login.', 'warning');
+            showWalletStatus('walletConnectStatus', '⚠️ Manual address is saved, but login still requires wallet signature. Please use MetaMask / TrustWallet dapp wallet browser to access goodmarket.live full features.', 'warning');
+            setTimeout(() => {
+                showWalletConnectOptions();
+            }, 800);
         }
 
         window._wcSignClient = null;
