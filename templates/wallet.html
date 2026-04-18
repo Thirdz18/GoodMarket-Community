@@ -1962,7 +1962,7 @@
             setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
 
             try {
-                await ensureGasReadyBeforeClaim();
+                await ensureGasReadyBeforeClaim({ forceOnchain: true });
             } catch (e) {
                 btn.disabled = false;
                 label.textContent = 'Claim G$';

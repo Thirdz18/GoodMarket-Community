@@ -75,6 +75,21 @@ def _parse_iso_datetime(value):
     except Exception:
         return None
 
+
+def _coerce_bool(value) -> bool:
+    """Safely coerce mixed input values to bool without treating 'false' as truthy."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
 @routes.route('/api/daily-task/claim', methods=['POST'])
 @auth_required
 def claim_daily_task():
@@ -6695,7 +6710,7 @@ def faucet_gas():
     try:
         data = request.get_json(silent=True) or {}
         correlation_id = _get_faucet_correlation_id(data)
-        force_onchain = bool(data.get("force_onchain"))
+        force_onchain = _coerce_bool(data.get("force_onchain"))
         checksum_wallet, err_resp, status_code = _validate_and_authorize_wallet(data)
         if err_resp:
             return err_resp, status_code

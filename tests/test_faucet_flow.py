@@ -216,6 +216,53 @@ class FaucetFlowTests(unittest.TestCase):
         self.assertEqual(len(body["onchain_attempt_history"]), 2)
         self.assertEqual(mock_onchain.call_count, 2)
 
+    @patch("routes.urllib.request.urlopen")
+    @patch("routes.Web3", new=FakeWeb3)
+    @patch("routes._has_recent_refill")
+    @patch("routes._get_gas_status")
+    def test_case7_force_onchain_string_false_does_not_force(
+        self, mock_get_gas, mock_recent, mock_urlopen
+    ):
+        self._auth_session()
+        mock_recent.return_value = (False, 0)
+        mock_get_gas.side_effect = [
+            {
+                "balance_wei": "0",
+                "balance_celo": 0.0,
+                "estimated_gas": 220000,
+                "gas_price_wei": "1000000000",
+                "required_gas_wei": "1000000000000000",
+                "required_gas_celo": 0.001,
+                "gas_ready": False,
+            },
+            {
+                "balance_wei": "2000000000000000",
+                "balance_celo": 0.002,
+                "estimated_gas": 220000,
+                "gas_price_wei": "1000000000",
+                "required_gas_wei": "1000000000000000",
+                "required_gas_celo": 0.001,
+                "gas_ready": True,
+            },
+        ]
+
+        class _Resp:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self): return b'{"ok":1,"txHash":"0xapi"}'
+        mock_urlopen.return_value = _Resp()
+
+        resp = self.client.post(
+            "/api/faucet/gas",
+            json={"wallet": "0x1111111111111111111111111111111111111111", "force_onchain": "false"},
+        )
+        body = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(body["attempted_api"])
+        self.assertFalse(body["attempted_onchain"])
+        self.assertEqual(body["topup_source"], "api")
+        self.assertFalse(body["debug"]["force_onchain"])
+
 
 if __name__ == "__main__":
     unittest.main()
