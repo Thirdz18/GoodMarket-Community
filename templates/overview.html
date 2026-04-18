@@ -617,8 +617,8 @@ document.addEventListener('DOMContentLoaded', function() {
             </a>
             <div id="dashboardFVMsg" style="display:none;margin-top:0.75rem;padding:0.75rem 1.1rem;
                 background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.4);
-                border-radius:12px;color:#c4b5fd;font-size:0.84rem;text-align:center;max-width:420px;margin-left:auto;margin-right:auto;">
-                🪪 You need to proceed to <strong>Verify your Face ID to Claim</strong> and start GoodMarket Dashboard.
+                border-radius:12px;color:#c4b5fd;font-size:0.84rem;text-align:center;max-width:520px;margin-left:auto;margin-right:auto;">
+                Please click <strong>Claim G$</strong> button to start your face verification to start G$ daily claiming and using GoodMarket full features.
             </div>
         </div>
 
@@ -1262,6 +1262,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        async function checkDashboardFaceVerification(walletAddress) {
+            window._needsFVVerification = false;
+            if (!walletAddress || walletAddress === 'None') return;
+            try {
+                const response = await fetch(`/api/check-identity?wallet=${encodeURIComponent(walletAddress)}`);
+                if (!response.ok) return;
+                const result = await response.json();
+                window._needsFVVerification = !Boolean(result && result.verified);
+            } catch (error) {
+                console.warn('Face verification check failed:', error);
+            }
+        }
+
         async function loadAnalyticsData() {
             const walletAddress = "{{ wallet }}";
             if (walletAddress && walletAddress !== 'None' && walletAddress !== '') {
@@ -1302,6 +1315,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (wallet && wallet !== 'None' && wallet !== '') {
                 loadAnalyticsData();
                 loadGdPriceOverview();
+                checkDashboardFaceVerification(wallet);
                 setInterval(loadAnalyticsData, 60000);
             }
 
