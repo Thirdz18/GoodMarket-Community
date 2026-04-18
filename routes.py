@@ -5541,6 +5541,31 @@ def _save_email_wallet_link(email: str, wallet_address: str, login_method: str, 
         return False
 
 
+def _upsert_user_wallet_record(wallet_address: str, login_method: str = None):
+    """Best-effort insert/update of core user_data fields after login/wallet creation."""
+    if not wallet_address:
+        return False
+    try:
+        from supabase_client import get_supabase_client
+        supabase = get_supabase_client()
+        if not supabase:
+            return False
+
+        payload = {"wallet_address": wallet_address}
+        if login_method:
+            payload["login_method"] = login_method
+
+        safe_supabase_operation(
+            lambda: supabase.table("user_data").upsert(payload, on_conflict="wallet_address").execute(),
+            fallback_result=None,
+            operation_name="upsert user_data wallet record"
+        )
+        return True
+    except Exception as db_err:
+        logger.warning(f"Could not save wallet record to Supabase: {db_err}")
+        return False
+
+
 def _email_recently_verified(email: str) -> bool:
     email = _normalize_email(email)
     verified_email = session.get("turnkey_email_pending")
@@ -5653,18 +5678,7 @@ def turnkey_login():
         analytics.track_verification_attempt(wallet_address, True)
         analytics.track_user_session(wallet_address)
 
-        try:
-            from supabase_client import get_supabase_client
-            supabase = get_supabase_client()
-            if supabase:
-                try:
-                    supabase.table("user_data").upsert({
-                        "wallet_address": wallet_address
-                    }, on_conflict="wallet_address").execute()
-                except Exception:
-                    pass
-        except Exception as db_err:
-            logger.warning(f"Could not save custodial login to Supabase: {db_err}")
+        _upsert_user_wallet_record(wallet_address, login_method="custodial")
 
         if referral_code and referral_code.strip():
             try:
@@ -5766,18 +5780,7 @@ def turnkey_create_wallet():
             analytics.track_verification_attempt(wallet_address, True)
             analytics.track_user_session(wallet_address)
 
-            try:
-                from supabase_client import get_supabase_client
-                supabase = get_supabase_client()
-                if supabase:
-                    try:
-                        supabase.table("user_data").upsert({
-                            "wallet_address": wallet_address
-                        }, on_conflict="wallet_address").execute()
-                    except Exception:
-                        pass
-            except Exception as db_err:
-                logger.warning(f"Could not save fallback wallet to Supabase: {db_err}")
+            _upsert_user_wallet_record(wallet_address, login_method="custodial")
 
             if email:
                 _save_email_wallet_link(
@@ -5822,6 +5825,8 @@ def turnkey_create_wallet():
         session["turnkey_sign_with"] = sign_with
         session["login_method"] = "turnkey"
         session.permanent = True
+
+        _upsert_user_wallet_record(wallet_address, login_method="turnkey")
 
         if email:
             _save_email_wallet_link(
