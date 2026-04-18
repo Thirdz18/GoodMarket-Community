@@ -623,7 +623,7 @@ def get_gooddollar_balance(wallet_address: str) -> dict:
         result = {
             "success": True,
             "balance": float(balance_g),
-            "balance_formatted": f"{balance_g:.6f} G$",
+            "balance_formatted": f"{balance_g:,.6f} G$",
             "wallet": wallet_address,
             "contract": gooddollar_token,
             "usd_value": usd_value if usd_value is not None else 0,
