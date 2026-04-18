@@ -646,10 +646,24 @@
             "function allowance(address owner, address spender) external view returns (uint256)"
         ];
 
+        function _providerLabel(provider) {
+            if (!provider) return 'wallet';
+            if (provider.isMiniPay) return 'MiniPay';
+            if (provider.isTrust) return 'Trust Wallet';
+            if (provider.isMetaMask) return 'MetaMask';
+            return 'wallet';
+        }
+
         function _getEthProvider() {
             if (!window.ethereum) return null;
             if (window.ethereum.providers && window.ethereum.providers.length) {
-                const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
+                // Mobile dApp browsers often inject multiple providers.
+                // Prefer MiniPay / Trust Wallet when present, then fallback to MetaMask.
+                const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
+                if (miniPay) return miniPay;
+                const trust = window.ethereum.providers.find(p => p && p.isTrust);
+                if (trust) return trust;
+                const mm = window.ethereum.providers.find(p => p && p.isMetaMask && !p.isBraveWallet);
                 if (mm) return mm;
                 return window.ethereum.providers[0];
             }
@@ -1243,6 +1257,8 @@
                 btn.disabled = false;
                 return;
             }
+            const walletName = _providerLabel(ep);
+            let claimSucceeded = false;
 
             btnText.textContent = '⏳ Switching to XDC Network...';
 
@@ -1272,7 +1288,7 @@
                             } catch (addErr) {
                                 // Auto-add failed — show manual instructions
                                 setupInstr.style.display = 'block';
-                                setAlert('alert-error', '❌ Could not add XDC Network automatically. Please follow the instructions below to add it manually in MetaMask.');
+                                setAlert('alert-error', `❌ Could not add XDC Network automatically in ${walletName}. Please follow the manual setup below.`);
                                 btnText.textContent = '🌟 Claim G$ on XDC';
                                 btn.disabled = false;
                                 return;
@@ -1284,7 +1300,7 @@
                             return;
                         } else {
                             setupInstr.style.display = 'block';
-                            setAlert('alert-error', '❌ Could not switch to XDC Network. Please try the manual setup below.');
+                            setAlert('alert-error', `❌ Could not switch ${walletName} to XDC Network. Please try the manual setup below.`);
                             btnText.textContent = '🌟 Claim G$ on XDC';
                             btn.disabled = false;
                             return;
@@ -1296,7 +1312,7 @@
                 const accounts = await ep.request({ method: 'eth_requestAccounts' });
                 const from = accounts[0];
 
-                btnText.textContent = '⏳ Confirm in MetaMask...';
+                btnText.textContent = `⏳ Confirm in ${walletName}...`;
 
                 // Call UBIScheme.claim() — function selector: keccak256("claim()") = 0x4e71d92d
                 const txHash = await ep.request({
@@ -1320,17 +1336,20 @@
                 btn.disabled = true;
                 btn.style.opacity = '0.5';
                 btnText.textContent = '✅ Already Claimed';
+                claimSucceeded = true;
                 startXDCCountdown();
 
                 setTimeout(() => { loadGDInfo(); loadBalances(); }, 4000);
 
             } catch (err) {
                 let msg = err.message || 'Transaction failed';
-                if (err.code === 4001) msg = 'Tinanggihan mo ang transaction sa MetaMask.';
+                if (err.code === 4001) msg = `Tinanggihan mo ang transaction sa ${walletName}.`;
                 setAlert('alert-error', '❌ ' + msg);
             } finally {
-                btnText.textContent = '🌟 Claim G$ on XDC';
-                btn.disabled = false;
+                if (!claimSucceeded) {
+                    btnText.textContent = '🌟 Claim G$ on XDC';
+                    btn.disabled = false;
+                }
             }
         }
 
