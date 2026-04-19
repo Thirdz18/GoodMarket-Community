@@ -528,15 +528,75 @@
         }
     }
 
-    // Handles EIP-5749 multi-wallet: prefer MetaMask from providers[] array
+    // Handles EIP-5749 multi-wallet: prefer MiniPay / Trust Wallet on mobile dApp
+    // browsers, then MetaMask, then fallback to the first injected provider.
     function _getEthProvider() {
         if (!window.ethereum) return null;
         if (window.ethereum.providers && window.ethereum.providers.length) {
-            const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
+            const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
+            if (miniPay) return miniPay;
+            const trust = window.ethereum.providers.find(p => p && p.isTrust);
+            if (trust) return trust;
+            const mm = window.ethereum.providers.find(p => p && p.isMetaMask && !p.isBraveWallet);
             if (mm) return mm;
             return window.ethereum.providers[0];
         }
         return window.ethereum;
+    }
+
+    function _isMiniPay(ep) {
+        return !!(ep && ep.isMiniPay);
+    }
+
+    // MiniPay injects its own provider but does not cooperate well with the
+    // eth_sendTransaction payload ethers.js produces (pre-populated `gas`,
+    // EIP-1559 fields). Sending a minimal payload lets MiniPay select the
+    // feeCurrency automatically for the user and avoids a -32604 "Permission
+    // denied" rejection from its security layer.
+    async function _sendDirectTx(ep, toAddr, data, value) {
+        const accounts = await ep.request({ method: 'eth_requestAccounts' });
+        const active = (accounts && accounts[0] || '').toLowerCase();
+        if (active && active !== WALLET.toLowerCase()) {
+            const label = ep.isMiniPay ? 'MiniPay'
+                : ep.isTrust ? 'Trust Wallet'
+                : ep.isMetaMask ? 'MetaMask'
+                : 'your wallet';
+            throw new Error(
+                'Wrong account selected in ' + label + '. Please switch to ' +
+                WALLET.slice(0,6) + '…' + WALLET.slice(-4) + ' and try again.'
+            );
+        }
+        return await ep.request({
+            method: 'eth_sendTransaction',
+            params: [{
+                from: WALLET,
+                to: toAddr,
+                data: data,
+                value: value || '0x0'
+            }]
+        });
+    }
+
+    // Poll Celo RPC for the receipt since MiniPay's provider doesn't always
+    // expose eth_getTransactionReceipt reliably once the user closes its
+    // confirmation sheet.
+    async function _waitForCeloReceipt(txHash, timeoutMs) {
+        const limit = timeoutMs || 180000;
+        const rpc = new ethers.JsonRpcProvider(CELO_RPC);
+        const started = Date.now();
+        while (Date.now() - started < limit) {
+            try {
+                const receipt = await rpc.getTransactionReceipt(txHash);
+                if (receipt) return receipt;
+            } catch (_) {
+                // keep polling
+            }
+            await new Promise(r => setTimeout(r, 2500));
+        }
+        throw new Error(
+            'Still waiting for Celo confirmation. Check CeloScan: ' +
+            'https://celoscan.io/tx/' + txHash
+        );
     }
 
     async function getSigner() {
@@ -595,6 +655,21 @@
             }
 
             showAlert('saveAlert', 'info', '<span class="spinner"></span> Check your MetaMask extension — click it to open if nothing pops up…');
+            const ep = _getEthProvider();
+            if (_isMiniPay(ep)) {
+                await ensureCeloNetwork();
+                const iface = new ethers.Interface(ERC20_ABI);
+                const data = iface.encodeFunctionData('approve', [SAVINGS_CONTRACT, amtWei]);
+                showAlert('saveAlert', 'info', '<span class="spinner"></span> Approve G$ spending in MiniPay…');
+                const txHash = await _sendDirectTx(ep, GD_CONTRACT, data);
+                showAlert('saveAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
+                await _waitForCeloReceipt(txHash);
+                showAlert('saveAlert', 'success', '✅ Approved! Now click "Lock & Save G$" to complete your save.');
+                document.getElementById('saveBtn').disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Approved ✓';
+                return;
+            }
+
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -657,6 +732,32 @@
                 return;
             }
 
+            const ep = _getEthProvider();
+            if (_isMiniPay(ep)) {
+                await ensureCeloNetwork();
+                const iface = new ethers.Interface(SAVINGS_ABI);
+                const data = iface.encodeFunctionData('depositSavings', [amtWei, BigInt(selectedDays)]);
+                showAlert('saveAlert', 'info', '<span class="spinner"></span> Confirm the save transaction in MiniPay…');
+                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
+                showAlert('saveAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
+                await _waitForCeloReceipt(txHash);
+                const unlockDate = new Date();
+                unlockDate.setDate(unlockDate.getDate() + selectedDays);
+                showAlert('saveAlert', 'success',
+                    `🎉 Successfully saved ${parseFloat(amtStr).toLocaleString()} G$ for ${selectedDays} days!<br>` +
+                    `Unlocks: <strong>${unlockDate.toDateString()}</strong><br>` +
+                    `<a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
+                );
+                document.getElementById('saveAmount').value = '';
+                updateSummary();
+                document.getElementById('approveBtn').disabled = false;
+                document.getElementById('approveBtn').innerHTML = '<i class="fas fa-check-circle"></i> Step 1 — Approve G$ Spending';
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-lock"></i> Step 2 — Lock & Save G$';
+                loadStats();
+                return;
+            }
+
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -704,6 +805,23 @@
                 return;
             }
 
+            const ep = _getEthProvider();
+            if (_isMiniPay(ep)) {
+                await ensureCeloNetwork();
+                const iface = new ethers.Interface(SAVINGS_ABI);
+                const data = iface.encodeFunctionData('withdraw', [BigInt(depositId)]);
+                showAlert('depositsAlert', 'info', '<span class="spinner"></span> Confirm withdrawal in MiniPay…');
+                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
+                showAlert('depositsAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
+                await _waitForCeloReceipt(txHash);
+                showAlert('depositsAlert', 'success',
+                    `✅ Withdrawn successfully! <a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
+                );
+                loadDeposits();
+                loadStats();
+                return;
+            }
+
             const signer = await getSigner();
             await ensureCeloNetwork();
             const savings = new ethers.Contract(SAVINGS_CONTRACT, SAVINGS_ABI, signer);
@@ -720,7 +838,14 @@
             loadStats();
         } catch (err) {
             console.error(err);
-            showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + (err.reason || err.message || 'Unknown error'));
+            const raw = (err && (err.reason || err.message)) || 'Unknown error';
+            let msg = raw;
+            if (/-?32604/.test(raw) || /Permission denied/i.test(raw)) {
+                msg = 'Your wallet refused the transaction. If you are on MiniPay, ' +
+                    'make sure you have a supported stablecoin (cUSD / USDC / USDT / cEUR) ' +
+                    'for gas, then try again. Raw error: ' + raw;
+            }
+            showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + msg);
         }
     }
 
@@ -873,6 +998,21 @@
             }
 
             showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Check your wallet — click it to open if nothing pops up…');
+            const ep = _getEthProvider();
+            if (_isMiniPay(ep)) {
+                await ensureCeloNetwork();
+                const iface = new ethers.Interface(ERC20_ABI);
+                const data = iface.encodeFunctionData('approve', [SAVINGS_CONTRACT, amtWei]);
+                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Approve G$ spending in MiniPay…');
+                const txHash = await _sendDirectTx(ep, GD_CONTRACT, data);
+                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
+                await _waitForCeloReceipt(txHash);
+                showAlert('sponsorAlert', 'success', '✅ Approved! Now click "Add to Reward Pool" to complete your contribution.');
+                document.getElementById('poolFundBtn').disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Approved ✓';
+                return;
+            }
+
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -923,6 +1063,29 @@
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Step 2 — Add to Reward Pool';
                 loadStats(); loadSponsorStats();
+                return;
+            }
+
+            const ep = _getEthProvider();
+            if (_isMiniPay(ep)) {
+                await ensureCeloNetwork();
+                const iface = new ethers.Interface(SAVINGS_ABI);
+                const data = iface.encodeFunctionData('fundRewardPool', [amtWei]);
+                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Confirm the transaction in MiniPay…');
+                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
+                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
+                await _waitForCeloReceipt(txHash);
+                showAlert('sponsorAlert', 'success',
+                    `🎉 Thank you! <strong>${parseFloat(amtStr).toLocaleString()} G$</strong> added to the reward pool.<br>` +
+                    `<a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
+                );
+                document.getElementById('sponsorAmount').value = '';
+                document.getElementById('poolApproveBtn').disabled = false;
+                document.getElementById('poolApproveBtn').innerHTML = '<i class="fas fa-check-circle"></i> Step 1 — Approve G$ Spending';
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Step 2 — Add to Reward Pool';
+                loadStats();
+                loadSponsorStats();
                 return;
             }
 
