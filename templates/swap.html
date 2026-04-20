@@ -1932,52 +1932,61 @@
                         amountOutMin: amountOutMin.toString()
                     });
                 }
-                {
-                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
+                if (useMiniPayInjectedPath) {
+                    if (!ethProvider) throw new Error("MiniPay provider unavailable.");
+                    // For MiniPay, bypass ethers' Contract runner entirely for
+                    // the swap step. Ethers v6 populates an EIP-1559 payload by
+                    // default and issues pre-flight RPCs (eth_estimateGas,
+                    // eth_feeHistory) that MiniPay's JSON-RPC gateway either
+                    // rejects ("Permission denied") or silently drops for
+                    // arbitrary contract targets like the Uniswap V3 router.
+                    // Sending a fully-populated eth_sendTransaction directly
+                    // gives MiniPay everything it needs to choose a feeCurrency
+                    // and render its native sign sheet. A 60s timeout prevents
+                    // an infinite hang if the wallet never surfaces a prompt.
+                    const routerIface = new ethers.Interface(ROUTER_ABI);
+                    const swapData = currentQuote.isMulti && currentQuote.path
+                        ? routerIface.encodeFunctionData("exactInput", [{
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        }])
+                        : routerIface.encodeFunctionData("exactInputSingle", [{
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        }]);
+                    const txParams = {
+                        from: WALLET_ADDRESS,
+                        to: UNISWAP_ROUTER,
+                        data: swapData,
+                        value: "0x0",
+                        gas: "0x" + (800000).toString(16),
+                        chainId: "0x" + (42220).toString(16)
+                    };
+                    _mpLog("swap:rawRequest:start", { params: txParams });
 
-                    // MiniPay's JSON-RPC gateway rejects eth_estimateGas for
-                    // arbitrary contract calls like Uniswap V3's exactInput.
-                    // When ethers tries to estimate during populateTransaction
-                    // the wallet either returns "Permission denied" or hangs
-                    // silently — the user never sees the native sign sheet.
-                    // Supplying gasLimit + chainId overrides makes ethers skip
-                    // the estimate and fires eth_sendTransaction directly with
-                    // a fully-populated payload, which MiniPay's fee-abstraction
-                    // layer can handle. MetaMask / Trust Wallet ignore overrides
-                    // if unnecessary, so leaving these in for all injected
-                    // wallets is safe, but we only set them for MiniPay to keep
-                    // the other paths byte-for-byte identical.
-                    const overrides = useMiniPayInjectedPath
-                        ? { gasLimit: 800000n, chainId: 42220n }
-                        : {};
+                    const WAIT_MS = 60000;
+                    const sendPromise = ethProvider.request({ method: "eth_sendTransaction", params: [txParams] });
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => {
+                        _mpLog("swap:timeout", { waitedMs: WAIT_MS });
+                        reject(new Error(
+                            `MiniPay did not respond within ${Math.round(WAIT_MS/1000)}s after sending the swap transaction. ` +
+                            `The wallet may be silently blocking Uniswap V3 router calls. ` +
+                            `Try again, or use MetaMask/Trust Wallet on Celo.`
+                        ));
+                    }, WAIT_MS));
 
-                    let swapTx;
                     try {
-                        swapTx = currentQuote.isMulti && currentQuote.path
-                            ? await router.exactInput({
-                                path: currentQuote.path,
-                                recipient: WALLET_ADDRESS,
-                                amountIn: amountIn,
-                                amountOutMinimum: amountOutMin
-                            }, overrides)
-                            : await router.exactInputSingle({
-                                tokenIn: from.address,
-                                tokenOut: to.address,
-                                fee: currentQuote.fee,
-                                recipient: WALLET_ADDRESS,
-                                amountIn: amountIn,
-                                amountOutMinimum: amountOutMin,
-                                sqrtPriceLimitX96: 0n
-                            }, overrides);
-                        if (useMiniPayInjectedPath) _mpLog("swap:sent", { hash: swapTx?.hash });
-                        const swapReceipt = await swapTx.wait();
-                        if (useMiniPayInjectedPath) _mpLog("swap:confirmed", {
-                            hash: swapReceipt?.hash,
-                            status: swapReceipt?.status
-                        });
-                        swapTxHash = swapTx.hash;
+                        swapTxHash = await Promise.race([sendPromise, timeoutPromise]);
+                        _mpLog("swap:rawRequest:ok", { txHash: swapTxHash });
                     } catch (swapErr) {
-                        if (useMiniPayInjectedPath) _mpLog("swap:err", {
+                        _mpLog("swap:rawRequest:err", {
                             code: swapErr?.code || swapErr?.error?.code,
                             message: swapErr?.message,
                             nested: swapErr?.error?.message || swapErr?.info?.error?.message,
@@ -1985,6 +1994,38 @@
                         });
                         throw swapErr;
                     }
+
+                    // Wait for on-chain confirmation via public RPC.
+                    const rpcProv = new ethers.JsonRpcProvider(CELO_RPC);
+                    _mpLog("swap:waitReceipt:start", { txHash: swapTxHash });
+                    const receipt = await rpcProv.waitForTransaction(swapTxHash);
+                    _mpLog("swap:waitReceipt:ok", {
+                        txHash: swapTxHash,
+                        status: receipt?.status,
+                        blockNumber: receipt?.blockNumber
+                    });
+                    if (!receipt) throw new Error("Swap tx not found on-chain.");
+                    if (receipt.status !== 1) throw new Error("Swap tx reverted on-chain.");
+                } else {
+                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
+                    const swapTx = currentQuote.isMulti && currentQuote.path
+                        ? await router.exactInput({
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        })
+                        : await router.exactInputSingle({
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        });
+                    await swapTx.wait();
+                    swapTxHash = swapTx.hash;
                 }
                 step2.className = "step done";
 
