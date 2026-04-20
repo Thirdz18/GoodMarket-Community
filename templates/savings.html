@@ -670,6 +670,20 @@
         );
     }
 
+    async function _getDepositState(depositId) {
+        try {
+            const rpc = new ethers.JsonRpcProvider(CELO_RPC);
+            const savings = new ethers.Contract(SAVINGS_CONTRACT, SAVINGS_ABI, rpc);
+            const dep = await savings.getDeposit(BigInt(depositId));
+            return {
+                withdrawn: !!dep[5]
+            };
+        } catch (e) {
+            console.warn('Deposit state check failed', e);
+            return null;
+        }
+    }
+
     async function getSigner() {
         if (window.isCustodialMode || LOGIN_METHOD === 'custodial' || LOGIN_METHOD === 'turnkey') {
             throw new Error('This account uses custodial/Turnkey signing. Please continue with automatic server signing.');
@@ -911,10 +925,31 @@
             console.error(err);
             const raw = (err && (err.reason || err.message)) || 'Unknown error';
             const code = (err && err.code);
+            const isMiniPayPermissionDenied =
+                _isMiniPay(_getEthProvider()) &&
+                /permission denied/i.test(raw) &&
+                !/user rejected|user denied/i.test(raw);
             let msg = raw;
-            if (/permission denied/i.test(raw) && !/user rejected|user denied/i.test(raw)) {
+
+            if (isMiniPayPermissionDenied) {
+                // MiniPay can occasionally surface a generic "Permission denied"
+                // even when the withdrawal already landed on-chain. Confirm current
+                // deposit status first so we don't show a false backend failure.
+                const state = await _getDepositState(depositId);
+                if (state && state.withdrawn) {
+                    showAlert('depositsAlert', 'success',
+                        '✅ Withdrawal already completed on-chain. ' +
+                        `Check CeloScan activity for ${WALLET.slice(0,6)}…${WALLET.slice(-4)}.`
+                    );
+                    loadDeposits();
+                    loadStats();
+                    return;
+                }
+            }
+
+            if (isMiniPayPermissionDenied) {
                 msg = 'MiniPay blocked this withdrawal (Permission denied). ' +
-                    'This usually means MiniPay\'s security layer flagged the call. ' +
+                    'This can be a MiniPay provider false-negative even when the backend/contract is fine. ' +
                     'Try opening this page in Chrome/Opera normal browser with MetaMask on Celo, ' +
                     'or contact support. Raw error: ' + raw +
                     (code ? ' (code ' + code + ')' : '');
