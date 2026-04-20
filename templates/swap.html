@@ -2001,10 +2001,53 @@
                     err,
                     fallback: "Wallet swap failed."
                 });
-                const debugHint = (window.__miniPaySwapDebug && window.__miniPaySwapDebug.length)
-                    ? `<br><span style="font-size:0.78rem;opacity:0.75">🔍 Detailed log sa browser console (<code>__miniPaySwapDebug</code>).</span>`
-                    : "";
-                showAlert("alert-error", `❌ ${_truncateMsg(msg, 260)}${debugHint}`);
+                let debugBlock = "";
+                if (useMiniPayInjectedPath && window.__miniPaySwapDebug && window.__miniPaySwapDebug.length) {
+                    const logJson = JSON.stringify(window.__miniPaySwapDebug, null, 2);
+                    const escaped = logJson
+                        .replace(/&/g, "&amp;")
+                        .replace(/</g, "&lt;")
+                        .replace(/>/g, "&gt;");
+                    debugBlock = `
+                        <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(239,68,68,0.25);font-size:0.78rem">
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+                                <strong style="color:#fca5a5">MiniPay debug log</strong>
+                                <button type="button" id="mpCopyLogBtn" style="background:#7c3aed;color:#fff;border:0;border-radius:6px;padding:4px 10px;font-size:0.72rem;cursor:pointer">📋 Copy log</button>
+                                <span id="mpCopyStatus" style="font-size:0.72rem;opacity:0.7"></span>
+                            </div>
+                            <pre style="max-height:220px;overflow:auto;background:rgba(0,0,0,0.4);padding:8px;border-radius:6px;font-size:0.7rem;line-height:1.3;white-space:pre-wrap;word-break:break-all;color:#e2e8f0;margin:0;user-select:text;-webkit-user-select:text">${escaped}</pre>
+                            <div style="margin-top:6px;opacity:0.65;font-size:0.7rem">If "Copy log" doesn't work in MiniPay, long-press the block above and select all.</div>
+                        </div>`;
+                }
+                showAlert("alert-error", `❌ ${_truncateMsg(msg, 260)}${debugBlock}`);
+                if (useMiniPayInjectedPath) {
+                    const copyBtn = document.getElementById("mpCopyLogBtn");
+                    if (copyBtn) {
+                        copyBtn.addEventListener("click", async () => {
+                            const logText = JSON.stringify(window.__miniPaySwapDebug || [], null, 2);
+                            const status = document.getElementById("mpCopyStatus");
+                            try {
+                                if (navigator.clipboard && navigator.clipboard.writeText) {
+                                    await navigator.clipboard.writeText(logText);
+                                } else {
+                                    // Fallback: temporary textarea
+                                    const ta = document.createElement("textarea");
+                                    ta.value = logText;
+                                    ta.setAttribute("readonly", "");
+                                    ta.style.position = "absolute";
+                                    ta.style.left = "-9999px";
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand("copy");
+                                    document.body.removeChild(ta);
+                                }
+                                if (status) status.textContent = "✓ Copied to clipboard — paste mo na sa chat";
+                            } catch (copyErr) {
+                                if (status) status.textContent = "⚠️ Hindi nag-copy. Long-press manually ang log.";
+                            }
+                        });
+                    }
+                }
                 if (currentQuote) setSwapBtnState("ready");
                 else setSwapBtnState("enter");
             }
