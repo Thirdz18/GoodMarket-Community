@@ -715,6 +715,41 @@
         let _wcSessionId = null;
         let _wcAddress = null;
 
+        // MiniPay gas abstraction — Celo CIP-64 feeCurrency. MiniPay's auto
+        // selector refuses to sponsor unfamiliar contract calls (Uniswap V3
+        // router), so we cycle through each whitelisted stablecoin fee
+        // currency until one is accepted, then fall back to a legacy tx with
+        // no feeCurrency as a last resort. Matches the working savings.html
+        // pattern and MiniPay's official fee-currency table:
+        //   https://docs.minipay.xyz/technical-references/send-transaction.html
+        const MINIPAY_FEE_CURRENCIES = [
+            // Mento Dollar (cUSD / USDm) — no adapter needed
+            "0x765DE816845861e75A25fCA122bb6898B8B1282a",
+            // USDC adapter
+            "0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B",
+            // USDT adapter
+            "0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72",
+            // Mento Euro (cEUR / EURm) — no adapter needed
+            "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73"
+        ];
+
+        // MiniPay returns -32604 both for explicit user-rejections ("User
+        // rejected the request") AND for its security layer's silent
+        // auto-rejection ("Permission denied"). Only retry on the auto-reject
+        // path so we don't spam the user with multiple sheets after they
+        // cancelled intentionally.
+        function _miniPayAutoRejected(err) {
+            if (!err) return false;
+            const msg = (err.message || err.reason || err?.data?.message || err?.error?.message || "").toLowerCase();
+            if (/user rejected|user denied|user cancelled|user canceled/.test(msg)) {
+                return false;
+            }
+            const code = err.code || err?.error?.code;
+            if (code === -32604 && /permission denied/.test(msg)) return true;
+            if (/fee.?currency/.test(msg)) return true;
+            return false;
+        }
+
         // Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet
         function _getEthProvider() {
             if (!window.ethereum) return null;
@@ -921,21 +956,76 @@
             }
 
             let txHash;
-            try {
-                _mpLog(`${stage}:sendTransaction:start`, { params: txReq });
-                txHash = await ethProvider.request({
-                    method: "eth_sendTransaction",
-                    params: [txReq]
-                });
-                _mpLog(`${stage}:sendTransaction:ok`, { txHash });
-            } catch (sendErr) {
-                _mpLog(`${stage}:sendTransaction:err`, {
-                    code: sendErr?.code || sendErr?.error?.code,
-                    message: sendErr?.message,
-                    data: sendErr?.data || sendErr?.error?.data,
-                    nested: sendErr?.error?.message || sendErr?.info?.error?.message
-                });
-                throw sendErr;
+            if (!isMiniPay) {
+                try {
+                    _mpLog(`${stage}:sendTransaction:start`, { params: txReq });
+                    txHash = await ethProvider.request({
+                        method: "eth_sendTransaction",
+                        params: [txReq]
+                    });
+                    _mpLog(`${stage}:sendTransaction:ok`, { txHash });
+                } catch (sendErr) {
+                    _mpLog(`${stage}:sendTransaction:err`, {
+                        code: sendErr?.code || sendErr?.error?.code,
+                        message: sendErr?.message,
+                        data: sendErr?.data || sendErr?.error?.data,
+                        nested: sendErr?.error?.message || sendErr?.info?.error?.message
+                    });
+                    throw sendErr;
+                }
+            } else {
+                // MiniPay: try each whitelisted CIP-64 feeCurrency in order,
+                // then fall back to a legacy no-feeCurrency call. MiniPay's
+                // fee-abstraction gate silently auto-rejects contract calls
+                // with no accepted feeCurrency ("Permission denied"), so we
+                // must retry with each candidate until one is sponsored or
+                // every candidate refuses. This mirrors savings.html's proven
+                // _sendDirectTx flow.
+                const attempts = MINIPAY_FEE_CURRENCIES.map(fc => ({ feeCurrency: fc }));
+                attempts.push({}); // final attempt: legacy tx, no feeCurrency
+                let lastErr = null;
+                for (let i = 0; i < attempts.length; i++) {
+                    const params = Object.assign({}, txReq, attempts[i]);
+                    const fcLabel = attempts[i].feeCurrency || "(none)";
+                    try {
+                        _mpLog(`${stage}:sendTransaction:attempt`, {
+                            attempt: i,
+                            feeCurrency: fcLabel,
+                            params
+                        });
+                        txHash = await ethProvider.request({
+                            method: "eth_sendTransaction",
+                            params: [params]
+                        });
+                        _mpLog(`${stage}:sendTransaction:ok`, {
+                            txHash,
+                            attempt: i,
+                            feeCurrency: fcLabel
+                        });
+                        break;
+                    } catch (sendErr) {
+                        lastErr = sendErr;
+                        _mpLog(`${stage}:sendTransaction:attempt-err`, {
+                            attempt: i,
+                            feeCurrency: fcLabel,
+                            code: sendErr?.code || sendErr?.error?.code,
+                            message: sendErr?.message,
+                            data: sendErr?.data || sendErr?.error?.data,
+                            nested: sendErr?.error?.message || sendErr?.info?.error?.message
+                        });
+                        // User cancelled intentionally / real revert / network
+                        // error — bail immediately so we don't re-prompt.
+                        if (!_miniPayAutoRejected(sendErr)) throw sendErr;
+                    }
+                }
+                if (!txHash) {
+                    _mpLog(`${stage}:sendTransaction:all-rejected`, {
+                        attempted: attempts.length,
+                        lastCode: lastErr?.code || lastErr?.error?.code,
+                        lastMessage: lastErr?.message
+                    });
+                    throw lastErr || new Error("MiniPay refused all fee-currency attempts.");
+                }
             }
 
             if (!txHash) throw new Error("No transaction hash returned by wallet.");
@@ -1854,39 +1944,52 @@
                 const tokenContract = new ethers.Contract(from.address, ERC20_ABI, signer);
                 const allowance = await tokenContract.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
                 if (allowance < amountIn) {
-                    // Use the ethers signer path for every wallet — MetaMask,
-                    // Trust, and MiniPay. Ethers.js populates the full tx
-                    // (chainId, gasLimit, type) before calling
-                    // eth_sendTransaction, which MiniPay expects. Sending a
-                    // raw minimal payload via ethProvider.request triggers
-                    // MiniPay's "Permission denied" gate.
                     if (useMiniPayInjectedPath) {
+                        // MiniPay: bypass ethers Contract runner (which
+                        // pre-populates EIP-1559 fields + pre-flights
+                        // eth_estimateGas — both rejected by MiniPay's
+                        // fee-abstraction RPC gate). Encode approve calldata
+                        // by hand and hand the minimal payload to
+                        // _sendWalletTx, which cycles through the CIP-64
+                        // feeCurrency candidates until MiniPay sponsors one
+                        // and surfaces its native sign sheet.
+                        if (!ethProvider) throw new Error("MiniPay provider unavailable.");
+                        const approveIface = new ethers.Interface(ERC20_ABI);
+                        const approveData = approveIface.encodeFunctionData("approve", [UNISWAP_ROUTER, amountIn * 2n]);
                         _mpLog("approve:build", {
-                            mode: "signer.approve",
+                            mode: "raw.request+feeCurrency-cycle",
                             token: from.address,
                             symbol: from.symbol,
                             spender: UNISWAP_ROUTER,
                             amount: amountIn.toString(),
                             currentAllowance: allowance.toString()
                         });
-                    }
-                    let approveTx, approveReceipt;
-                    try {
-                        approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
-                        if (useMiniPayInjectedPath) _mpLog("approve:sent", { hash: approveTx?.hash });
-                        approveReceipt = await approveTx.wait();
-                        if (useMiniPayInjectedPath) _mpLog("approve:confirmed", {
-                            hash: approveReceipt?.hash,
-                            status: approveReceipt?.status
-                        });
-                    } catch (approveErr) {
-                        if (useMiniPayInjectedPath) _mpLog("approve:err", {
-                            code: approveErr?.code || approveErr?.error?.code,
-                            message: approveErr?.message,
-                            nested: approveErr?.error?.message || approveErr?.info?.error?.message,
-                            data: approveErr?.data || approveErr?.error?.data
-                        });
-                        throw approveErr;
+                        try {
+                            await _sendWalletTx(
+                                ethProvider,
+                                {
+                                    from: WALLET_ADDRESS,
+                                    to: from.address,
+                                    data: approveData,
+                                    value: "0x0"
+                                },
+                                new ethers.JsonRpcProvider(CELO_RPC),
+                                { stage: "approve" }
+                            );
+                        } catch (approveErr) {
+                            _mpLog("approve:err", {
+                                code: approveErr?.code || approveErr?.error?.code,
+                                message: approveErr?.message,
+                                nested: approveErr?.error?.message || approveErr?.info?.error?.message,
+                                data: approveErr?.data || approveErr?.error?.data
+                            });
+                            throw approveErr;
+                        }
+                    } else {
+                        // MetaMask / Trust / WalletConnect — ethers signer path
+                        // handles the populated tx correctly.
+                        const approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
+                        await approveTx.wait();
                     }
                 }
                 step1.className = "step done";
@@ -1918,49 +2021,58 @@
                 showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm swap in your wallet…`);
 
                 let swapTxHash = "";
-                // Same signer-based path for all injected wallets including
-                // MiniPay. Keeping identical code paths avoids MiniPay's
-                // "Permission denied" rejection that the raw-request flow
-                // triggered (see PR #110 regression).
                 if (useMiniPayInjectedPath) {
+                    // MiniPay: encode router calldata by hand and submit via
+                    // raw eth_sendTransaction, cycling through CIP-64 fee
+                    // currencies. Ethers v6's Contract runner populates an
+                    // EIP-1559 payload + pre-flights eth_estimateGas, and
+                    // MiniPay's fee-abstraction gate silently rejects both
+                    // for the Uniswap V3 router — the wallet never surfaces
+                    // its sign sheet and the UI hangs on "Confirm swap in
+                    // your wallet". _sendWalletTx walks each whitelisted
+                    // feeCurrency so MiniPay can sponsor the tx and prompt
+                    // the user natively (same pattern as savings.html).
+                    if (!ethProvider) throw new Error("MiniPay provider unavailable.");
+                    const routerIface = new ethers.Interface(ROUTER_ABI);
+                    const swapData = currentQuote.isMulti && currentQuote.path
+                        ? routerIface.encodeFunctionData("exactInput", [{
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        }])
+                        : routerIface.encodeFunctionData("exactInputSingle", [{
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        }]);
                     _mpLog("swap:build", {
-                        mode: "signer.contract",
+                        mode: "raw.request+feeCurrency-cycle",
                         router: UNISWAP_ROUTER,
                         isMulti: !!currentQuote.isMulti,
                         fee: currentQuote.fee,
                         amountIn: amountIn.toString(),
                         amountOutMin: amountOutMin.toString()
                     });
-                }
-                {
-                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
-                    let swapTx;
                     try {
-                        swapTx = currentQuote.isMulti && currentQuote.path
-                            ? await router.exactInput({
-                                path: currentQuote.path,
-                                recipient: WALLET_ADDRESS,
-                                amountIn: amountIn,
-                                amountOutMinimum: amountOutMin
-                            })
-                            : await router.exactInputSingle({
-                                tokenIn: from.address,
-                                tokenOut: to.address,
-                                fee: currentQuote.fee,
-                                recipient: WALLET_ADDRESS,
-                                amountIn: amountIn,
-                                amountOutMinimum: amountOutMin,
-                                sqrtPriceLimitX96: 0n
-                            });
-                        if (useMiniPayInjectedPath) _mpLog("swap:sent", { hash: swapTx?.hash });
-                        const swapReceipt = await swapTx.wait();
-                        if (useMiniPayInjectedPath) _mpLog("swap:confirmed", {
-                            hash: swapReceipt?.hash,
-                            status: swapReceipt?.status
-                        });
-                        swapTxHash = swapTx.hash;
+                        swapTxHash = await _sendWalletTx(
+                            ethProvider,
+                            {
+                                from: WALLET_ADDRESS,
+                                to: UNISWAP_ROUTER,
+                                data: swapData,
+                                value: "0x0"
+                            },
+                            new ethers.JsonRpcProvider(CELO_RPC),
+                            { stage: "swap" }
+                        );
+                        _mpLog("swap:confirmed", { hash: swapTxHash });
                     } catch (swapErr) {
-                        if (useMiniPayInjectedPath) _mpLog("swap:err", {
+                        _mpLog("swap:err", {
                             code: swapErr?.code || swapErr?.error?.code,
                             message: swapErr?.message,
                             nested: swapErr?.error?.message || swapErr?.info?.error?.message,
@@ -1968,6 +2080,28 @@
                         });
                         throw swapErr;
                     }
+                } else {
+                    // MetaMask / Trust / WalletConnect — ethers signer path
+                    // populates the full tx correctly for these wallets.
+                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
+                    const swapTx = currentQuote.isMulti && currentQuote.path
+                        ? await router.exactInput({
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        })
+                        : await router.exactInputSingle({
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        });
+                    await swapTx.wait();
+                    swapTxHash = swapTx.hash;
                 }
                 step2.className = "step done";
 
