@@ -967,7 +967,7 @@
             if (!ethProvider) {
                 if (!PREFER_WC_SIGNING) throw new Error("No wallet detected. Please connect your GoodMarket wallet.");
                 const signer = await _getWalletConnectSwapSigner();
-                return { signer, signerMode: "walletconnect" };
+                return { signer, signerMode: "walletconnect", ethProvider: null };
             }
 
             const accounts = await ethProvider.request({ method: "eth_requestAccounts" });
@@ -1011,12 +1011,13 @@
             // users get the native in-app transaction approval/sign flow (same UX
             // expectation as MetaMask/Trust Wallet dApp browsers).
             if (miniPayProvider) {
-                return { signer: injectedSigner, signerMode: "injected-minipay" };
+                return { signer: injectedSigner, signerMode: "injected-minipay", ethProvider };
             }
 
             return {
                 signer: injectedSigner,
-                signerMode: miniPayProvider ? "injected-minipay" : "injected"
+                signerMode: miniPayProvider ? "injected-minipay" : "injected",
+                ethProvider
             };
         }
 
@@ -1742,7 +1743,7 @@
             }
 
             try {
-                const { signer, signerMode } = await getConnectedSwapSigner();
+                const { signer, signerMode, ethProvider } = await getConnectedSwapSigner();
                 const useMiniPayInjectedPath = signerMode === "injected-minipay";
                 const effSlip = effectiveSlippage(currentQuote);
                 const slippageBps = BigInt(Math.floor(effSlip * 100));
@@ -1774,10 +1775,22 @@
                 const allowance = await tokenContract.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
                 if (allowance < amountIn) {
                     if (useMiniPayInjectedPath) {
-                        // For MiniPay, always use signer-backed contract calls so the
-                        // wallet handles tx construction and shows native approval UI.
-                        const approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
-                        await approveTx.wait();
+                        if (!ethProvider) throw new Error("MiniPay provider unavailable.");
+                        // MiniPay is most reliable when we send explicit eth_sendTransaction
+                        // requests for each step, so the wallet shows a clear step-by-step
+                        // confirmation flow (approve first, then swap).
+                        const approveIface = new ethers.Interface(ERC20_ABI);
+                        const approveData = approveIface.encodeFunctionData("approve", [UNISWAP_ROUTER, amountIn * 2n]);
+                        await _sendWalletTx(
+                            ethProvider,
+                            {
+                                from: WALLET_ADDRESS,
+                                to: from.address,
+                                data: approveData,
+                                value: "0x0"
+                            },
+                            new ethers.JsonRpcProvider(CELO_RPC)
+                        );
                     } else {
                         const approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
                         await approveTx.wait();
@@ -1813,15 +1826,16 @@
 
                 let swapTxHash = "";
                 if (useMiniPayInjectedPath) {
-                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
-                    const swapTx = currentQuote.isMulti && currentQuote.path
-                        ? await router.exactInput({
+                    if (!ethProvider) throw new Error("MiniPay provider unavailable.");
+                    const routerIface = new ethers.Interface(ROUTER_ABI);
+                    const swapData = currentQuote.isMulti && currentQuote.path
+                        ? routerIface.encodeFunctionData("exactInput", [{
                             path: currentQuote.path,
                             recipient: WALLET_ADDRESS,
                             amountIn: amountIn,
                             amountOutMinimum: amountOutMin
-                        })
-                        : await router.exactInputSingle({
+                        }])
+                        : routerIface.encodeFunctionData("exactInputSingle", [{
                             tokenIn: from.address,
                             tokenOut: to.address,
                             fee: currentQuote.fee,
@@ -1829,9 +1843,17 @@
                             amountIn: amountIn,
                             amountOutMinimum: amountOutMin,
                             sqrtPriceLimitX96: 0n
-                        });
-                    await swapTx.wait();
-                    swapTxHash = swapTx.hash;
+                        }]);
+                    swapTxHash = await _sendWalletTx(
+                        ethProvider,
+                        {
+                            from: WALLET_ADDRESS,
+                            to: UNISWAP_ROUTER,
+                            data: swapData,
+                            value: "0x0"
+                        },
+                        new ethers.JsonRpcProvider(CELO_RPC)
+                    );
                 } else {
                     const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
                     const swapTx = currentQuote.isMulti && currentQuote.path
