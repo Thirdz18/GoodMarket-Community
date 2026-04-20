@@ -1007,14 +1007,11 @@
             const injectedSigner = await browserProvider.getSigner();
             const miniPayProvider = _isMiniPayWallet(ethProvider);
 
-            if (miniPayProvider && PREFER_WC_SIGNING) {
-                try {
-                    const signer = await _getWalletConnectSwapSigner();
-                    return { signer, signerMode: "walletconnect" };
-                } catch (wcErr) {
-                    console.warn("[swap] WalletConnect signer unavailable for MiniPay; falling back to injected signer.", _extractRpcErrorMessage(wcErr));
-                    return { signer: injectedSigner, signerMode: "injected-minipay" };
-                }
+            // IMPORTANT: For MiniPay we always use the injected provider first so
+            // users get the native in-app transaction approval/sign flow (same UX
+            // expectation as MetaMask/Trust Wallet dApp browsers).
+            if (miniPayProvider) {
+                return { signer: injectedSigner, signerMode: "injected-minipay" };
             }
 
             return {
