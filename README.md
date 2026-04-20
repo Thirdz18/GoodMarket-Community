@@ -2,6 +2,15 @@
 
 A Web3 earning platform built on the GoodDollar ecosystem. Users earn G$ tokens on the Celo network through educational quizzes, social media tasks, minigames, and community engagement.
 
+
+## Source Availability Notice
+
+This repository is maintained as a community initiative by the project author and is not open for public source reuse.
+
+- **License status:** All rights reserved.
+- **Contributions:** By invitation/maintainer approval only.
+- **Reuse/redistribution:** Not permitted without prior written permission from the author.
+
 ## Tech Stack
 
 - **Backend:** Python 3.12, Flask, Gunicorn (gthread workers)
