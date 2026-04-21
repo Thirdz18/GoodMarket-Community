@@ -817,23 +817,9 @@
             }
         });
 
-        // Service Worker registration and update notification
+        // Service Worker is registered centrally in /static/js/pwa-register.js.
+        // This block only reacts to update notifications broadcast by the SW.
         if ('serviceWorker' in navigator) {
-            // Register service worker
-            navigator.serviceWorker.register('/static/service-worker.js')
-                .then(registration => {
-                    console.log('✅ Service Worker registered successfully');
-
-                    // Check for updates every 60 seconds
-                    setInterval(() => {
-                        registration.update();
-                    }, 60000);
-                })
-                .catch(error => {
-                    console.error('❌ Service Worker registration failed:', error);
-                });
-
-            // Listen for service worker messages
             navigator.serviceWorker.addEventListener('message', (event) => {
                 console.log('📨 Received message from Service Worker:', event.data);
 
