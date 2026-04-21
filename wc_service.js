@@ -449,7 +449,7 @@ const server = http.createServer(async (req, res) => {
             optionalNamespaces: {
                 eip155: {
                     methods: ['eth_accounts', 'eth_sendTransaction', 'personal_sign'],
-                    chains: ['eip155:42220', 'eip155:1'],
+                    chains: ['eip155:42220'],
                     events: ['chainChanged', 'accountsChanged']
                 }
             }
