@@ -1,17 +1,62 @@
 {
   "name": "GoodMarket",
   "short_name": "GoodMarket",
-  "description": "Learn & Earn with GoodDollar on Celo",
-  "start_url": "/",
+  "description": "Learn & Earn with GoodDollar on Celo — earn G$ through quizzes, games, and social tasks.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#6366f1",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0B0F2A",
+  "theme_color": "#7c3aed",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["finance", "education", "social"],
   "icons": [
     {
-      "src": "/static/icons/goodmarket-icon.png",
+      "src": "/static/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard",
+      "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Wallet",
+      "short_name": "Wallet",
+      "url": "/wallet",
+      "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Savings",
+      "short_name": "Savings",
+      "url": "/savings",
+      "icons": [{ "src": "/static/icons/icon-192x192.png", "sizes": "192x192" }]
     }
   ]
 }

@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session, redirect
+from flask import Flask, request, jsonify, render_template, session, redirect, send_from_directory
 from blockchain import has_recent_ubi_claim, is_identity_verified, check_ubi_entitlement
 from analytics_service import analytics
 from routes import routes
@@ -461,6 +461,23 @@ else:
 def health_check():
     """Lightweight health check for autoscale — no DB or blockchain calls"""
     return jsonify({"status": "ok"}), 200
+
+
+@app.route("/service-worker.js")
+@app.route("/static/service-worker.js")
+def pwa_service_worker():
+    """Serve the PWA service worker with Service-Worker-Allowed: / so the SW
+    can control the entire site even though it lives under /static/. Without
+    this header browsers reject any registration whose scope is broader than
+    the script's own directory.
+    """
+    response = send_from_directory(app.static_folder, "service-worker.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Content-Type"] = "application/javascript; charset=utf-8"
+    # SW file itself must never be cached aggressively, or users get stuck on
+    # an old worker forever.
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 @app.route("/")
 def index():

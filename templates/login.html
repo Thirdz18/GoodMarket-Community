@@ -8,11 +8,14 @@
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#3b82f6">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GoodMarket">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+    <script src="/static/js/pwa-register.js" defer></script>
     <style>
         * {
             margin: 0;
@@ -499,17 +502,7 @@
         </div>
     </div>
 
-    <!-- PWA Install Prompt -->
-    <div id="installPrompt" style="display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px 25px; border-radius: 12px; box-shadow: 0 8px 25px rgba(0,0,0,0.3); z-index: 10000; max-width: 90%;">
-        <div style="display: flex; align-items: center; gap: 15px;">
-            <div style="flex: 1;">
-                <strong>Install GoodMarket App</strong><br>
-                <small>Add to home screen for easy access</small>
-            </div>
-            <button onclick="installPWA()" style="background: white; color: #667eea; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer;">Install</button>
-            <button onclick="dismissInstallPrompt()" style="background: rgba(255,255,255,0.2); color: white; border: none; padding: 8px 12px; border-radius: 8px; cursor: pointer;">×</button>
-        </div>
-    </div>
+    <!-- PWA install prompt is rendered by /static/js/pwa-register.js -->
 
     <script>
         let referralCode = null;
@@ -719,56 +712,7 @@
             }
         });
 
-        // PWA Install Prompt Logic
-        let deferredPrompt;
-
-        window.addEventListener('beforeinstallprompt', (e) => {
-            console.log('📱 PWA install prompt triggered');
-            e.preventDefault();
-            deferredPrompt = e;
-            const installPrompt = document.getElementById('installPrompt');
-            if (installPrompt) {
-                installPrompt.style.display = 'block';
-                console.log('✅ Install prompt shown');
-            }
-        });
-
-        // Show install prompt after 3 seconds if available
-        setTimeout(() => {
-            if (deferredPrompt) {
-                const installPrompt = document.getElementById('installPrompt');
-                if (installPrompt) {
-                    installPrompt.style.display = 'block';
-                    console.log('✅ Install prompt shown (delayed)');
-                }
-            }
-        }, 3000);
-
-        async function installPWA() {
-            console.log('🔄 Install button clicked');
-            if (!deferredPrompt) {
-                console.log('⚠️ No deferred prompt available');
-                return;
-            }
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            console.log(`📊 User response to install prompt: ${outcome}`);
-            deferredPrompt = null;
-            document.getElementById('installPrompt').style.display = 'none';
-        }
-
-        function dismissInstallPrompt() {
-            console.log('❌ Install prompt dismissed');
-            document.getElementById('installPrompt').style.display = 'none';
-            // Store dismissal in localStorage to avoid showing again for 7 days
-            localStorage.setItem('pwa_install_dismissed', Date.now());
-        }
-
-        // Check if user previously dismissed the prompt
-        const dismissedTime = localStorage.getItem('pwa_install_dismissed');
-        if (dismissedTime && (Date.now() - dismissedTime < 7 * 24 * 60 * 60 * 1000)) {
-            console.log('⏭️ Install prompt previously dismissed, skipping');
-        }
+        // PWA install prompt is handled centrally by /static/js/pwa-register.js.
 
         // Global error handler for unhandled promise rejections
         window.addEventListener('unhandledrejection', function(event) {
@@ -814,23 +758,9 @@
             }
         });
 
-        // Service Worker registration and update notification
+        // Service Worker is registered centrally in /static/js/pwa-register.js.
+        // This block only reacts to update notifications broadcast by the SW.
         if ('serviceWorker' in navigator) {
-            // Register service worker
-            navigator.serviceWorker.register('/static/service-worker.js')
-                .then(registration => {
-                    console.log('✅ Service Worker registered successfully');
-
-                    // Check for updates every 60 seconds
-                    setInterval(() => {
-                        registration.update();
-                    }, 60000);
-                })
-                .catch(error => {
-                    console.error('❌ Service Worker registration failed:', error);
-                });
-
-            // Listen for service worker messages
             navigator.serviceWorker.addEventListener('message', (event) => {
                 console.log('📨 Received message from Service Worker:', event.data);
 
