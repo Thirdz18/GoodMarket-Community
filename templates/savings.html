@@ -36,22 +36,6 @@
         .page-title { font-size:1.8rem; font-weight:800; color:#fff; letter-spacing:-.5px; margin-bottom:.35rem; }
         .page-subtitle { color:rgba(255,255,255,.45); font-size:.95rem; }
 
-        /* ── MiniPay temporary notice (only rendered for MiniPay dapp users) ── */
-        .minipay-notice {
-            display:none;
-            background:linear-gradient(135deg, rgba(245,158,11,0.14), rgba(239,68,68,0.10));
-            border:1px solid rgba(245,158,11,0.35);
-            border-radius:14px;
-            padding:1rem 1.1rem;
-            margin-bottom:1.25rem;
-            color:#fde68a;
-            font-size:.92rem;
-            line-height:1.55;
-        }
-        .minipay-notice.show { display:block; }
-        .minipay-notice-title { font-weight:700; color:#fbbf24; margin-bottom:.35rem; display:flex; align-items:center; gap:.4rem; font-size:.95rem; }
-        .minipay-notice a { color:#fcd34d; text-decoration:underline; }
-
         /* ── Cards ── */
         .card { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:1.5rem; margin-bottom:1.25rem; }
         .card-title { font-size:.72rem; font-weight:600; color:rgba(255,255,255,.35); letter-spacing:.1em; text-transform:uppercase; margin-bottom:1.25rem; }
@@ -166,25 +150,6 @@
     <div class="page-header">
         <h1 class="page-title">🏦 G$ Savings</h1>
         <p class="page-subtitle">Lock your G$ and keep it safe — earn a bonus for long-term saves</p>
-    </div>
-
-    <!--
-        Temporary notice shown only to MiniPay dapp users. Hidden by default and
-        only un-hidden by JS when the injected provider reports `isMiniPay`, so
-        TrustWallet, MetaMask mobile, MetaMask extension and WalletConnect users
-        never see this message.
-    -->
-    <div id="miniPayNotice" class="minipay-notice" role="alert" aria-live="polite">
-        <div class="minipay-notice-title">⚠️ Temporary notice for MiniPay users</div>
-        <div>
-            G$ Savings is currently <strong>not working inside the MiniPay dapp</strong>
-            while the MiniPay team fixes an issue on their side. This is temporary.
-            <br><br>
-            In the meantime, please use one of the following wallets to save G$:
-            <strong>Trust Wallet</strong>, <strong>MetaMask mobile dapp browser</strong>,
-            or the <strong>MetaMask browser extension</strong> on desktop.
-            We'll remove this notice as soon as MiniPay resolves the issue.
-        </div>
     </div>
 
     <!-- Contract Stats -->
@@ -439,22 +404,6 @@
     const CHAIN_ID = {{ chain_id }};
     const CELO_RPC = "https://forno.celo.org";
     const LOGIN_METHOD = "{{ login_method }}";
-    // MiniPay gas abstraction — Celo CIP-64 feeCurrency. MiniPay may override
-    // and pick whichever stablecoin the user holds the most of, but passing one
-    // explicitly makes the tx a valid CIP-64 payload even when MiniPay's auto
-    // selector refuses to sponsor an unfamiliar contract call.
-    // Tokens listed in MiniPay's official fee-currency table:
-    //   https://docs.minipay.xyz/technical-references/send-transaction.html
-    const MINIPAY_FEE_CURRENCIES = [
-        // Mento Dollar (cUSD / USDm) — no adapter needed
-        "0x765DE816845861e75A25fCA122bb6898B8B1282a",
-        // USDC adapter
-        "0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B",
-        // USDT adapter
-        "0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72",
-        // Mento Euro (cEUR / EURm) — no adapter needed
-        "0xD8763CBa276a3738E6DE85b4b3bF5FDed6D6cA73"
-    ];
     window.isCustodialMode = {{ (login_method in ['custodial', 'turnkey']) | tojson }};
 
     // ── Server-sign helper (custodial + managed wallets): encode calldata client-side, sign server-side ──
@@ -579,181 +528,15 @@
         }
     }
 
-    // Handles EIP-5749 multi-wallet: prefer MiniPay / Trust Wallet on mobile dApp
-    // browsers, then MetaMask, then fallback to the first injected provider.
+    // Handles EIP-5749 multi-wallet: prefer MetaMask from providers[] array
     function _getEthProvider() {
         if (!window.ethereum) return null;
         if (window.ethereum.providers && window.ethereum.providers.length) {
-            const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
-            if (miniPay) return miniPay;
-            const trust = window.ethereum.providers.find(p => p && p.isTrust);
-            if (trust) return trust;
-            const mm = window.ethereum.providers.find(p => p && p.isMetaMask && !p.isBraveWallet);
+            const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
             if (mm) return mm;
             return window.ethereum.providers[0];
         }
         return window.ethereum;
-    }
-
-    function _isMiniPay(ep) {
-        return !!(ep && ep.isMiniPay);
-    }
-
-    // Show the temporary MiniPay-only notice when (and only when) the page is
-    // being viewed inside the MiniPay dapp browser. Every other wallet
-    // (Trust Wallet, MetaMask mobile, MetaMask extension, WalletConnect, no
-    // wallet) must never see this banner.
-    function _detectMiniPayForNotice() {
-        try {
-            if (window.ethereum) {
-                if (window.ethereum.isMiniPay) return true;
-                if (Array.isArray(window.ethereum.providers) &&
-                    window.ethereum.providers.some(p => p && p.isMiniPay)) {
-                    return true;
-                }
-            }
-        } catch (_) { /* ignore */ }
-        try {
-            // MiniPay's in-app browser advertises itself in the UA string.
-            return /minipay/i.test(navigator.userAgent || '');
-        } catch (_) {
-            return false;
-        }
-    }
-    function _maybeShowMiniPayNotice() {
-        const el = document.getElementById('miniPayNotice');
-        if (!el) return;
-        if (_detectMiniPayForNotice()) {
-            el.classList.add('show');
-        }
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', _maybeShowMiniPayNotice);
-    } else {
-        _maybeShowMiniPayNotice();
-    }
-    // MiniPay sometimes injects its provider slightly after page load, so
-    // re-check shortly after to avoid a false negative on the first paint.
-    setTimeout(_maybeShowMiniPayNotice, 1500);
-
-    // MiniPay injects its own provider but does not cooperate well with the
-    // eth_sendTransaction payload ethers.js produces (pre-populated `gas`,
-    // EIP-1559 fields). We build a minimal payload and, for MiniPay users,
-    // walk through their available `feeCurrency` stablecoins so the tx becomes
-    // a valid Celo CIP-64 call — avoiding the `-32604 Permission denied`
-    // rejection MiniPay returns when it refuses to auto-sponsor an unfamiliar
-    // contract call.
-    // MiniPay returns -32604 both for explicit user-rejections ("User rejected
-    // the request") *and* for its security layer's silent auto-rejection
-    // ("Permission denied"). We only want to retry on the auto-rejection case;
-    // retrying after a genuine user-cancel would spam them with multiple sheets.
-    function _miniPayAutoRejected(err) {
-        if (!err) return false;
-        const msg = (err.message || err.reason || '').toLowerCase();
-        if (/user rejected/.test(msg) || /user denied/.test(msg) || /user cancelled|user canceled/.test(msg)) {
-            return false;
-        }
-        if (err.code === -32604 && /permission denied/.test(msg)) return true;
-        if (/fee.?currency/.test(msg)) return true;
-        return false;
-    }
-
-    async function _sendDirectTx(ep, toAddr, data, value) {
-        const accounts = await ep.request({ method: 'eth_requestAccounts' });
-        const active = (accounts && accounts[0] || '').toLowerCase();
-        if (active && active !== WALLET.toLowerCase()) {
-            const label = ep.isMiniPay ? 'MiniPay'
-                : ep.isTrust ? 'Trust Wallet'
-                : ep.isMetaMask ? 'MetaMask'
-                : 'your wallet';
-            throw new Error(
-                'Wrong account selected in ' + label + '. Please switch to ' +
-                WALLET.slice(0,6) + '…' + WALLET.slice(-4) + ' and try again.'
-            );
-        }
-
-        const baseParams = {
-            from: WALLET,
-            to: toAddr,
-            data: data,
-            value: value || '0x0'
-        };
-
-        // Non-MiniPay providers: one-shot send, no feeCurrency.
-        if (!ep.isMiniPay) {
-            return await ep.request({
-                method: 'eth_sendTransaction',
-                params: [baseParams]
-            });
-        }
-
-        // MiniPay path: try each whitelisted fee currency in order, and fall
-        // back to no-feeCurrency as a last resort. We surface the final error
-        // if every attempt is rejected, so callers see the real reason.
-        const attempts = MINIPAY_FEE_CURRENCIES.map(fc => ({ feeCurrency: fc }));
-        attempts.push({}); // final attempt with no feeCurrency (legacy path)
-
-        let lastErr = null;
-        for (let i = 0; i < attempts.length; i++) {
-            const extra = attempts[i];
-            const params = Object.assign({}, baseParams, extra);
-            try {
-                return await ep.request({
-                    method: 'eth_sendTransaction',
-                    params: [params]
-                });
-            } catch (err) {
-                lastErr = err;
-                try {
-                    console.warn('[MiniPay] send attempt failed',
-                        { feeCurrency: extra.feeCurrency || '(none)', code: err && err.code, message: err && err.message });
-                } catch (_) { /* ignore */ }
-                // If MiniPay refuses for gas/security reasons, try the next
-                // candidate. For other errors (user explicitly cancelled via
-                // reject, network errors, contract reverts), bail out early so
-                // we don't spam the user with multiple MiniPay prompts.
-                if (!_miniPayAutoRejected(err)) {
-                    throw err;
-                }
-            }
-        }
-        throw lastErr || new Error('MiniPay refused all fee-currency attempts');
-    }
-
-    // Poll Celo RPC for the receipt since MiniPay's provider doesn't always
-    // expose eth_getTransactionReceipt reliably once the user closes its
-    // confirmation sheet.
-    async function _waitForCeloReceipt(txHash, timeoutMs) {
-        const limit = timeoutMs || 180000;
-        const rpc = new ethers.JsonRpcProvider(CELO_RPC);
-        const started = Date.now();
-        while (Date.now() - started < limit) {
-            try {
-                const receipt = await rpc.getTransactionReceipt(txHash);
-                if (receipt) return receipt;
-            } catch (_) {
-                // keep polling
-            }
-            await new Promise(r => setTimeout(r, 2500));
-        }
-        throw new Error(
-            'Still waiting for Celo confirmation. Check CeloScan: ' +
-            'https://celoscan.io/tx/' + txHash
-        );
-    }
-
-    async function _getDepositState(depositId) {
-        try {
-            const rpc = new ethers.JsonRpcProvider(CELO_RPC);
-            const savings = new ethers.Contract(SAVINGS_CONTRACT, SAVINGS_ABI, rpc);
-            const dep = await savings.getDeposit(BigInt(depositId));
-            return {
-                withdrawn: !!dep[5]
-            };
-        } catch (e) {
-            console.warn('Deposit state check failed', e);
-            return null;
-        }
     }
 
     async function getSigner() {
@@ -812,21 +595,6 @@
             }
 
             showAlert('saveAlert', 'info', '<span class="spinner"></span> Check your MetaMask extension — click it to open if nothing pops up…');
-            const ep = _getEthProvider();
-            if (_isMiniPay(ep)) {
-                await ensureCeloNetwork();
-                const iface = new ethers.Interface(ERC20_ABI);
-                const data = iface.encodeFunctionData('approve', [SAVINGS_CONTRACT, amtWei]);
-                showAlert('saveAlert', 'info', '<span class="spinner"></span> Approve G$ spending in MiniPay…');
-                const txHash = await _sendDirectTx(ep, GD_CONTRACT, data);
-                showAlert('saveAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
-                await _waitForCeloReceipt(txHash);
-                showAlert('saveAlert', 'success', '✅ Approved! Now click "Lock & Save G$" to complete your save.');
-                document.getElementById('saveBtn').disabled = false;
-                btn.innerHTML = '<i class="fas fa-check-circle"></i> Approved ✓';
-                return;
-            }
-
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -889,32 +657,6 @@
                 return;
             }
 
-            const ep = _getEthProvider();
-            if (_isMiniPay(ep)) {
-                await ensureCeloNetwork();
-                const iface = new ethers.Interface(SAVINGS_ABI);
-                const data = iface.encodeFunctionData('depositSavings', [amtWei, BigInt(selectedDays)]);
-                showAlert('saveAlert', 'info', '<span class="spinner"></span> Confirm the save transaction in MiniPay…');
-                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
-                showAlert('saveAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
-                await _waitForCeloReceipt(txHash);
-                const unlockDate = new Date();
-                unlockDate.setDate(unlockDate.getDate() + selectedDays);
-                showAlert('saveAlert', 'success',
-                    `🎉 Successfully saved ${parseFloat(amtStr).toLocaleString()} G$ for ${selectedDays} days!<br>` +
-                    `Unlocks: <strong>${unlockDate.toDateString()}</strong><br>` +
-                    `<a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
-                );
-                document.getElementById('saveAmount').value = '';
-                updateSummary();
-                document.getElementById('approveBtn').disabled = false;
-                document.getElementById('approveBtn').innerHTML = '<i class="fas fa-check-circle"></i> Step 1 — Approve G$ Spending';
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-lock"></i> Step 2 — Lock & Save G$';
-                loadStats();
-                return;
-            }
-
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -962,23 +704,6 @@
                 return;
             }
 
-            const ep = _getEthProvider();
-            if (_isMiniPay(ep)) {
-                await ensureCeloNetwork();
-                const iface = new ethers.Interface(SAVINGS_ABI);
-                const data = iface.encodeFunctionData('withdraw', [BigInt(depositId)]);
-                showAlert('depositsAlert', 'info', '<span class="spinner"></span> Confirm withdrawal in MiniPay…');
-                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
-                showAlert('depositsAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
-                await _waitForCeloReceipt(txHash);
-                showAlert('depositsAlert', 'success',
-                    `✅ Withdrawn successfully! <a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
-                );
-                loadDeposits();
-                loadStats();
-                return;
-            }
-
             const signer = await getSigner();
             await ensureCeloNetwork();
             const savings = new ethers.Contract(SAVINGS_CONTRACT, SAVINGS_ABI, signer);
@@ -995,40 +720,7 @@
             loadStats();
         } catch (err) {
             console.error(err);
-            const raw = (err && (err.reason || err.message)) || 'Unknown error';
-            const code = (err && err.code);
-            const isMiniPayPermissionDenied =
-                _isMiniPay(_getEthProvider()) &&
-                /permission denied/i.test(raw) &&
-                !/user rejected|user denied/i.test(raw);
-            let msg = raw;
-
-            if (isMiniPayPermissionDenied) {
-                // MiniPay can occasionally surface a generic "Permission denied"
-                // even when the withdrawal already landed on-chain. Confirm current
-                // deposit status first so we don't show a false backend failure.
-                const state = await _getDepositState(depositId);
-                if (state && state.withdrawn) {
-                    showAlert('depositsAlert', 'success',
-                        '✅ Withdrawal already completed on-chain. ' +
-                        `Check CeloScan activity for ${WALLET.slice(0,6)}…${WALLET.slice(-4)}.`
-                    );
-                    loadDeposits();
-                    loadStats();
-                    return;
-                }
-            }
-
-            if (isMiniPayPermissionDenied) {
-                msg = 'MiniPay blocked this withdrawal (Permission denied). ' +
-                    'This can be a MiniPay provider false-negative even when the backend/contract is fine. ' +
-                    'Try opening this page in Chrome/Opera normal browser with MetaMask on Celo, ' +
-                    'or contact support. Raw error: ' + raw +
-                    (code ? ' (code ' + code + ')' : '');
-            } else if (/user rejected|user denied|user cancelled|user canceled/i.test(raw)) {
-                msg = 'You cancelled the withdrawal in your wallet. Tap Withdraw again if you want to retry.';
-            }
-            showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + msg);
+            showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + (err.reason || err.message || 'Unknown error'));
         }
     }
 
@@ -1181,21 +873,6 @@
             }
 
             showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Check your wallet — click it to open if nothing pops up…');
-            const ep = _getEthProvider();
-            if (_isMiniPay(ep)) {
-                await ensureCeloNetwork();
-                const iface = new ethers.Interface(ERC20_ABI);
-                const data = iface.encodeFunctionData('approve', [SAVINGS_CONTRACT, amtWei]);
-                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Approve G$ spending in MiniPay…');
-                const txHash = await _sendDirectTx(ep, GD_CONTRACT, data);
-                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
-                await _waitForCeloReceipt(txHash);
-                showAlert('sponsorAlert', 'success', '✅ Approved! Now click "Add to Reward Pool" to complete your contribution.');
-                document.getElementById('poolFundBtn').disabled = false;
-                btn.innerHTML = '<i class="fas fa-check-circle"></i> Approved ✓';
-                return;
-            }
-
             const signer = await getSigner();
             await ensureCeloNetwork();
 
@@ -1246,29 +923,6 @@
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Step 2 — Add to Reward Pool';
                 loadStats(); loadSponsorStats();
-                return;
-            }
-
-            const ep = _getEthProvider();
-            if (_isMiniPay(ep)) {
-                await ensureCeloNetwork();
-                const iface = new ethers.Interface(SAVINGS_ABI);
-                const data = iface.encodeFunctionData('fundRewardPool', [amtWei]);
-                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Confirm the transaction in MiniPay…');
-                const txHash = await _sendDirectTx(ep, SAVINGS_CONTRACT, data);
-                showAlert('sponsorAlert', 'info', '<span class="spinner"></span> Waiting for Celo confirmation…');
-                await _waitForCeloReceipt(txHash);
-                showAlert('sponsorAlert', 'success',
-                    `🎉 Thank you! <strong>${parseFloat(amtStr).toLocaleString()} G$</strong> added to the reward pool.<br>` +
-                    `<a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
-                );
-                document.getElementById('sponsorAmount').value = '';
-                document.getElementById('poolApproveBtn').disabled = false;
-                document.getElementById('poolApproveBtn').innerHTML = '<i class="fas fa-check-circle"></i> Step 1 — Approve G$ Spending';
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-hand-holding-heart"></i> Step 2 — Add to Reward Pool';
-                loadStats();
-                loadSponsorStats();
                 return;
             }
 
@@ -1379,9 +1033,10 @@ window._savingsStartWc = function() {
     statusEl.textContent = 'Initializing…';
     window._wcGetClient().then(function(client) {
         return client.connect({
-            requiredNamespaces: {
+            requiredNamespaces: {},
+            optionalNamespaces: {
                 eip155: {
-                    methods: ['eth_accounts', 'eth_requestAccounts', 'eth_sendTransaction', 'eth_chainId', 'personal_sign'],
+                    methods: ['eth_accounts', 'eth_sendTransaction', 'personal_sign'],
                     chains: ['eip155:42220'],
                     events: ['chainChanged', 'accountsChanged']
                 }
@@ -1406,7 +1061,7 @@ window._savingsStartWc = function() {
     }).then(function(session) {
         window._wcSession = session;
         var section = document.getElementById('savingsWcSection');
-        section.innerHTML = '<div style="color:#86efac; font-weight:700;">✅ Wallet Connected! You can now approve, save, and withdraw G$.</div>';
+        section.innerHTML = '<div style="color:#86efac; font-weight:700;">✅ Wallet Connected! You can now approve and save G$.</div>';
         console.log('✅ WC session established in savings');
     }).catch(function(err) {
         statusEl.textContent = 'Connection failed: ' + (err.message || 'Unknown error');
