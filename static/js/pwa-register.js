@@ -54,9 +54,10 @@
     installBtn.style.cssText = [
       'position:fixed',
       'bottom:20px',
-      'right:20px',
+      'left:50%',
+      'transform:translateX(-50%)',
       'z-index:9999',
-      'padding:10px 18px',
+      'padding:10px 22px',
       'border:0',
       'border-radius:999px',
       'background:linear-gradient(135deg,#7c3aed 0%,#6366f1 100%)',
@@ -65,6 +66,7 @@
       'box-shadow:0 10px 30px rgba(124,58,237,0.45)',
       'cursor:pointer',
       'display:none',
+      'white-space:nowrap',
     ].join(';');
 
     installBtn.addEventListener('click', async function () {
