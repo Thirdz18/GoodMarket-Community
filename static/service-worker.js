@@ -94,7 +94,17 @@ async function staleWhileRevalidate(request) {
       return response;
     })
     .catch(() => cached);
-  return cached || networkFetch;
+  // `networkFetch` may resolve to `undefined` if the network fails and there
+  // is no cached copy. respondWith() requires a Response, so fall back to a
+  // minimal 503 instead of letting `undefined` bubble up.
+  const response = cached || (await networkFetch);
+  return (
+    response ||
+    new Response('Offline', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
+  );
 }
 
 async function networkFirstNavigation(request) {
