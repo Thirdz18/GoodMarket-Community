@@ -7,7 +7,7 @@
     <!-- Telegram Mini App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-    <!-- PWA Meta Tags -->a
+    <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#7c3aed">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1373,7 +1373,7 @@
                 </div>
                 <button class="connect-wallet-btn" onclick="openWalletModal()">
                     <span class="wallet-icon">🚀</span>
-                    <span>Get Started</span>
+                    <span>Start Earning</span>
                 </button>
             </nav>
         </div>
@@ -1383,17 +1383,18 @@
     <section class="hero-section" id="overview">
         <div class="hero-content">
             <h1 class="hero-title">
-                Learn & Earn with<br>
-                <span class="highlight">GoodMarket</span>
+                Turn your GoodDollar activity into<br>
+                <span class="highlight">daily G$ rewards</span>
             </h1>
             <p class="hero-description">
-                Earn G$ cryptocurrency rewards by completing social tasks, quizzes, games, and community stories — no experience needed.
+                Tap in, connect your wallet, and start earning G$ through social tasks, Learn &amp; Earn quizzes, minigames, referrals, and monthly community stories.
             </p>
             <p class="hero-disclaimer">
                 ⚠️ GoodMarket is a community initiative &mdash; not an official product of GoodDollar.
             </p>
             <div class="hero-buttons">
-                <button class="btn-secondary main-menu-btn" onclick="toggleMainMenu()">☰ Main Menu</button>
+                <button class="btn-primary" onclick="openWalletModal()">🚀 Start Earning Now</button>
+                <button class="btn-secondary main-menu-btn" onclick="toggleMainMenu()">☰ See Earning Options</button>
             </div>
         </div>
     </section>
@@ -1403,11 +1404,11 @@
         <div class="submenu-label">Select a section:</div>
         <nav class="section-nav submenu-nav">
             <button class="section-tab" id="tab-what-is" onclick="showSection('what-is')">💰 What is GoodMarket?</button>
-            <button class="section-tab" id="tab-learn-earn" onclick="showSection('learn-earn')">🎓 Learn &amp; Earn</button>
             <button class="section-tab" id="tab-daily-tasks" onclick="showSection('daily-tasks')">📱 Daily Social Tasks</button>
+            <button class="section-tab" id="tab-learn-earn" onclick="showSection('learn-earn')">🎓 Learn &amp; Earn</button>
+            <button class="section-tab" id="tab-referral" onclick="showSection('referral')">🔗 Referral Program</button>
             <button class="section-tab" id="tab-minigames" onclick="showSection('minigames')">🎮 Play &amp; Earn</button>
             <button class="section-tab" id="tab-community-stories" onclick="showSection('community-stories')">🌟 Community Stories</button>
-            <button class="section-tab" id="tab-referral" onclick="showSection('referral')">🔗 Referral Program</button>
             <button class="section-tab" id="tab-ubi-tracker" onclick="showSection('ubi-tracker')">📊 UBI Tracker</button>
             <button class="section-tab" id="tab-why-choose" onclick="showSection('why-choose')">⭐ Why Choose GoodMarket?</button>
             <button class="section-tab" id="tab-developers" onclick="showSection('developers')">👨‍💻 Meet our Developers</button>
@@ -1433,25 +1434,25 @@
             <div class="earn-card">
                 <div class="earn-card-icon">📱</div>
                 <div class="earn-card-title">Daily Tasks</div>
-                <span class="earn-card-badge" style="background:linear-gradient(135deg,#10b981,#059669);color:white;">Available Every Day</span>
-                <p class="earn-card-desc">Complete simple social media tasks daily across Telegram, Twitter/X, and Facebook.</p>
+                <span class="earn-card-badge" style="background:linear-gradient(135deg,#10b981,#059669);color:white;">24h Shared Cooldown</span>
+                <p class="earn-card-desc">Complete one social proof task per cycle on Telegram, Twitter/X, or Facebook and earn G$ after approval.</p>
                 <ul class="earn-card-list">
-                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Telegram tasks</li>
-                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Twitter/X tasks</li>
-                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Facebook tasks</li>
+                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Telegram submission</li>
+                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Twitter/X submission</li>
+                    <li>🟢 <strong style="color:#10b981;">100 G$</strong> — Facebook submission</li>
                 </ul>
-                <p class="earn-card-note">⏰ New tasks reset every 24 hours</p>
+                <p class="earn-card-note">⏰ One approved social task slot refreshes every 24 hours</p>
             </div>
             <div class="earn-card">
                 <div class="earn-card-icon">🎓</div>
                 <div class="earn-card-title">Learn & Earn Quizzes</div>
-                <span class="earn-card-badge" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;">Daily Quizzes</span>
+                <span class="earn-card-badge" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;">Every 5 Days</span>
                 <p class="earn-card-desc">Test your knowledge about GoodDollar and blockchain technology and get rewarded.</p>
                 <ul class="earn-card-list">
                     <li>🟡 <strong style="color:#f59e0b;">200 G$</strong> — Per correct answer</li>
                     <li>🟡 <strong style="color:#f59e0b;">2,000 G$</strong> — Maximum per quiz</li>
                 </ul>
-                <p class="earn-card-note">📚 One quiz available every 24 hours</p>
+                <p class="earn-card-note">📚 New quiz attempt unlocks 5 days after a successful quiz</p>
             </div>
         </div>
     </div>
@@ -1496,7 +1497,7 @@
                 <p class="earn-card-desc">Post about GoodDollar on Twitter/X — share a tweet, retweet, or tag the community. Submit your post link in GoodMarket to claim your reward.</p>
                 <ul class="earn-card-list">
                     <li>🟢 <strong style="color:#10b981;">100 G$</strong> per completed task</li>
-                    <li>🟢 Resets every 24 hours</li>
+                    <li>🟢 Shares one 24-hour cooldown with other social platforms</li>
                 </ul>
             </div>
             <div class="earn-card">
@@ -1505,7 +1506,7 @@
                 <p class="earn-card-desc">Engage in the GoodDollar Telegram community. Post a message in an approved group or channel mentioning GoodDollar, then submit your message link to earn.</p>
                 <ul class="earn-card-list">
                     <li>🟢 <strong style="color:#10b981;">100 G$</strong> per completed task</li>
-                    <li>🟢 Shared cooldown with Twitter task</li>
+                    <li>🟢 Uses the same daily slot as Twitter/X and Facebook</li>
                 </ul>
             </div>
             <div class="earn-card">
@@ -1514,7 +1515,7 @@
                 <p class="earn-card-desc">Share GoodDollar content on Facebook — post in groups, share updates, or tag friends. Submit your Facebook post link to claim your daily G$ reward.</p>
                 <ul class="earn-card-list">
                     <li>🟢 <strong style="color:#10b981;">100 G$</strong> per completed task</li>
-                    <li>🟢 New task available every day</li>
+                    <li>🟢 Uses the same daily slot as Telegram and Twitter/X</li>
                 </ul>
             </div>
             <div class="earn-card">
@@ -1671,7 +1672,7 @@
             <div class="feature-card">
                 <div class="feature-icon">🎓</div>
                 <h3 class="feature-title">Learn & Earn</h3>
-                <p class="feature-description">Complete daily educational quizzes about GoodDollar and blockchain. Earn up to 2,000 G$ per quiz with instant on-chain rewards.</p>
+                <p class="feature-description">Complete educational quizzes about GoodDollar and blockchain. Earn up to 2,000 G$ per quiz with on-chain rewards every successful cycle.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon">🎮</div>
