@@ -5749,6 +5749,7 @@ def turnkey_login():
         analytics.track_user_session(wallet_address)
 
         _upsert_user_wallet_record(wallet_address, login_method="custodial")
+        _sync_user_verification_tracking(wallet_address)
 
         if referral_code and referral_code.strip():
             try:
@@ -5818,6 +5819,19 @@ def turnkey_create_wallet():
                     session.permanent = True
                     analytics.track_verification_attempt(wallet_address, True)
                     analytics.track_user_session(wallet_address)
+
+                    recovery_extra_fields = {}
+                    if existing_link.get("turnkey_suborg_id"):
+                        recovery_extra_fields["turnkey_suborg_id"] = existing_link.get("turnkey_suborg_id")
+                    if existing_link.get("turnkey_sign_with"):
+                        recovery_extra_fields["turnkey_sign_with"] = existing_link.get("turnkey_sign_with")
+                    _upsert_user_wallet_record(
+                        wallet_address,
+                        login_method=existing_link.get("login_method") or "custodial",
+                        extra_fields=recovery_extra_fields or None,
+                    )
+                    _sync_user_verification_tracking(wallet_address)
+
                     _clear_email_onboarding_session()
                     return jsonify({
                         "status": "success",
