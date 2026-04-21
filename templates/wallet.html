@@ -2121,6 +2121,24 @@
             const correlationId = `claim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
             window.__claimFaucetCorrelationId = correlationId;
             setClaimGasUiState('checking_balance');
+            const resolveFaucetError = (gasData) => {
+                if (!gasData || typeof gasData !== 'object') return 'Faucet unavailable.';
+
+                const onchain = gasData.onchain_result || {};
+                const reason = gasData.reason || onchain.reason || '';
+                const explicit = gasData.error || onchain.error || '';
+
+                if (reason === 'signer_insufficient_funds') {
+                    const shortfall = onchain.shortfall_wei
+                        ? ` (shortfall: ${onchain.shortfall_wei} wei)`
+                        : '';
+                    return `Faucet signer has insufficient CELO for gas${shortfall}. Please contact support/admin to replenish faucet signer wallet.`;
+                }
+
+                if (explicit) return explicit;
+                if (reason) return reason;
+                return 'Faucet unavailable.';
+            };
 
             const statusRes = await fetch('/api/faucet/status', {
                 method: 'POST',
@@ -2146,7 +2164,7 @@
             const terminal = gasData.terminal_status || gasData.status;
 
             if (!gasData.success && !gasData.gas_ready) {
-                throw new Error(gasData.error || gasData.reason || 'Faucet unavailable.');
+                throw new Error(resolveFaucetError(gasData));
             }
 
             if (terminal === 'recent_refill' && !gasData.gas_ready) {
@@ -2161,7 +2179,7 @@
                 !gasData.gas_ready
             ) {
                 throw new Error(
-                    `${gasData.error || gasData.reason || 'Gas top-up failed.'} Please retry shortly or contact support with your wallet and faucet debug values.`
+                    `${resolveFaucetError(gasData)} Please retry shortly or contact support with your wallet and faucet debug values.`
                 );
             }
 
