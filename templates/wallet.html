@@ -1537,6 +1537,11 @@
         let ctaText  = 'Verify Now';
         let showCta  = true;
 
+        // Only trust the countdown when the contract actually exposed an auth period.
+        // Some GoodDollar Identity deployments don't implement authenticationPeriod(),
+        // in which case we just show the whitelist status without a countdown.
+        const expiryKnown = !!(d && d.expiry_available);
+
         if (!d || d.success === false) {
             state = 'error';
             color = '#94a3b8';
@@ -1548,7 +1553,7 @@
             bg = 'rgba(239,68,68,0.12)';
             pillText = 'Expired';
             ctaText = 'Re-verify Now';
-        } else if (d.verified && d.days_remaining <= 14) {
+        } else if (d.verified && expiryKnown && d.days_remaining <= 14) {
             state = 'warning';
             color = '#f59e0b';
             bg = 'rgba(245,158,11,0.12)';

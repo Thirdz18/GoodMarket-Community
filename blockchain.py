@@ -684,86 +684,27 @@ FV_EXPIRY_CACHE_TTL = 300  # 5 minutes — expiry rarely changes but we want fre
 def get_identity_expiry(wallet_address: str) -> dict:
     """Return face-verification expiry data for a wallet.
 
-    Reads `dateAuthenticated(wallet)` and `authenticationPeriod()` from the
-    GoodDollar Identity contract on-chain. Expiry = dateAuthenticated +
-    authenticationPeriod * 86400. All timestamps are unix seconds (UTC).
+    Reads `isWhitelisted`, `dateAuthenticated`, and `authenticationPeriod` from
+    the GoodDollar Identity contract. Each call is wrapped independently because
+    `dateAuthenticated` / `authenticationPeriod` can revert on some identity
+    contract deployments — in that case we still return whitelist status with
+    `expiry_available=False` so the UI can show "Verified" without a countdown.
     """
     import time
-    try:
-        from web3 import Web3 as _Web3
-        checksum = _Web3.to_checksum_address(wallet_address)
-        key = checksum.lower()
+    from web3 import Web3 as _Web3
 
-        with _fv_expiry_cache_lock:
-            entry = _fv_expiry_cache.get(key)
-            if entry and entry["expires_cache_at"] > time.time():
-                return entry["result"]
+    key = (wallet_address or "").lower()
 
-        w3 = _get_w3()
-        contract = w3.eth.contract(
-            address=_Web3.to_checksum_address(GOODDOLLAR_CONTRACTS["IDENTITY"]),
-            abi=IDENTITY_ABI
-        )
-
-        is_whitelisted = contract.functions.isWhitelisted(checksum).call()
-        date_auth = contract.functions.dateAuthenticated(checksum).call()
-        auth_period_days = contract.functions.authenticationPeriod().call()
-
-        now = int(time.time())
-        ever_verified = date_auth > 0
-        expires_at = (date_auth + auth_period_days * 86400) if ever_verified and auth_period_days > 0 else 0
-        seconds_remaining = expires_at - now if expires_at > 0 else 0
-        days_remaining = seconds_remaining // 86400 if seconds_remaining > 0 else 0
-        expired = ever_verified and expires_at > 0 and now > expires_at
-
-        # A user is "effectively verified" only if whitelisted AND not lapsed.
-        effective_verified = bool(is_whitelisted) and not expired
-
-        result = {
-            "success": True,
-            "wallet": key,
-            "is_whitelisted": bool(is_whitelisted),
-            "ever_verified": bool(ever_verified),
-            "verified": effective_verified,
-            "expired": bool(expired),
-            "date_authenticated": int(date_auth),
-            "date_authenticated_iso": (
-                datetime.fromtimestamp(date_auth, tz=timezone.utc).isoformat()
-                if ever_verified else None
-            ),
-            "authentication_period_days": int(auth_period_days),
-            "expires_at": int(expires_at),
-            "expires_at_iso": (
-                datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat()
-                if expires_at > 0 else None
-            ),
-            "seconds_remaining": int(max(0, seconds_remaining)),
-            "days_remaining": int(days_remaining),
-        }
-
-        with _fv_expiry_cache_lock:
-            _fv_expiry_cache[key] = {
-                "result": result,
-                "expires_cache_at": time.time() + FV_EXPIRY_CACHE_TTL,
-            }
-
-        logger.info(
-            f"🪪 FV expiry for {wallet_address[:8]}…: "
-            f"whitelisted={is_whitelisted}, expired={expired}, "
-            f"days_remaining={days_remaining}"
-        )
-        return result
-
-    except Exception as e:
-        logger.error(f"FV expiry check error for {wallet_address}: {e}")
+    def _empty(error: str | None = None) -> dict:
         return {
             "success": False,
-            "error": str(e),
-            "wallet": (wallet_address or "").lower(),
+            "error": error,
+            "wallet": key,
             "verified": False,
             "expired": False,
             "ever_verified": False,
             "is_whitelisted": False,
+            "expiry_available": False,
             "date_authenticated": 0,
             "date_authenticated_iso": None,
             "authentication_period_days": 0,
@@ -772,6 +713,97 @@ def get_identity_expiry(wallet_address: str) -> dict:
             "seconds_remaining": 0,
             "days_remaining": 0,
         }
+
+    try:
+        checksum = _Web3.to_checksum_address(wallet_address)
+    except Exception as e:
+        return _empty(f"invalid_address: {e}")
+
+    with _fv_expiry_cache_lock:
+        entry = _fv_expiry_cache.get(key)
+        if entry and entry["expires_cache_at"] > time.time():
+            return entry["result"]
+
+    try:
+        w3 = _get_w3()
+        contract = w3.eth.contract(
+            address=_Web3.to_checksum_address(GOODDOLLAR_CONTRACTS["IDENTITY"]),
+            abi=IDENTITY_ABI
+        )
+    except Exception as e:
+        logger.error(f"FV expiry contract init failed for {wallet_address}: {e}")
+        return _empty(str(e))
+
+    # 1) isWhitelisted — required; if this fails, we genuinely can't answer.
+    try:
+        is_whitelisted = bool(contract.functions.isWhitelisted(checksum).call())
+    except Exception as e:
+        logger.error(f"FV expiry isWhitelisted failed for {wallet_address}: {e}")
+        return _empty(str(e))
+
+    # 2) dateAuthenticated — may revert on some deployments.
+    date_auth = 0
+    try:
+        date_auth = int(contract.functions.dateAuthenticated(checksum).call())
+    except Exception as fv_err:
+        logger.debug(f"FV expiry dateAuthenticated unavailable for {wallet_address[:8]}…: {fv_err}")
+
+    # 3) authenticationPeriod — also known to revert on current Celo deployment.
+    auth_period_days = 0
+    try:
+        auth_period_days = int(contract.functions.authenticationPeriod().call())
+    except Exception as fv_err:
+        logger.debug(f"FV expiry authenticationPeriod unavailable: {fv_err}")
+
+    now = int(time.time())
+    ever_verified = date_auth > 0
+    expiry_available = ever_verified and auth_period_days > 0
+    expires_at = (date_auth + auth_period_days * 86400) if expiry_available else 0
+    seconds_remaining = max(0, expires_at - now) if expires_at > 0 else 0
+    days_remaining = seconds_remaining // 86400 if seconds_remaining > 0 else 0
+    expired = expiry_available and now > expires_at
+
+    # Without reliable expiry data we trust on-chain whitelist status.
+    if expiry_available:
+        effective_verified = is_whitelisted and not expired
+    else:
+        effective_verified = is_whitelisted
+
+    result = {
+        "success": True,
+        "wallet": key,
+        "is_whitelisted": is_whitelisted,
+        "ever_verified": ever_verified,
+        "verified": effective_verified,
+        "expired": bool(expired),
+        "expiry_available": expiry_available,
+        "date_authenticated": date_auth,
+        "date_authenticated_iso": (
+            datetime.fromtimestamp(date_auth, tz=timezone.utc).isoformat()
+            if ever_verified else None
+        ),
+        "authentication_period_days": auth_period_days,
+        "expires_at": expires_at,
+        "expires_at_iso": (
+            datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat()
+            if expires_at > 0 else None
+        ),
+        "seconds_remaining": int(seconds_remaining),
+        "days_remaining": int(days_remaining),
+    }
+
+    with _fv_expiry_cache_lock:
+        _fv_expiry_cache[key] = {
+            "result": result,
+            "expires_cache_at": time.time() + FV_EXPIRY_CACHE_TTL,
+        }
+
+    logger.info(
+        f"🪪 FV expiry for {wallet_address[:8]}…: "
+        f"whitelisted={is_whitelisted}, expiry_available={expiry_available}, "
+        f"expired={expired}, days_remaining={days_remaining}"
+    )
+    return result
 
 
 def invalidate_fv_expiry_cache(wallet_address: str | None = None) -> None:
