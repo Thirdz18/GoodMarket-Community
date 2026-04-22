@@ -1227,6 +1227,42 @@
         }
         return window.ethereum;
     }
+
+    // Some in-dApp browsers (Trust Wallet, MetaMask Mobile, MiniPay on certain
+    // builds, Coinbase Wallet) inject `window.ethereum` asynchronously — after
+    // DOMContentLoaded but before the user ever interacts. When the user taps
+    // the Claim button very quickly on page load, `_getEthProvider()` can
+    // synchronously see `window.ethereum === undefined` and the claim flow
+    // aborts with "No wallet detected" even though the wallet is actually
+    // present. This helper polls briefly (default ~1.5s) so the claim path
+    // tolerates that injection race without forcing the user to refresh.
+    //
+    // The poll is capped and cheap (microtask setInterval), and it respects
+    // EIP-6963's `ethereum#initialized` event when the wallet emits it. If no
+    // provider arrives within the window we resolve null so the caller can
+    // still surface a helpful error.
+    async function _waitForEthProvider(timeoutMs) {
+        const deadline = Date.now() + (typeof timeoutMs === 'number' ? timeoutMs : 1500);
+        const existing = _getEthProvider();
+        if (existing) return existing;
+        return new Promise(resolve => {
+            let settled = false;
+            const settle = (val) => {
+                if (settled) return;
+                settled = true;
+                window.removeEventListener('ethereum#initialized', onInit);
+                clearInterval(interval);
+                resolve(val);
+            };
+            const onInit = () => settle(_getEthProvider());
+            window.addEventListener('ethereum#initialized', onInit, { once: true });
+            const interval = setInterval(() => {
+                const p = _getEthProvider();
+                if (p) return settle(p);
+                if (Date.now() >= deadline) return settle(null);
+            }, 60);
+        });
+    }
     function isMobile() {
         return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     }
@@ -2189,9 +2225,26 @@
                 });
             };
 
-            const provider = _getEthProvider();
+            // Prefer a WalletConnect-exposed provider when one is present in
+            // window.ethereum.providers (MiniPay + some in-dApp WC flows do
+            // this) — mirrors the selection logic used by signWithWalletConnect
+            // for FV signing so claim + FV agree on which provider to talk to.
+            // Fall back to the synchronous injected provider, and if neither
+            // is ready yet, wait briefly for the wallet to inject (handles the
+            // Trust Wallet / MetaMask Mobile / MiniPay async-injection race
+            // that was surfacing as "No wallet detected" for users who tapped
+            // Claim immediately after page load).
+            let provider = _getWalletConnectProvider() || _getEthProvider();
             if (!provider) {
-                setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
+                setStatus('Waiting for wallet to connect…', 'var(--text-dim)');
+                provider = await _waitForEthProvider(1500);
+            }
+            if (!provider) {
+                const method = (typeof LOGIN_METHOD === 'string' ? LOGIN_METHOD : '').toLowerCase();
+                const hint = method === 'walletconnect'
+                    ? 'Reconnect your wallet via WalletConnect and retry.'
+                    : 'Open this page inside MetaMask, Trust Wallet, or MiniPay — or reconnect via WalletConnect.';
+                setStatus('⚠️ No wallet detected. ' + hint, '#fbbf24');
                 return;
             }
 
