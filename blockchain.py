@@ -36,6 +36,13 @@ IDENTITY_ABI = [
         "type": "function"
     },
     {
+        "inputs": [{"internalType": "address", "name": "_account", "type": "address"}],
+        "name": "lastAuthenticated",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
         "inputs": [],
         "name": "authenticationPeriod",
         "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
@@ -741,12 +748,19 @@ def get_identity_expiry(wallet_address: str) -> dict:
         logger.error(f"FV expiry isWhitelisted failed for {wallet_address}: {e}")
         return _empty(str(e))
 
-    # 2) dateAuthenticated — may revert on some deployments.
+    # 2) lastAuthenticated (primary) falling back to dateAuthenticated (older
+    #    deployments). On the current Celo Identity contract,
+    #    dateAuthenticated() reverts while lastAuthenticated() returns the real
+    #    unix timestamp.
     date_auth = 0
     try:
-        date_auth = int(contract.functions.dateAuthenticated(checksum).call())
-    except Exception as fv_err:
-        logger.debug(f"FV expiry dateAuthenticated unavailable for {wallet_address[:8]}…: {fv_err}")
+        date_auth = int(contract.functions.lastAuthenticated(checksum).call())
+    except Exception as primary_err:
+        logger.debug(f"FV expiry lastAuthenticated unavailable for {wallet_address[:8]}…: {primary_err}")
+        try:
+            date_auth = int(contract.functions.dateAuthenticated(checksum).call())
+        except Exception as fv_err:
+            logger.debug(f"FV expiry dateAuthenticated also unavailable: {fv_err}")
 
     # 3) authenticationPeriod — also known to revert on current Celo deployment.
     auth_period_days = 0
