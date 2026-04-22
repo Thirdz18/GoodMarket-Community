@@ -1513,6 +1513,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // Exactly what ClaimSDK's getLink() does
             const params = {
                 account:   account.toLowerCase(),
+                // nonce mirrors the current citizen-sdk generateFVLink (epoch seconds),
+                // defeats stale-signature reuse at goodid.gooddollar.org.
+                nonce:     Math.floor(Date.now() / 1000).toString(),
                 fvsig:     fvSig,
                 firstname: 'GoodMarket',
                 chain:     42220,

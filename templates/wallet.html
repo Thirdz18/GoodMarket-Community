@@ -2288,13 +2288,18 @@
         };
 
         // Handle FV callback query params
+        // Note: new FV links route callbacks to /fv-callback server-side (server handles
+        // session + attribution + referral disbursement). The handlers below remain as a
+        // client-side safety net for any in-flight or legacy redirects that land back on
+        // /wallet directly (e.g. users who started FV before the deploy).
         (function() {
             const p = new URLSearchParams(window.location.search);
-            if (p.get('fv_pending') === '1') {
+            const isFailed = p.get('fv_failed') === '1' || p.get('verified') === 'false';
+            if (p.get('fv_pending') === '1' && !isFailed) {
                 openModal('claimModal');
                 setStatus('✅ Face verification submitted! Re-checking your eligibility…', '#facc15');
                 history.replaceState(null, '', window.location.pathname);
-            } else if (p.get('fv_failed') === '1') {
+            } else if (isFailed) {
                 openModal('claimModal');
                 const r = p.get('reason') || '';
                 setStatus('Face verification not completed' + (r ? ' (' + r + ')' : '') + '. Please try again.', 'var(--red)');
@@ -2321,10 +2326,16 @@
             'WARNING: do not sign this message unless you trust the website/application requesting this signature.';
 
         function buildFVLink(address, fvSig) {
+            // Route callback through /fv-callback so server handles session + attribution
+            // (verified_after_goodmarket) + pending referral disbursement. Matches the
+            // overview.html FV flow and the current @goodsdks/citizen-sdk shape.
             const callbackUrl = window.location.origin +
-                '/wallet?fv_pending=1&wallet=' + encodeURIComponent(address.toLowerCase()) + '&src=goodmarket';
+                '/fv-callback?wallet=' + encodeURIComponent(address.toLowerCase()) + '&src=goodmarket';
             const params = {
                 account:   address.toLowerCase(),
+                // nonce mirrors the current citizen-sdk generateFVLink (epoch seconds),
+                // defeats stale-signature reuse at goodid.gooddollar.org.
+                nonce:     Math.floor(Date.now() / 1000).toString(),
                 fvsig:     fvSig,
                 firstname: 'GoodMarket',
                 chain:     42220,

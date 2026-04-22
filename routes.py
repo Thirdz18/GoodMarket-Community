@@ -44,6 +44,55 @@ def auth_required(f):
     wrapper.__name__ = f.__name__
     return wrapper
 
+
+def _ensure_goodmarket_attribution(wallet_address: str, reason: str = "fallback") -> None:
+    """Idempotent safety net: credit GoodMarket for a face verification if the user
+    is actually on-chain face-verified but the ``verified_after_goodmarket`` attribution
+    flag was missed (e.g. legacy /wallet?fv_pending=1 callback, or any non-standard
+    redirect that bypassed /fv-callback).
+
+    The underlying ``supabase_client.log_verification_attempt(face_verified=True)`` is
+    already idempotent — it only writes ``verified_after_goodmarket=True`` when the
+    row does not already have it — so calling this helper repeatedly is safe.
+
+    This helper *does not* alter session state, referral disbursement, or the claim
+    flow; its only side-effect is backfilling analytics attribution. Keeping those
+    other side-effects exclusively on /fv-callback preserves the existing verified
+    rollout behaviour.
+    """
+    if not wallet_address:
+        return
+    # Soft-cache per Flask session to avoid hitting Supabase on every page load
+    # for users who were already attributed. The underlying DB write is idempotent,
+    # but skipping the round-trip here keeps /api/ubi-entitlement cheap.
+    try:
+        if session.get("_gm_attribution_checked"):
+            return
+    except Exception:
+        # Not inside a request context — fall through and attempt the backfill.
+        pass
+    try:
+        from blockchain import is_identity_verified
+        result = is_identity_verified(wallet_address)
+        if result.get("verified"):
+            analytics.track_verification_attempt(
+                wallet_address, True, face_verified=True
+            )
+            logger.info(
+                f"🛡️  GoodMarket attribution safety-net fired ({reason}) for "
+                f"{wallet_address[:10]}..."
+            )
+    except Exception as exc:
+        logger.warning(
+            f"⚠️ _ensure_goodmarket_attribution({reason}) failed for "
+            f"{wallet_address}: {exc}"
+        )
+    finally:
+        try:
+            session["_gm_attribution_checked"] = True
+        except Exception:
+            pass
+
 def admin_required(f):
     """Decorator for endpoints requiring admin authentication"""
     def wrapper(*args, **kwargs):
@@ -5148,6 +5197,12 @@ def ubi_entitlement():
         if force:
             invalidate_entitlement_cache(wallet)
         result = get_ubi_entitlement(wallet)
+        # Safety net: if the on-chain check says the user is now face-verified,
+        # make sure GoodMarket attribution is recorded. This catches users whose
+        # FV callback went somewhere other than /fv-callback (legacy links, odd
+        # redirects). The helper is idempotent and session-cached.
+        if result.get("is_verified"):
+            _ensure_goodmarket_attribution(wallet, reason="ubi_entitlement")
         return jsonify(result)
     except Exception as e:
         logger.error(f"UBI entitlement route error: {e}")
@@ -5160,6 +5215,13 @@ def wallet_page():
     wallet = session.get("wallet")
     if not wallet or not session.get("verified"):
         return redirect(url_for("routes.index"))
+    # Safety net for legacy /wallet?fv_pending=1 redirects from FV links issued
+    # before the /fv-callback standardization deploy. The new FV links built in
+    # templates/wallet.html route directly to /fv-callback, but any in-flight
+    # user who completed FV on the old link will land here — back-fill their
+    # attribution so verified_after_goodmarket isn't lost.
+    if request.args.get("fv_pending") == "1":
+        _ensure_goodmarket_attribution(wallet, reason="wallet_fv_pending")
     try:
         supabase = get_supabase_client()
         if supabase:
