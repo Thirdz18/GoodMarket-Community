@@ -6,14 +6,10 @@
     <title>GoodMarket</title>
     <meta name="theme-color" content="#050510">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="GoodMarket">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
-    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-    <script src="/static/js/pwa-register.js" defer></script>
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
@@ -180,14 +176,12 @@
         }
         .copy-btn:hover { background: rgba(var(--accent-rgb),0.26); }
         .balance-amount {
-            font-size: 1.7rem;
+            font-size: 2.5rem;
             font-weight: 900;
             color: #c8d2ff;
-            letter-spacing: -0.8px;
+            letter-spacing: -1.5px;
             line-height: 1;
             margin-bottom: 0.25rem;
-            word-break: break-word;
-            overflow-wrap: anywhere;
         }
         .balance-sub {
             font-size: 0.78rem;
@@ -198,7 +192,7 @@
         .action-row {
             display: flex;
             flex-direction: column;
-            gap: 0.38rem;
+            gap: 0.55rem;
             padding: 0;
             margin-bottom: 0;
             overflow: visible;
@@ -208,10 +202,10 @@
             flex-direction: row;
             align-items: center;
             justify-content: flex-start;
-            gap: 0.55rem;
+            gap: 0.72rem;
             width: 100%;
-            padding: 0.36rem 0.5rem;
-            border-radius: 12px;
+            padding: 0.5rem 0.65rem;
+            border-radius: 14px;
             border: 1px solid rgba(255,255,255,0.08);
             background: rgba(255,255,255,0.02);
             cursor: pointer;
@@ -222,12 +216,12 @@
             background: rgba(var(--accent-rgb),0.04);
         }
         .action-circle {
-            width: 34px; height: 34px;
+            width: 42px; height: 42px;
             border-radius: 50%;
             background: rgba(255,255,255,0.06);
             border: 1px solid rgba(255,255,255,0.12);
             display: flex; align-items: center; justify-content: center;
-            font-size: 0.88rem;
+            font-size: 1rem;
             flex-shrink: 0;
             transition: all 0.2s;
         }
@@ -299,24 +293,10 @@
             50% { transform: translateY(-1.5px); }
         }
         .action-label {
-            font-size: 0.78rem;
+            font-size: 0.86rem;
             font-weight: 600;
             color: var(--text-dim);
             white-space: nowrap;
-        }
-        .action-label.action-label-colorful {
-            font-weight: 800;
-            background: linear-gradient(90deg, #ff5f6d, #ffc371, #47e0a0, #4facfe, #a78bfa, #ff5f6d);
-            background-size: 300% 100%;
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            color: transparent;
-            animation: colorfulShift 6s linear infinite;
-        }
-        @keyframes colorfulShift {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 300% 50%; }
         }
         .wallet-layout {
             display: grid;
@@ -819,16 +799,16 @@
                 padding-right: 0.9rem;
             }
             .action-item {
-                gap: 0.45rem;
-                padding: 0.32rem 0.42rem;
+                gap: 0.58rem;
+                padding: 0.45rem 0.52rem;
             }
             .action-circle {
-                width: 32px;
-                height: 32px;
-                font-size: 0.82rem;
+                width: 40px;
+                height: 40px;
+                font-size: 0.95rem;
             }
             .action-label {
-                font-size: 0.72rem;
+                font-size: 0.8rem;
             }
         }
 
@@ -901,9 +881,9 @@
                     <div class="action-circle">🏦</div>
                     <span class="action-label">Savings</span>
                 </div>
-                <div class="action-item" onclick="handleMoreWaysToEarnFromWallet(event)">
-                    <div class="action-circle">💎</div>
-                    <span class="action-label action-label-colorful">More Ways To Earn</span>
+                <div class="action-item" onclick="handleDashboardFromWallet(event)">
+                    <div class="action-circle">📊</div>
+                    <span class="action-label">Dashboard</span>
                 </div>
                 <div class="action-item" onclick="window.location.href='/overview'">
                     <div class="action-circle">🏠</div>
@@ -1511,19 +1491,6 @@
             return false;
         }
         window.location.href = '/dashboard';
-        return false;
-    }
-    function handleMoreWaysToEarnFromWallet(event) {
-        if (window._walletNeedsFV) {
-            if (event) event.preventDefault();
-            const msg = document.getElementById('walletDashboardFVMsg');
-            if (msg) {
-                msg.style.display = 'block';
-                msg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-            return false;
-        }
-        window.location.href = '/dashboard#menuHeader-earn';
         return false;
     }
     function clearAlert(id) {

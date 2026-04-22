@@ -7,20 +7,17 @@
     <!-- Telegram Mini App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-    <!-- PWA Meta Tags -->
+    <!-- PWA Meta Tags -->a
     <meta name="theme-color" content="#7c3aed">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GoodMarket">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
-    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-    <script src="/static/js/pwa-register.js" defer></script>
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
         * {
             margin: 0;
@@ -830,58 +827,6 @@
             width: 100%;
             box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
             animation: modalIn 0.25s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .wallet-modal-content::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: inherit;
-            padding: 1px;
-            background: linear-gradient(135deg, rgba(139, 92, 246, 0.4), rgba(59, 130, 246, 0.28), rgba(16, 185, 129, 0.25));
-            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
-            pointer-events: none;
-        }
-
-        .wallet-journey {
-            display: flex;
-            gap: 0.5rem;
-            margin: 0 0 1rem;
-            flex-wrap: wrap;
-        }
-
-        .wallet-step-chip {
-            border: 1px solid #e5e7eb;
-            background: #f8fafc;
-            color: #6b7280;
-            border-radius: 999px;
-            padding: 0.35rem 0.7rem;
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.01em;
-            transition: all 0.2s ease;
-        }
-
-        .wallet-step-chip.active {
-            background: rgba(124, 58, 237, 0.1);
-            border-color: rgba(124, 58, 237, 0.32);
-            color: #6d28d9;
-            box-shadow: 0 6px 14px rgba(124, 58, 237, 0.15);
-        }
-
-        .wallet-mode-hint {
-            margin: 0 0 1rem;
-            border: 1px solid #e5e7eb;
-            background: linear-gradient(135deg, #f8fafc, #f9fafb);
-            color: #374151;
-            border-radius: 12px;
-            padding: 0.7rem 0.85rem;
-            font-size: 0.78rem;
-            line-height: 1.45;
         }
 
         @keyframes modalIn {
@@ -964,36 +909,6 @@
             transform: translateY(-2px);
         }
 
-        .wallet-option-card.loading {
-            pointer-events: none;
-            opacity: 0.86;
-            border-color: rgba(124, 58, 237, 0.45);
-            box-shadow: 0 8px 18px rgba(124, 58, 237, 0.18);
-        }
-
-        .wallet-option-card.loading .option-arrow {
-            color: transparent;
-            position: relative;
-        }
-
-        .wallet-option-card.loading .option-arrow::after {
-            content: '';
-            width: 15px;
-            height: 15px;
-            border: 2px solid rgba(255, 255, 255, 0.85);
-            border-right-color: transparent;
-            border-radius: 50%;
-            position: absolute;
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            animation: spinLoader 0.7s linear infinite;
-        }
-
-        @keyframes spinLoader {
-            to { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-
         .wallet-option-card.primary {
             background: linear-gradient(135deg, #10b981, #059669);
             border-color: transparent;
@@ -1070,14 +985,6 @@
 
         .wallet-option-card .option-text .option-desc {
             color: #374151;
-        }
-
-        .wallet-quick-note {
-            margin: 0.75rem 0 0.2rem;
-            font-size: 0.75rem;
-            color: #6b7280;
-            line-height: 1.45;
-            text-align: left;
         }
 
         .option-arrow {
@@ -1449,385 +1356,44 @@
             .cert-caption-amount { font-size: 0.82rem; }
         }
 
-        /* ================================================================
-           NX — Web3 redesign layer (2026-04)
-           Scoped with .nx- prefix to avoid conflicts with legacy styles.
-           ================================================================ */
-
-        :root {
-            --nx-bg-0: #05060f;
-            --nx-purple: #8b5cf6;
-            --nx-purple-2: #a78bfa;
-            --nx-cyan: #00e5ff;
-            --nx-green: #00ffa3;
-            --nx-gold: #ffcf40;
-            --nx-pink: #ff4dd2;
-            --nx-text: #e9ecf5;
-            --nx-text-dim: rgba(233, 236, 245, 0.62);
-            --nx-text-muted: rgba(233, 236, 245, 0.42);
-            --nx-border: rgba(255, 255, 255, 0.08);
-            --nx-glass: rgba(255, 255, 255, 0.035);
-        }
-
-        /* Override legacy body background for a richer web3 look */
-        body {
-            background: var(--nx-bg-0) !important;
-            color: var(--nx-text);
-        }
-
-        /* Dim the legacy radial glow so it doesn't fight with the mesh */
-        body::before { display: none; }
-
-        /* Fixed background layers (mesh + grid + floating orbs) */
-        .nx-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-        .nx-bg-mesh {
-            position: absolute; inset: -10%;
-            background:
-                radial-gradient(circle at 20% 15%, rgba(139, 92, 246, 0.35), transparent 40%),
-                radial-gradient(circle at 85% 20%, rgba(0, 229, 255, 0.22), transparent 40%),
-                radial-gradient(circle at 75% 85%, rgba(255, 77, 210, 0.18), transparent 40%),
-                radial-gradient(circle at 10% 80%, rgba(0, 255, 163, 0.15), transparent 40%);
-            filter: blur(60px);
-            animation: nxMesh 18s ease-in-out infinite;
-        }
-        @keyframes nxMesh {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(-3%, 2%) scale(1.05); }
-        }
-        .nx-bg-grid {
-            position: absolute; inset: 0;
-            background-image:
-                linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-            background-size: 48px 48px;
-            -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black 30%, transparent 80%);
-                    mask-image: radial-gradient(ellipse at 50% 30%, black 30%, transparent 80%);
-        }
-        .nx-orb { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.7; animation: nxFloat 14s ease-in-out infinite; }
-        .nx-orb-1 { width: 520px; height: 520px; top: -120px; left: -120px; background: radial-gradient(circle, #8b5cf6, transparent 60%); }
-        .nx-orb-2 { width: 420px; height: 420px; top: 20%; right: -120px; background: radial-gradient(circle, #00e5ff, transparent 60%); animation-delay: -4s; }
-        .nx-orb-3 { width: 380px; height: 380px; bottom: 5%; left: 30%; background: radial-gradient(circle, #ff4dd2, transparent 60%); animation-delay: -8s; opacity: 0.4; }
-        @keyframes nxFloat {
-            0%, 100% { transform: translate(0, 0); }
-            50% { transform: translate(30px, -40px); }
-        }
-
-        /* ——— Header (override .header) ——— */
-        .header {
-            background: rgba(5, 6, 15, 0.55) !important;
-            border-bottom: 1px solid var(--nx-border);
-            padding: 14px 24px;
-            backdrop-filter: blur(20px) saturate(140%);
-            -webkit-backdrop-filter: blur(20px) saturate(140%);
-        }
-        .header-container { max-width: 1280px; gap: 16px; }
-        .nx-brand {
-            display: flex; align-items: center; gap: 10px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 700; font-size: 20px; letter-spacing: -0.02em;
-            color: var(--nx-text); text-decoration: none;
-        }
-        .nx-brand-mark {
-            width: 32px; height: 32px; border-radius: 9px;
-            background: conic-gradient(from 180deg at 50% 50%, #8b5cf6, #00e5ff, #00ffa3, #8b5cf6);
-            position: relative; flex-shrink: 0;
-            box-shadow: 0 0 24px rgba(139, 92, 246, 0.5);
-        }
-        .nx-brand-mark::after {
-            content: 'G'; position: absolute; inset: 3px;
-            background: #05060f; border-radius: 6px;
-            display: grid; place-items: center;
-            font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 14px;
-            color: var(--nx-text);
-        }
-        .nx-nav-links { display: flex; align-items: center; gap: 28px; }
-        .nx-nav-links a {
-            color: var(--nx-text-dim); text-decoration: none; font-weight: 500; font-size: 14px;
-            transition: color .2s;
-        }
-        .nx-nav-links a:hover, .nx-nav-links a.active { color: var(--nx-text); }
-        .nx-nav-right { display: flex; align-items: center; gap: 10px; }
-        .nx-btn {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 18px; border-radius: 10px; border: 1px solid transparent;
-            font-family: inherit; font-weight: 600; font-size: 14px;
-            cursor: pointer; text-decoration: none; transition: all .2s;
-            white-space: nowrap; line-height: 1;
-        }
-        .nx-btn-ghost { background: transparent; color: var(--nx-text); border-color: var(--nx-border); }
-        .nx-btn-ghost:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.03); }
-        .nx-btn-primary {
-            background: linear-gradient(135deg, #8b5cf6, #6d28d9);
-            color: #fff; box-shadow: 0 6px 24px -6px rgba(139, 92, 246, 0.7), inset 0 1px 0 rgba(255,255,255,0.18);
-        }
-        .nx-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -6px rgba(139, 92, 246, 0.9), inset 0 1px 0 rgba(255,255,255,0.22); }
-        .nx-btn-lg { padding: 14px 22px; font-size: 15px; border-radius: 12px; }
-
-        /* ——— Hero ——— */
-        .nx-hero { padding: 88px 24px 72px; position: relative; z-index: 1; }
-        .nx-hero-inner { max-width: 1280px; margin: 0 auto; display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 64px; align-items: center; }
-        .nx-eyebrow {
-            display: inline-flex; align-items: center; gap: 8px;
-            padding: 6px 12px; border-radius: 999px;
-            background: rgba(139, 92, 246, 0.08);
-            border: 1px solid rgba(139, 92, 246, 0.25);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px; font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase;
-            color: var(--nx-purple-2);
-            margin-bottom: 22px;
-        }
-        .nx-eyebrow .nx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nx-green); box-shadow: 0 0 10px var(--nx-green); animation: nxPulse 1.6s ease-in-out infinite; }
-        @keyframes nxPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .nx-hero h1.nx-h1 {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 700;
-            font-size: clamp(2.6rem, 5.2vw, 4.6rem);
-            line-height: 1.02;
-            letter-spacing: -0.035em;
-            margin-bottom: 22px;
-            color: var(--nx-text);
-            text-align: left;
-        }
-        .nx-hero h1.nx-h1 .nx-grad {
-            background: linear-gradient(135deg, #a78bfa 0%, #00e5ff 50%, #00ffa3 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-            display: inline-block;
-        }
-        .nx-hero p.nx-lede {
-            font-size: 17px; color: var(--nx-text-dim); max-width: 520px;
-            margin: 0 0 28px 0;
-            text-align: left;
-        }
-        .nx-hero-ctas { display: flex; gap: 12px; flex-wrap: wrap; }
-        .nx-hero-meta { display: flex; gap: 22px; margin-top: 24px; color: var(--nx-text-muted); font-size: 13px; flex-wrap: wrap; }
-        .nx-hero-meta span { display: inline-flex; align-items: center; gap: 6px; }
-
-        /* Hero visual: stats stack */
-        .nx-hero-visual { position: relative; height: 480px; }
-        .nx-stats-card {
-            position: absolute;
-            background: var(--nx-glass);
-            backdrop-filter: blur(24px) saturate(160%);
-            -webkit-backdrop-filter: blur(24px) saturate(160%);
-            border: 1px solid var(--nx-border);
-            border-radius: 18px;
-            padding: 18px 20px;
-            box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.6);
-            z-index: 2;
-        }
-        .nx-stats-card .nx-stats-label {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-            color: var(--nx-text-muted); margin-bottom: 8px;
-            display: flex; align-items: center; gap: 6px;
-        }
-        .nx-stats-card .nx-stats-value {
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 700; font-size: 28px; letter-spacing: -0.02em;
-        }
-        .nx-stats-card .nx-stats-trend { font-size: 12px; color: var(--nx-green); font-weight: 600; margin-top: 4px; }
-        .nx-sc-1 { top: 24px; left: 30px; min-width: 220px; }
-        .nx-sc-1 .nx-stats-value { background: linear-gradient(135deg, #a78bfa, #00e5ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .nx-sc-2 { top: 160px; right: 20px; min-width: 240px; }
-        .nx-sc-2 .nx-stats-value { color: var(--nx-green); }
-        .nx-sc-3 { bottom: 40px; left: 60px; min-width: 260px; }
-        .nx-sc-3 .nx-stats-value { color: var(--nx-gold); }
-
-        .nx-hero-orb {
-            position: absolute;
-            top: 50%; left: 50%;
-            width: 260px; height: 260px;
-            transform: translate(-50%, -50%);
-            border-radius: 50%;
-            background: radial-gradient(circle at 30% 30%, #a78bfa, #6d28d9 50%, #2d1065 90%);
-            box-shadow:
-                0 0 80px rgba(139, 92, 246, 0.6),
-                inset -20px -40px 80px rgba(0, 0, 0, 0.4),
-                inset 20px 40px 60px rgba(255, 255, 255, 0.12);
-            animation: nxSpin 20s linear infinite;
-            z-index: 1;
-        }
-        .nx-hero-orb::before {
-            content: 'G$'; position: absolute; inset: 0;
-            display: grid; place-items: center;
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 700; font-size: 76px;
-            color: rgba(255,255,255,0.95);
-            text-shadow: 0 4px 20px rgba(0,0,0,0.6);
-            animation: nxCounterSpin 20s linear infinite;
-        }
-        @keyframes nxSpin { from { transform: translate(-50%,-50%) rotate(0); } to { transform: translate(-50%,-50%) rotate(360deg); } }
-        @keyframes nxCounterSpin { from { transform: rotate(0); } to { transform: rotate(-360deg); } }
-
-        /* ——— Partners / Trust strip ——— */
-        .nx-partners {
-            position: relative; z-index: 1;
-            padding: 40px 24px 32px;
-            border-top: 1px solid var(--nx-border);
-            border-bottom: 1px solid var(--nx-border);
-            background: rgba(255,255,255,0.015);
-        }
-        .nx-partners-inner { max-width: 1280px; margin: 0 auto; }
-        .nx-partners-label {
-            text-align: center;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
-            color: var(--nx-text-muted); margin-bottom: 20px;
-        }
-        .nx-partners-row {
-            display: flex; justify-content: center; align-items: center; gap: 48px; flex-wrap: wrap;
-            opacity: 0.85;
-        }
-        .nx-partner-chip {
-            display: inline-flex; align-items: center; gap: 10px;
-            font-family: 'Space Grotesk', sans-serif;
-            font-weight: 600; font-size: 16px; letter-spacing: -0.01em;
-            color: rgba(255,255,255,0.78);
-        }
-        .nx-partner-logo {
-            width: 26px; height: 26px; border-radius: 6px;
-            display: grid; place-items: center;
-            font-size: 12px; font-weight: 700;
-            flex-shrink: 0;
-        }
-
-        /* Responsive */
-        @media (max-width: 960px) {
-            .nx-hero-inner { grid-template-columns: 1fr; gap: 40px; }
-            .nx-hero-visual { height: 380px; }
-            .nx-nav-links { display: none; }
-        }
-        @media (max-width: 640px) {
-            .nx-hero { padding: 56px 20px 40px; }
-            .nx-hero h1.nx-h1 { font-size: 2.4rem; }
-            .nx-partners-row { gap: 28px; }
-            .nx-hero-meta { gap: 14px; }
-            .nx-nav-right .nx-btn-ghost { display: none; }
-            .nx-nav-right .nx-btn-primary { padding: 10px 14px; font-size: 13px; }
-            .header { padding: 12px 16px; }
-        }
-
     </style>
 </head>
 <body>
-    <!-- Fixed web3 background (mesh + grid + orbs) -->
-    <div class="nx-bg" aria-hidden="true">
-        <div class="nx-bg-mesh"></div>
-        <div class="nx-bg-grid"></div>
-        <div class="nx-orb nx-orb-1"></div>
-        <div class="nx-orb nx-orb-2"></div>
-        <div class="nx-orb nx-orb-3"></div>
-    </div>
-
     <!-- Header -->
     <header class="header">
         <div class="header-container">
-            <a href="/" class="nx-brand">
-                <span class="nx-brand-mark" aria-hidden="true"></span>
-                <span>GoodMarket</span>
-            </a>
-            <nav class="nx-nav-links" aria-label="Primary">
+            <a href="/" class="logo">GoodMarket</a>
+            <nav class="nav-links">
                 <a href="/overview" class="active">Overview</a>
                 <a href="/news">News</a>
-                <a href="https://www.gooddollar.org/" target="_blank" rel="noopener noreferrer">Docs</a>
-                <a href="https://t.me/GoodDollarX" target="_blank" rel="noopener noreferrer">Community</a>
+                <div style="display: flex; gap: 0.35rem; align-items: center; font-size: 0.75rem;">
+                    <a href="https://t.me/GoodDollarX" target="_blank" style="text-decoration: none;" title="Join our Telegram">💬</a>
+                    <a href="https://twitter.com/gooddollarorg" target="_blank" style="text-decoration: none;" title="Follow @gooddollarorg">🐦</a>
+                    <a href="https://twitter.com/GoodDollarTeam" target="_blank" style="text-decoration: none;" title="Follow @GoodDollarTeam">🐦</a>
+                </div>
+                <button class="connect-wallet-btn" onclick="openWalletModal()">
+                    <span class="wallet-icon">🚀</span>
+                    <span>Get Started</span>
+                </button>
             </nav>
-            <div class="nx-nav-right">
-                <button class="nx-btn nx-btn-ghost" onclick="openWalletModal()" type="button">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
-                    <span>Connect Wallet</span>
-                </button>
-                <button class="nx-btn nx-btn-primary" onclick="openWalletModal()" type="button">
-                    <span>Launch App</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                </button>
-            </div>
         </div>
     </header>
 
     <!-- Hero Section -->
-    <section class="nx-hero" id="overview">
-        <div class="nx-hero-inner">
-            <div class="nx-hero-copy">
-                <div class="nx-eyebrow">
-                    <span class="nx-dot" aria-hidden="true"></span>
-                    Community-powered · Live on Celo
-                </div>
-                <h1 class="nx-h1">
-                    Earn <span class="nx-grad">G$</span>.<br>
-                    Learn Web3.<br>
-                    No experience needed.
-                </h1>
-                <p class="nx-lede">
-                    Complete social tasks, quizzes, and minigames to earn real GoodDollar tokens. Built by the community, powered by Celo — open to everyone, no fees, no gas.
-                </p>
-                <div class="nx-hero-ctas">
-                    <button class="nx-btn nx-btn-primary nx-btn-lg" onclick="openWalletModal()" type="button">
-                        <span>Launch App</span>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                    </button>
-                    <a class="nx-btn nx-btn-ghost nx-btn-lg" href="https://docs.gooddollar.org/" target="_blank" rel="noopener noreferrer">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="m10 14 11-11"/></svg>
-                        <span>Read the Docs</span>
-                    </a>
-                </div>
-                <div class="nx-hero-meta">
-                    <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ffa3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Gas-free claims</span>
-                    <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ffa3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Non-custodial</span>
-                    <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ffa3" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg> Open source</span>
-                </div>
-            </div>
-            <div class="nx-hero-visual" aria-hidden="true">
-                <div class="nx-hero-orb"></div>
-                <div class="nx-stats-card nx-sc-1">
-                    <div class="nx-stats-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 0 20"/><path d="M12 2a15.3 15.3 0 0 0 0 20"/></svg>
-                        Total G$ Distributed
-                    </div>
-                    <div class="nx-stats-value" data-stat="gd-total">2.84M</div>
-                    <div class="nx-stats-trend">+12.4% this week</div>
-                </div>
-                <div class="nx-stats-card nx-sc-2">
-                    <div class="nx-stats-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                        Active Earners
-                    </div>
-                    <div class="nx-stats-value" data-stat="active-earners">18,492</div>
-                    <div class="nx-stats-trend" data-stat-trend="active-earners">Live from Supabase</div>
-                </div>
-                <div class="nx-stats-card nx-sc-3">
-                    <div class="nx-stats-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11"/></svg>
-                        Tasks Completed This Month
-                    </div>
-                    <div class="nx-stats-value" data-stat="tasks-today">4,128</div>
-                    <div class="nx-stats-trend" data-stat-trend="tasks-today" style="color: var(--nx-cyan);">Last 30 days · Supabase</div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Partners / Trust strip -->
-    <section class="nx-partners" aria-label="Built with">
-        <div class="nx-partners-inner">
-            <div class="nx-partners-label">// Built with · Trusted by</div>
-            <div class="nx-partners-row">
-                <span class="nx-partner-chip"><span class="nx-partner-logo" style="background:linear-gradient(135deg,#35d07f,#fbcc5c);color:#0b1a12;">C</span>Celo</span>
-                <span class="nx-partner-chip"><span class="nx-partner-logo" style="background:linear-gradient(135deg,#00d8b8,#00a8e8);color:#003343;">G$</span>GoodDollar</span>
-                <span class="nx-partner-chip"><span class="nx-partner-logo" style="background:linear-gradient(135deg,#3b99fc,#1e69d2);color:#fff;">W</span>WalletConnect</span>
-                <span class="nx-partner-chip"><span class="nx-partner-logo" style="background:linear-gradient(135deg,#f6851b,#e2761b);color:#fff;">M</span>MetaMask</span>
-                <span class="nx-partner-chip"><span class="nx-partner-logo" style="background:linear-gradient(135deg,#2aabee,#229ed9);color:#fff;">T</span>Telegram</span>
-            </div>
-        </div>
-    </section>
-
-    <!-- Legacy hero hook: Main Menu toggle (kept for existing submenu flow) -->
-    <section class="hero-section" style="padding: 1.25rem 1rem 0.5rem; background: transparent; min-height: 0;">
-        <div class="hero-content" style="padding: 0;">
-            <div class="hero-buttons" style="margin-top: 0;">
-                <button class="btn-secondary main-menu-btn" onclick="toggleMainMenu()">☰ Explore all sections</button>
+    <section class="hero-section" id="overview">
+        <div class="hero-content">
+            <h1 class="hero-title">
+                Learn & Earn with<br>
+                <span class="highlight">GoodMarket</span>
+            </h1>
+            <p class="hero-description">
+                Earn G$ cryptocurrency rewards by completing social tasks, quizzes, games, and community stories — no experience needed.
+            </p>
+            <p class="hero-disclaimer">
+                ⚠️ GoodMarket is a community initiative &mdash; not an official product of GoodDollar.
+            </p>
+            <div class="hero-buttons">
+                <button class="btn-secondary main-menu-btn" onclick="toggleMainMenu()">☰ Main Menu</button>
             </div>
         </div>
     </section>
@@ -2234,18 +1800,10 @@
                 </div>
                 <button class="close-modal" onclick="closeWalletModal()">×</button>
             </div>
-            <div class="wallet-journey" id="walletJourney">
-                <span class="wallet-step-chip active" data-step="start">1 · Choose path</span>
-                <span class="wallet-step-chip" data-step="connect">2 · Connect wallet</span>
-                <span class="wallet-step-chip" data-step="create">2 · Create wallet</span>
-            </div>
-            <div class="wallet-mode-hint" id="walletModeHint">
-                Pick your preferred flow: connect an existing wallet, or create a brand-new GoodDollar wallet with email OTP.
-            </div>
 
             <!-- Step 1: Choose login path -->
             <div class="wallet-options" id="walletOptions">
-                <button class="wallet-option-card wc-option" id="walletConnectPrimaryBtn" onclick="showWalletConnectOptions()">
+                <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
                     <div class="option-icon">🔗</div>
                     <div class="option-text">
                         <div class="option-title">Wallet Connect</div>
@@ -2254,7 +1812,7 @@
                     <span class="option-arrow">→</span>
                 </button>
 
-                <button class="wallet-option-card primary" id="createWalletPrimaryBtn" onclick="showTurnkeyOptions()">
+                <button class="wallet-option-card primary" onclick="showTurnkeyOptions()">
                     <div class="option-icon">🆕</div>
                     <div class="option-text">
                         <div class="option-title">Create New Wallet</div>
@@ -2262,7 +1820,6 @@
                     </div>
                     <span class="option-arrow">→</span>
                 </button>
-                <p class="wallet-quick-note">Tip: If you already use MetaMask/Trust Wallet, choose Wallet Connect. If you're new, choose Create New Wallet.</p>
             </div>
 
             <!-- Step 2A: WalletConnect / injected / manual -->
@@ -2285,7 +1842,7 @@
                         <span class="option-arrow">→</span>
                     </button>
 
-                    <button class="wallet-option-card wc-option" id="walletConnectQrBtn" onclick="connectWalletConnect()">
+                    <button class="wallet-option-card wc-option" onclick="connectWalletConnect()">
                         <div class="option-icon">📱</div>
                         <div class="option-text">
                             <div class="option-title">WalletConnect</div>
@@ -2344,7 +1901,7 @@
                 </div>
 
                 <div class="wallet-options">
-                    <button class="wallet-option-card" id="createWalletFlowBtn" onclick="showCreateWalletForm()" style="border-color: rgba(16,185,129,0.45); background: linear-gradient(135deg, rgba(16,185,129,0.09), rgba(5,150,105,0.05));">
+                    <button class="wallet-option-card" onclick="showCreateWalletForm()" style="border-color: rgba(16,185,129,0.45); background: linear-gradient(135deg, rgba(16,185,129,0.09), rgba(5,150,105,0.05));">
                         <div class="option-icon">🆕</div>
                         <div class="option-text">
                             <div class="option-title" style="color:#10b981;">Create New GoodDollar Wallet</div>
@@ -2429,7 +1986,7 @@
                 btn.textContent = '✕ Close Menu';
             } else {
                 submenu.style.display = 'none';
-                btn.innerHTML = '☰ Explore all sections';
+                btn.innerHTML = '☰ Main Menu';
                 document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
                 document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
             }
@@ -2455,24 +2012,8 @@
             try { initReferralFromUrl(); } catch (e) {}
         }
 
-        function setWalletJourney(step, hintText) {
-            const chips = document.querySelectorAll('#walletJourney .wallet-step-chip');
-            chips.forEach(chip => chip.classList.toggle('active', chip.dataset.step === step));
-            const hint = document.getElementById('walletModeHint');
-            if (hint && hintText) hint.textContent = hintText;
-        }
-
-        function setOptionCardLoading(btnId, isLoading) {
-            const btn = document.getElementById(btnId);
-            if (!btn) return;
-            btn.classList.toggle('loading', !!isLoading);
-            btn.disabled = !!isLoading;
-        }
-
         function closeWalletModal() {
             document.getElementById('walletModal').classList.remove('active');
-            setOptionCardLoading('walletConnectPrimaryBtn', false);
-            setOptionCardLoading('createWalletPrimaryBtn', false);
         }
 
         function showWalletOptions() {
@@ -2481,14 +2022,10 @@
                 const el = document.getElementById(id);
                 if (el) el.classList.remove('visible');
             });
-            setWalletJourney('start', 'Pick your preferred flow: connect an existing wallet, or create a brand-new GoodDollar wallet with email OTP.');
-            setOptionCardLoading('walletConnectPrimaryBtn', false);
-            setOptionCardLoading('createWalletPrimaryBtn', false);
             detectInjectedWallet();
         }
 
         function showWalletConnectOptions() {
-            setOptionCardLoading('walletConnectPrimaryBtn', true);
             document.getElementById('walletOptions').style.display = 'none';
             ['manualAddressForm', 'turnkeyOptions', 'createWalletForm'].forEach(id => {
                 const el = document.getElementById(id);
@@ -2496,8 +2033,6 @@
             });
             const f = document.getElementById('walletConnectOptions');
             if (f) f.classList.add('visible');
-            setWalletJourney('connect', 'Connect using injected wallet, WalletConnect QR, or use manual fallback if wallet signature is unavailable.');
-            setTimeout(() => setOptionCardLoading('walletConnectPrimaryBtn', false), 220);
             detectInjectedWallet();
         }
 
@@ -2509,11 +2044,9 @@
             });
             const f = document.getElementById('manualAddressForm');
             if (f) f.classList.add('visible');
-            setWalletJourney('connect', 'Manual mode is available for copy/paste login when signature flow is blocked on your current wallet/browser.');
         }
 
         function showTurnkeyOptions() {
-            setOptionCardLoading('createWalletPrimaryBtn', true);
             document.getElementById('walletOptions').style.display = 'none';
             ['walletConnectOptions', 'manualAddressForm', 'createWalletForm'].forEach(id => {
                 const el = document.getElementById(id);
@@ -2521,12 +2054,9 @@
             });
             const f = document.getElementById('turnkeyOptions');
             if (f) f.classList.add('visible');
-            setWalletJourney('create', 'Create or recover your email-linked GoodDollar wallet in a few steps (email + OTP + wallet setup).');
-            setTimeout(() => setOptionCardLoading('createWalletPrimaryBtn', false), 220);
         }
 
         function showCreateWalletForm() {
-            setOptionCardLoading('createWalletFlowBtn', true);
             configureWalletForm('create');
             ['walletOptions', 'turnkeyOptions'].forEach(id => {
                 const el = document.getElementById(id);
@@ -2534,8 +2064,6 @@
             });
             const f = document.getElementById('createWalletForm');
             if (f) f.classList.add('visible');
-            setWalletJourney('create', 'Step 1: send OTP to your email. Step 2: verify code. Step 3: create your new GoodDollar wallet.');
-            setTimeout(() => setOptionCardLoading('createWalletFlowBtn', false), 220);
         }
 
         let walletFormMode = 'create';
@@ -2582,7 +2110,6 @@
             });
             const f = document.getElementById('createWalletForm');
             if (f) f.classList.add('visible');
-            setWalletJourney('create', 'Recover flow: verify your email OTP, then load your previously linked wallet.');
         }
 
         function showWalletStatus(targetId, message, type = 'info') {
@@ -2967,7 +2494,6 @@
         }
 
         async function connectWalletConnect() {
-            setOptionCardLoading('walletConnectQrBtn', true);
             const qrWrap = document.getElementById('wcQrWrap');
             if (qrWrap) qrWrap.style.display = 'none';
             showWalletStatus('walletConnectStatus', '⏳ Starting WalletConnect...', 'info');
@@ -3061,8 +2587,6 @@
                 const rejected = /reject|denied|cancel/i.test(emsg);
                 const prefix = rejected ? '❌ Request rejected by wallet. ' : '❌ ';
                 showWalletStatus('walletConnectStatus', prefix + emsg + ' You can use manual wallet input for copy/paste guidance.', rejected ? 'warning' : 'error');
-            } finally {
-                setOptionCardLoading('walletConnectQrBtn', false);
             }
         }
 
@@ -3792,46 +3316,6 @@
         }
 
         document.addEventListener('DOMContentLoaded', loadCommunityTweets);
-    })();
-
-    (function() {
-        function formatNumber(value) {
-            const parsed = Number(value);
-            if (!Number.isFinite(parsed)) return '0';
-            return parsed.toLocaleString('en-US');
-        }
-
-        async function loadHomepageLiveStats() {
-            try {
-                const response = await fetch('/api/homepage-live-stats');
-                if (!response.ok) return;
-
-                const data = await response.json();
-                if (!data.success) return;
-
-                const activeEarnersEl = document.querySelector('[data-stat="active-earners"]');
-                const tasksTodayEl = document.querySelector('[data-stat="tasks-today"]');
-                const activeTrendEl = document.querySelector('[data-stat-trend="active-earners"]');
-                const tasksTrendEl = document.querySelector('[data-stat-trend="tasks-today"]');
-
-                if (activeEarnersEl) {
-                    activeEarnersEl.textContent = formatNumber(data.active_earners);
-                }
-                if (tasksTodayEl) {
-                    tasksTodayEl.textContent = formatNumber(data.tasks_completed_30d);
-                }
-                if (activeTrendEl) {
-                    activeTrendEl.textContent = 'Updated from Supabase';
-                }
-                if (tasksTrendEl) {
-                    tasksTrendEl.textContent = 'Last 30 days · Supabase';
-                }
-            } catch (error) {
-                console.warn('Failed to load homepage live stats:', error);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', loadHomepageLiveStats);
     })();
     </script>
 </body>
