@@ -1218,7 +1218,23 @@
                 );
                 if (!already) window.__announced6963Providers.push(detail);
             });
+            // Initial request at script load. Some wallets only announce after
+            // the first request, so this seeds __announced6963Providers ASAP.
             window.dispatchEvent(new Event('eip6963:requestProvider'));
+            // Trust Wallet / MetaMask Mobile may inject their provider after
+            // DOMContentLoaded finishes. Re-request discovery a few times over
+            // ~1s so a late-arriving wallet can still be captured before the
+            // user clicks Claim / Send / Sign.
+            let _eipRetries = 0;
+            const _eipTimer = setInterval(() => {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                if (++_eipRetries >= 6) clearInterval(_eipTimer);
+            }, 200);
+            // EIP-1193 `ethereum#initialized` fires when a wallet finishes
+            // late injection; re-run EIP-6963 discovery so the picker sees it.
+            window.addEventListener('ethereum#initialized', () => {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            }, { once: true });
         } catch (_) { /* no-op: older browsers / strict CSPs */ }
     })();
 
@@ -1252,17 +1268,13 @@
         return out;
     }
 
-    function _getEthProvider() {
-        // Re-dispatch EIP-6963 discovery on every call — Trust Wallet mobile
-        // and some MetaMask Mobile builds announce only after the dApp asks,
-        // and idempotent re-dispatch costs nothing for wallets that don't.
-        try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
-
-        const candidates = _collectInjectedProviders();
-        if (!candidates.length) return null;
+    function _pickProviderFromCandidates(candidates) {
+        if (!candidates || !candidates.length) return null;
 
         // Inside Trust Wallet's in-app dApp browser the authentic provider may
-        // only be exposed via `window.trustwallet` or EIP-6963 — pick it first.
+        // only be exposed via `window.trustwallet` or EIP-6963 — pick it first
+        // when the UA hints at Trust. Trust Wallet's mobile dApp browser UA is
+        // often generic Chrome/Safari, so this branch is a hint, not a gate.
         if (_isTrustWalletUA()) {
             const trust = _pickTrustWallet(candidates);
             if (trust) return trust;
@@ -1274,6 +1286,19 @@
             });
             if (trust6963 && trust6963.provider) return trust6963.provider;
         }
+
+        // Branded Trust Wallet injection (`window.trustwallet`) wins even when
+        // the UA doesn't self-identify — many Trust Wallet mobile builds ship
+        // a plain WebView UA but expose the provider via `window.trustwallet`.
+        const trustByFlag = candidates.find(p => p && (p.isTrust || p.isTrustWallet));
+        if (trustByFlag) return trustByFlag;
+        const trustBy6963 = _eip6963Providers().find(d => {
+            const info = d.info || {};
+            const rdns = String(info.rdns || '').toLowerCase();
+            const name = String(info.name || '').toLowerCase();
+            return rdns.includes('trustwallet') || name.includes('trust');
+        });
+        if (trustBy6963 && trustBy6963.provider) return trustBy6963.provider;
 
         // Preserve existing MetaMask preference for multi-provider setups
         // (e.g. MetaMask + Brave or MetaMask + Coinbase both injecting).
@@ -1287,6 +1312,39 @@
         // the first non-ethereum injection we found (Trust / EIP-6963 only).
         if (window.ethereum) return window.ethereum;
         return candidates[0];
+    }
+
+    function _getEthProvider() {
+        // Re-dispatch EIP-6963 discovery on every call — Trust Wallet mobile
+        // and some MetaMask Mobile builds announce only after the dApp asks,
+        // and idempotent re-dispatch costs nothing for wallets that don't.
+        try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+
+        const candidates = _collectInjectedProviders();
+        if (!candidates.length) return null;
+        return _pickProviderFromCandidates(candidates);
+    }
+
+    // Async variant that tolerates late provider injection. Trust Wallet's
+    // in-app dApp browser (recent builds) and some MetaMask Mobile builds
+    // inject / announce their EIP-1193 provider asynchronously — sometimes
+    // after DOMContentLoaded and sometimes only after the dApp dispatches
+    // `eip6963:requestProvider`. Callers that gate user actions (Claim G$,
+    // Send, FV signing) should use this instead of the sync `_getEthProvider`
+    // so a first click doesn't spuriously fail with "No wallet detected".
+    async function _awaitEthProvider(timeoutMs) {
+        const budget = typeof timeoutMs === 'number' ? timeoutMs : 800;
+        const stepMs = 120;
+        const start = Date.now();
+        let first = _getEthProvider();
+        if (first) return first;
+        while (Date.now() - start < budget) {
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            await new Promise(r => setTimeout(r, stepMs));
+            const p = _getEthProvider();
+            if (p) return p;
+        }
+        return null;
     }
 
     // Diagnostic: open the claim page inside the failing wallet's dApp browser,
@@ -1668,7 +1726,7 @@
 
             let txHash = null;
             if (!window.isCustodialMode) {
-                const provider = _getEthProvider();
+                const provider = await _awaitEthProvider();
                 if (!provider) throw new Error('No wallet detected. Please connect your GoodMarket wallet.');
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
@@ -2280,7 +2338,7 @@
                 });
             };
 
-            const provider = _getEthProvider();
+            const provider = await _awaitEthProvider();
             if (!provider) {
                 setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
                 return;
@@ -2443,7 +2501,7 @@
         }
 
         async function signWithWallet(address) {
-            const provider = _getEthProvider();
+            const provider = await _awaitEthProvider();
             if (!provider) {
                 throw new Error('No wallet detected. Open this page in MiniPay, MetaMask, Trust Wallet, or WalletConnect.');
             }
@@ -2506,7 +2564,7 @@
         }
 
         async function signWithWalletConnect(address) {
-            const provider = _getWalletConnectProvider() || _getEthProvider();
+            const provider = _getWalletConnectProvider() || (await _awaitEthProvider());
             if (!provider) {
                 throw new Error('WalletConnect signer unavailable. Reconnect your wallet and try again.');
             }

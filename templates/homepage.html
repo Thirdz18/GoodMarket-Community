@@ -2138,6 +2138,18 @@
                     if (!already) window.__announced6963Providers.push(detail);
                 });
                 window.dispatchEvent(new Event('eip6963:requestProvider'));
+                // Late-injecting wallets (Trust Wallet / MetaMask Mobile dApp
+                // browser) may announce after DOMContentLoaded finishes. Retry
+                // a few times over ~1.2s so discovery completes before the user
+                // taps "Injected Wallet" on the login sheet.
+                let _eipRetries = 0;
+                const _eipTimer = setInterval(() => {
+                    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                    if (++_eipRetries >= 6) clearInterval(_eipTimer);
+                }, 200);
+                window.addEventListener('ethereum#initialized', () => {
+                    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                }, { once: true });
             } catch (_) { /* older browsers / strict CSPs */ }
         })();
 
@@ -2285,6 +2297,27 @@
 
             // Multi-provider desktop fallback helper (EIP-5749).
             return isMobileDappContext() ? (providers[0] || null) : getEip5749Provider();
+        }
+
+        // Async variant of getPreferredInjectedProvider that waits briefly for
+        // late-arriving EIP-6963 announcements. Trust Wallet mobile (recent
+        // builds) and some MetaMask Mobile builds inject / announce their
+        // provider asynchronously — a first, synchronous pick can return null
+        // even though the wallet is actually present. Callers that gate user
+        // actions (connect button) should await this instead.
+        async function awaitPreferredInjectedProvider(timeoutMs) {
+            const budget = typeof timeoutMs === 'number' ? timeoutMs : 800;
+            const stepMs = 120;
+            const start = Date.now();
+            let first = getPreferredInjectedProvider();
+            if (first) return first;
+            while (Date.now() - start < budget) {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                await new Promise(r => setTimeout(r, stepMs));
+                const p = getPreferredInjectedProvider();
+                if (p) return p;
+            }
+            return null;
         }
 
         function detectInjectedWallet(_retryDepth) {
@@ -2480,7 +2513,8 @@
         }
 
         async function connectInjectedWallet() {
-            const provider = getPreferredInjectedProvider();
+            showWalletStatus('walletConnectStatus', '⏳ Detecting wallet…', 'info');
+            const provider = await awaitPreferredInjectedProvider();
             if (!provider) {
                 showWalletStatus('walletConnectStatus', 'No injected wallet found. Use WalletConnect QR or manual wallet guidance.', 'error');
                 return;
