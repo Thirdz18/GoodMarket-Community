@@ -1887,6 +1887,99 @@ def get_admin_stats():
         logger.error(f"❌ Get admin stats error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@routes.route("/api/admin/games-key-balance", methods=["GET"])
+@admin_required
+def get_games_key_balance():
+    """Return the CELO balance of the GAMES_KEY sponsor wallet (admin only).
+
+    This is the wallet that signs ``topWallet(address)`` transactions in
+    ``_execute_onchain_faucet_topup`` so new/custodial users can pay gas for
+    their G$ UBI claim. If it runs dry, on-chain faucet top-ups fail with
+    ``signer_insufficient_funds`` and claims silently degrade — so this
+    endpoint exists to let ops + the admin dashboard watch the balance.
+
+    The endpoint is strictly read-only: it derives the signer address from
+    the ``GAMES_KEY`` env var, reads the on-chain balance once, and returns
+    it alongside a ``status`` flag (``ok`` | ``low`` | ``critical`` |
+    ``not_configured`` | ``error``). Thresholds are env-tunable:
+
+      * ``GAMES_KEY_BALANCE_LOW_CELO``      (default ``0.05`` CELO)
+      * ``GAMES_KEY_BALANCE_CRITICAL_CELO`` (default ``0.01`` CELO)
+
+    When the balance crosses a threshold, a warning/error log line is emitted
+    (``⚠️ GAMES_KEY balance low …`` / ``🚨 GAMES_KEY balance critical …``)
+    so any log-based alerting (Papertrail, Sentry breadcrumbs, etc.) can
+    page on it without requiring a new integration.
+    """
+    try:
+        games_key = (os.getenv("GAMES_KEY") or "").strip()
+        if not games_key:
+            return jsonify({
+                "success": True,
+                "status": "not_configured",
+                "error": "GAMES_KEY env var is not set",
+                "wallet_address_masked": None,
+                "balance_wei": "0",
+                "balance_celo": 0.0,
+                "thresholds": _games_key_thresholds(),
+            })
+
+        from eth_account import Account
+        from blockchain import _get_w3
+
+        key = games_key if games_key.startswith("0x") else "0x" + games_key
+        signer = Account.from_key(key)
+        w3 = _get_w3()
+
+        balance_wei = int(w3.eth.get_balance(signer.address))
+        balance_celo = balance_wei / 10 ** 18
+
+        thresholds = _games_key_thresholds()
+        if balance_celo <= thresholds["critical_celo"]:
+            status = "critical"
+            logger.error(
+                f"🚨 GAMES_KEY balance critical: {balance_celo:.6f} CELO "
+                f"(<= {thresholds['critical_celo']}) signer={_mask_wallet(signer.address)}"
+            )
+        elif balance_celo <= thresholds["low_celo"]:
+            status = "low"
+            logger.warning(
+                f"⚠️  GAMES_KEY balance low: {balance_celo:.6f} CELO "
+                f"(<= {thresholds['low_celo']}) signer={_mask_wallet(signer.address)}"
+            )
+        else:
+            status = "ok"
+
+        return jsonify({
+            "success": True,
+            "status": status,
+            "wallet_address_masked": _mask_wallet(signer.address),
+            "balance_wei": str(balance_wei),
+            "balance_celo": round(balance_celo, 6),
+            "thresholds": thresholds,
+        })
+    except Exception as e:
+        logger.error(f"❌ Get games-key balance error: {e}")
+        return jsonify({
+            "success": False,
+            "status": "error",
+            "error": str(e),
+        }), 500
+
+
+def _games_key_thresholds() -> dict:
+    """Return the env-tunable low/critical CELO thresholds for GAMES_KEY."""
+    def _f(var: str, default: float) -> float:
+        try:
+            return float(os.getenv(var, str(default)))
+        except (TypeError, ValueError):
+            return default
+    return {
+        "low_celo":      _f("GAMES_KEY_BALANCE_LOW_CELO", 0.05),
+        "critical_celo": _f("GAMES_KEY_BALANCE_CRITICAL_CELO", 0.01),
+    }
+
+
 @routes.route("/api/admin/referral-stats", methods=["GET"])
 @admin_required
 def get_admin_referral_stats():
