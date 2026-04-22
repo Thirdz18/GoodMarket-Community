@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Minigames - GoodDollar</title>
@@ -319,7 +319,7 @@
 
     <div id="notification" class="notification"></div>
 
-    <script src="/static/minigames.js"></script>
+    <script src="/static/minigames.js?v={{ ASSET_VERSION }}"></script>
     <script>
         async function loadBalance() {
             try {

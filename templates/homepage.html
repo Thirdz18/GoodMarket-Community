@@ -12,9 +12,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="GoodMarket">
-    <link rel="manifest" href="/static/manifest.json">
-    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png">
+    <link rel="manifest" href="/static/manifest.json?v={{ ASSET_VERSION }}">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}">
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -2594,7 +2594,7 @@
         function _wcLoadSdk() {
             if (window._wcSdkLoading) return window._wcSdkLoading;
             window._wcSdkLoading = new Promise(function(resolve, reject) {
-                var localSrc = '{{ url_for("static", filename="js/wc-bundle.js") }}';
+                var localSrc = '{{ url_for("static", filename="js/wc-bundle.js", v=ASSET_VERSION) }}';
                 var cdnSrc = 'https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js';
                 function loadScript(src, ok, fail) {
                     var s = document.createElement('script');
@@ -2629,7 +2629,7 @@
                         name: 'GoodMarket',
                         description: 'Learn & Earn with GoodDollar on Celo',
                         url: window.location.origin,
-                        icons: [window.location.origin + '/static/icons/icon-192x192.png']
+                        icons: [window.location.origin + '/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}']
                     }
                 }).then(function(client) {
                     window._wcSignClient = client;

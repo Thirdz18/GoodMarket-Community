@@ -134,6 +134,80 @@ app.config['SQLALCHEMY_POOL_TIMEOUT'] = 10
 app.config['SQLALCHEMY_POOL_RECYCLE'] = 3600
 app.config['SQLALCHEMY_MAX_OVERFLOW'] = 2
 
+
+# ---------------------------------------------------------------------------
+# Cache-busting / freshness
+#
+# Goal: users always see the latest HTML, and any updated JS/CSS/image assets
+# are picked up immediately without hard-refresh. Static files are still
+# cached long-term (SEND_FILE_MAX_AGE_DEFAULT), but every template reference
+# is suffixed with ?v={{ ASSET_VERSION }}, so a new deployment produces new
+# URLs and defeats stale cache entries.
+# ---------------------------------------------------------------------------
+def _compute_asset_version():
+    env_version = (
+        os.environ.get('ASSET_VERSION')
+        or os.environ.get('VERCEL_GIT_COMMIT_SHA')
+        or os.environ.get('GIT_COMMIT_SHA')
+        or os.environ.get('RENDER_GIT_COMMIT')
+        or os.environ.get('SOURCE_VERSION')
+        or os.environ.get('HEROKU_SLUG_COMMIT')
+    )
+    if env_version:
+        return env_version[:12]
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short=12', 'HEAD'],
+            capture_output=True, text=True, timeout=2,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        sha = result.stdout.strip()
+        if result.returncode == 0 and sha:
+            return sha
+    except Exception:
+        pass
+    return str(int(time()))
+
+
+ASSET_VERSION = _compute_asset_version()
+logger.info(f"Asset version (cache-buster): {ASSET_VERSION}")
+
+
+@app.context_processor
+def _inject_asset_version():
+    """Expose ASSET_VERSION to all Jinja templates for cache-busting."""
+    return {'ASSET_VERSION': ASSET_VERSION}
+
+
+@app.after_request
+def _add_cache_headers(response):
+    """Ensure HTML pages are always revalidated so new deployments are
+    visible immediately. Static assets keep their long-cache headers because
+    their URLs are versioned via ?v=ASSET_VERSION."""
+    try:
+        path = request.path or ''
+        content_type = response.headers.get('Content-Type', '')
+
+        if path.startswith('/static/'):
+            # Long-cache versioned assets; browser will refetch when the
+            # ?v=... query changes.
+            if 'Cache-Control' not in response.headers:
+                response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            return response
+
+        if content_type.startswith('text/html'):
+            existing = response.headers.get('Cache-Control', '')
+            # Don't downgrade stricter policies (e.g. login/admin/logout
+            # already set private no-store); otherwise force no-cache so
+            # rendered pages are always revalidated.
+            if 'no-store' not in existing and 'no-cache' not in existing:
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+    except Exception as _cache_hdr_err:
+        logger.debug(f"cache header hook skipped: {_cache_hdr_err}")
+    return response
+
 # Removed: Initialize Reloadly clients and services
 # reloadly_client = None
 # currency_converter = None

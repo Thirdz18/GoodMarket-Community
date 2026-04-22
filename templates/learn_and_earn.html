@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Learn & Earn - GoodDollar Analytics</title>
@@ -4754,7 +4754,7 @@
     function _wcLoadSdk() {
         if (window._wcSdkLoading) return window._wcSdkLoading;
         window._wcSdkLoading = new Promise(function(resolve, reject) {
-            var localSrc = '{{ url_for("static", filename="js/wc-bundle.js") }}';
+            var localSrc = '{{ url_for("static", filename="js/wc-bundle.js", v=ASSET_VERSION) }}';
             var cdnSrc   = 'https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js';
             function loadScript(src, ok, fail) {
                 var s = document.createElement('script');
@@ -4788,7 +4788,7 @@
                     name: 'GoodMarket',
                     description: 'Learn & Earn with GoodDollar on Celo',
                     url: window.location.origin,
-                    icons: [window.location.origin + '/static/icons/icon-192x192.png']
+                    icons: [window.location.origin + '/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}']
                 }
             }).then(function(client) { window._wcSignClient = client; return client; });
         });
