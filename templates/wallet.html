@@ -1227,6 +1227,46 @@
         }
         return window.ethereum;
     }
+
+    // Route the claim signer by login_method so the claim tx is always signed
+    // by the same provider the user authenticated with. Without this, a user
+    // logged in via WalletConnect who opens goodmarket.live inside Trust /
+    // MetaMask Mobile / MiniPay's built-in dApp browser ends up with two
+    // providers live on the page: window.ethereum (the dApp-browser wallet,
+    // different account) and the WalletConnect-exposed provider in
+    // window.ethereum.providers[] (the actual authenticated session).
+    // _getEthProvider() picks window.ethereum, so eth_requestAccounts returns
+    // the wrong account and the "from === WALLET" guard throws "Wrong wallet
+    // connected", which surfaces to users as "tap button, nothing happens".
+    // Returns null if the expected provider for this login_method is not
+    // available; callers must gate custodial / turnkey separately (those are
+    // always server-signed via ensureGasAndClaim).
+    // Self-contained on purpose: does NOT depend on _getWalletConnectProvider
+    // (declared inside the FV IIFE below, not reachable from module scope).
+    function _getClaimProvider() {
+        const method = (typeof LOGIN_METHOD === 'string' ? LOGIN_METHOD : '').toLowerCase();
+        const preferWC = ['walletconnect', 'manual', 'manual_address'].includes(method);
+        const eth = window.ethereum || null;
+        const providersList = (eth && Array.isArray(eth.providers) && eth.providers.length)
+            ? eth.providers
+            : (eth ? [eth] : []);
+        const findWC = () => providersList.find(p => p && (p.isWalletConnect || p.isMiniPay)) || null;
+        const hasMiniPayInjected = !!(eth && (eth.isMiniPay || providersList.some(p => p && p.isMiniPay)));
+
+        if (preferWC || hasMiniPayInjected) {
+            const wc = findWC();
+            if (wc) return wc;
+            // WalletConnect-family login with no WC provider on the page →
+            // cannot sign. Do NOT silently fall back to a different injected
+            // wallet; that would prompt a different account and fail the
+            // WALLET guard.
+            if (preferWC) return null;
+        }
+
+        // Injected login (Trust / MetaMask / MiniPay dApp browsers) → use
+        // window.ethereum directly.
+        return _getEthProvider();
+    }
     function isMobile() {
         return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     }
@@ -2189,9 +2229,15 @@
                 });
             };
 
-            const provider = _getEthProvider();
+            const provider = _getClaimProvider();
             if (!provider) {
-                setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
+                const method = (typeof LOGIN_METHOD === 'string' ? LOGIN_METHOD : '').toLowerCase();
+                const preferWC = ['walletconnect', 'manual', 'manual_address'].includes(method);
+                setStatus(preferWC
+                    ? '⚠️ WalletConnect session lost. Reconnect your wallet and retry.'
+                    : '⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.',
+                    '#fbbf24'
+                );
                 return;
             }
 
