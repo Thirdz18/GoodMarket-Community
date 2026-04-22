@@ -1637,12 +1637,16 @@
     }
 
     async function handleVirtualCardAction() {
-        const hiddenMessage = "This virtual card will available on Year 2027, no kyc needed , you get instant card that you can purchase online no kyc needed. for more info read this article https://goodmarket.live/news/article/26";
+        const virtualCardArticleUrl = 'https://goodmarket.live/news/article/26';
+        const hiddenMessage = "This virtual card will be available in Year 2027. No KYC needed. You get an instant card that you can use for online purchases.";
         try {
             const res = await fetch('/api/feature-visibility', { cache: 'no-store' });
             const data = await res.json();
             if (data && data.virtualcard_visible === false) {
-                window.alert(hiddenMessage);
+                const wantsToReadMore = window.confirm(hiddenMessage + "\n\nTap OK to open the full article.");
+                if (wantsToReadMore) {
+                    window.open(virtualCardArticleUrl, '_blank', 'noopener,noreferrer');
+                }
                 return;
             }
         } catch (_) {
