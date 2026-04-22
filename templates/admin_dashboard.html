@@ -816,28 +816,6 @@
                         <p>Loading statistics...</p>
                     </div>
                 </div>
-
-                <!-- GAMES_KEY sponsor wallet balance monitor (see /api/admin/games-key-balance).
-                     This wallet signs topWallet(address) on the GoodDollar Faucet contract so
-                     new/custodial users can pay gas for their G$ UBI claim. If it runs dry,
-                     claims silently degrade — so we surface the balance here as an early
-                     warning. Auto-refreshes every 60s. -->
-                <div id="gamesKeyCard" class="content-box" style="margin-top: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <div style="font-size: 1.5rem;">⛽</div>
-                        <div>
-                            <div style="font-weight: 600; color: #f1f5f9;">Gas Sponsor (GAMES_KEY)</div>
-                            <div id="gamesKeyMeta" style="font-size: 0.85rem; color: rgba(241, 245, 249, 0.6); margin-top: 0.15rem;">
-                                Loading signer balance…
-                            </div>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <span id="gamesKeyBalance" style="font-size: 1.1rem; font-weight: 700; color: rgba(241, 245, 249, 0.85);">—</span>
-                        <span id="gamesKeyStatusBadge" style="padding: 0.35rem 0.9rem; border-radius: 999px; font-weight: 600; font-size: 0.8rem; background: rgba(148, 163, 184, 0.15); color: #cbd5e1;">loading</span>
-                        <button id="gamesKeyRefreshBtn" onclick="loadGamesKeyBalance()" style="padding: 0.35rem 0.75rem; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(148, 163, 184, 0.08); color: #cbd5e1; font-size: 0.8rem; cursor: pointer;">↻ Refresh</button>
-                    </div>
-                </div>
             </section>
 
             <!-- Users Section -->
@@ -2568,84 +2546,15 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
             currentProfileDiv.style.display = 'block';
         }
 
-        // ─────────────────────────────────────────────────────────────
-        // Gas sponsor (GAMES_KEY) balance badge
-        //
-        // Reads /api/admin/games-key-balance and paints the overview
-        // card. Runs once on DOMContentLoaded + every 60s after that,
-        // plus whenever the admin revisits the overview section.
-        // ─────────────────────────────────────────────────────────────
-        const GAMES_KEY_STATUS_STYLES = {
-            ok:              { bg: 'rgba(16, 185, 129, 0.15)',  fg: '#10b981', text: '✅ OK' },
-            low:             { bg: 'rgba(245, 158, 11, 0.15)',  fg: '#f59e0b', text: '⚠️ Low' },
-            critical:        { bg: 'rgba(239, 68, 68, 0.18)',   fg: '#ef4444', text: '🚨 Critical' },
-            not_configured:  { bg: 'rgba(148, 163, 184, 0.15)', fg: '#cbd5e1', text: '⚙️ Not configured' },
-            error:           { bg: 'rgba(239, 68, 68, 0.18)',   fg: '#ef4444', text: '❌ Error' },
-        };
-
-        async function loadGamesKeyBalance() {
-            const badge   = document.getElementById('gamesKeyStatusBadge');
-            const balance = document.getElementById('gamesKeyBalance');
-            const meta    = document.getElementById('gamesKeyMeta');
-            if (!badge || !balance || !meta) return;
-
-            try {
-                const res  = await fetch('/api/admin/games-key-balance', { credentials: 'same-origin' });
-                const data = await res.json();
-
-                const status = (data && data.status) || (res.ok ? 'error' : 'error');
-                const style  = GAMES_KEY_STATUS_STYLES[status] || GAMES_KEY_STATUS_STYLES.error;
-                badge.style.background = style.bg;
-                badge.style.color      = style.fg;
-                badge.textContent      = style.text;
-
-                if (status === 'not_configured') {
-                    balance.textContent = '—';
-                    meta.textContent    = 'GAMES_KEY env var is not set — on-chain faucet fallback is disabled.';
-                    return;
-                }
-
-                if (status === 'error' || !data.success) {
-                    balance.textContent = '—';
-                    meta.textContent    = `Error reading balance: ${(data && data.error) || res.statusText}`;
-                    return;
-                }
-
-                const celo       = typeof data.balance_celo === 'number' ? data.balance_celo : 0;
-                const thresholds = data.thresholds || {};
-                balance.textContent = `${celo.toFixed(6)} CELO`;
-
-                const parts = [];
-                if (data.wallet_address_masked) parts.push(`signer ${data.wallet_address_masked}`);
-                if (thresholds.low_celo != null && thresholds.critical_celo != null) {
-                    parts.push(`thresholds: low ≤ ${thresholds.low_celo} • critical ≤ ${thresholds.critical_celo}`);
-                }
-                meta.textContent = parts.join(' • ') || 'Signer balance updated.';
-            } catch (err) {
-                console.error('❌ games-key balance fetch failed:', err);
-                const style = GAMES_KEY_STATUS_STYLES.error;
-                badge.style.background = style.bg;
-                badge.style.color      = style.fg;
-                badge.textContent      = style.text;
-                balance.textContent    = '—';
-                meta.textContent       = `Network error: ${err.message || err}`;
-            }
-        }
-
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadAdminStats();
-            loadGamesKeyBalance();
-            // Auto-refresh gas sponsor balance every 60s so the card stays
-            // current without needing a full page reload.
-            setInterval(loadGamesKeyBalance, 60_000);
         });
 
         function loadSectionData(sectionName) {
             switch(sectionName) {
                 case 'overview':
                     loadAdminStats();
-                    loadGamesKeyBalance();
                     break;
                 case 'users':
                     loadUsers();

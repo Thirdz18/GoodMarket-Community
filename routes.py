@@ -44,55 +44,6 @@ def auth_required(f):
     wrapper.__name__ = f.__name__
     return wrapper
 
-
-def _ensure_goodmarket_attribution(wallet_address: str, reason: str = "fallback") -> None:
-    """Idempotent safety net: credit GoodMarket for a face verification if the user
-    is actually on-chain face-verified but the ``verified_after_goodmarket`` attribution
-    flag was missed (e.g. legacy /wallet?fv_pending=1 callback, or any non-standard
-    redirect that bypassed /fv-callback).
-
-    The underlying ``supabase_client.log_verification_attempt(face_verified=True)`` is
-    already idempotent — it only writes ``verified_after_goodmarket=True`` when the
-    row does not already have it — so calling this helper repeatedly is safe.
-
-    This helper *does not* alter session state, referral disbursement, or the claim
-    flow; its only side-effect is backfilling analytics attribution. Keeping those
-    other side-effects exclusively on /fv-callback preserves the existing verified
-    rollout behaviour.
-    """
-    if not wallet_address:
-        return
-    # Soft-cache per Flask session to avoid hitting Supabase on every page load
-    # for users who were already attributed. The underlying DB write is idempotent,
-    # but skipping the round-trip here keeps /api/ubi-entitlement cheap.
-    try:
-        if session.get("_gm_attribution_checked"):
-            return
-    except Exception:
-        # Not inside a request context — fall through and attempt the backfill.
-        pass
-    try:
-        from blockchain import is_identity_verified
-        result = is_identity_verified(wallet_address)
-        if result.get("verified"):
-            analytics.track_verification_attempt(
-                wallet_address, True, face_verified=True
-            )
-            logger.info(
-                f"🛡️  GoodMarket attribution safety-net fired ({reason}) for "
-                f"{wallet_address[:10]}..."
-            )
-    except Exception as exc:
-        logger.warning(
-            f"⚠️ _ensure_goodmarket_attribution({reason}) failed for "
-            f"{wallet_address}: {exc}"
-        )
-    finally:
-        try:
-            session["_gm_attribution_checked"] = True
-        except Exception:
-            pass
-
 def admin_required(f):
     """Decorator for endpoints requiring admin authentication"""
     def wrapper(*args, **kwargs):
@@ -1886,99 +1837,6 @@ def get_admin_stats():
     except Exception as e:
         logger.error(f"❌ Get admin stats error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
-@routes.route("/api/admin/games-key-balance", methods=["GET"])
-@admin_required
-def get_games_key_balance():
-    """Return the CELO balance of the GAMES_KEY sponsor wallet (admin only).
-
-    This is the wallet that signs ``topWallet(address)`` transactions in
-    ``_execute_onchain_faucet_topup`` so new/custodial users can pay gas for
-    their G$ UBI claim. If it runs dry, on-chain faucet top-ups fail with
-    ``signer_insufficient_funds`` and claims silently degrade — so this
-    endpoint exists to let ops + the admin dashboard watch the balance.
-
-    The endpoint is strictly read-only: it derives the signer address from
-    the ``GAMES_KEY`` env var, reads the on-chain balance once, and returns
-    it alongside a ``status`` flag (``ok`` | ``low`` | ``critical`` |
-    ``not_configured`` | ``error``). Thresholds are env-tunable:
-
-      * ``GAMES_KEY_BALANCE_LOW_CELO``      (default ``0.05`` CELO)
-      * ``GAMES_KEY_BALANCE_CRITICAL_CELO`` (default ``0.01`` CELO)
-
-    When the balance crosses a threshold, a warning/error log line is emitted
-    (``⚠️ GAMES_KEY balance low …`` / ``🚨 GAMES_KEY balance critical …``)
-    so any log-based alerting (Papertrail, Sentry breadcrumbs, etc.) can
-    page on it without requiring a new integration.
-    """
-    try:
-        games_key = (os.getenv("GAMES_KEY") or "").strip()
-        if not games_key:
-            return jsonify({
-                "success": True,
-                "status": "not_configured",
-                "error": "GAMES_KEY env var is not set",
-                "wallet_address_masked": None,
-                "balance_wei": "0",
-                "balance_celo": 0.0,
-                "thresholds": _games_key_thresholds(),
-            })
-
-        from eth_account import Account
-        from blockchain import _get_w3
-
-        key = games_key if games_key.startswith("0x") else "0x" + games_key
-        signer = Account.from_key(key)
-        w3 = _get_w3()
-
-        balance_wei = int(w3.eth.get_balance(signer.address))
-        balance_celo = balance_wei / 10 ** 18
-
-        thresholds = _games_key_thresholds()
-        if balance_celo <= thresholds["critical_celo"]:
-            status = "critical"
-            logger.error(
-                f"🚨 GAMES_KEY balance critical: {balance_celo:.6f} CELO "
-                f"(<= {thresholds['critical_celo']}) signer={_mask_wallet(signer.address)}"
-            )
-        elif balance_celo <= thresholds["low_celo"]:
-            status = "low"
-            logger.warning(
-                f"⚠️  GAMES_KEY balance low: {balance_celo:.6f} CELO "
-                f"(<= {thresholds['low_celo']}) signer={_mask_wallet(signer.address)}"
-            )
-        else:
-            status = "ok"
-
-        return jsonify({
-            "success": True,
-            "status": status,
-            "wallet_address_masked": _mask_wallet(signer.address),
-            "balance_wei": str(balance_wei),
-            "balance_celo": round(balance_celo, 6),
-            "thresholds": thresholds,
-        })
-    except Exception as e:
-        logger.error(f"❌ Get games-key balance error: {e}")
-        return jsonify({
-            "success": False,
-            "status": "error",
-            "error": str(e),
-        }), 500
-
-
-def _games_key_thresholds() -> dict:
-    """Return the env-tunable low/critical CELO thresholds for GAMES_KEY."""
-    def _f(var: str, default: float) -> float:
-        try:
-            return float(os.getenv(var, str(default)))
-        except (TypeError, ValueError):
-            return default
-    return {
-        "low_celo":      _f("GAMES_KEY_BALANCE_LOW_CELO", 0.05),
-        "critical_celo": _f("GAMES_KEY_BALANCE_CRITICAL_CELO", 0.01),
-    }
-
 
 @routes.route("/api/admin/referral-stats", methods=["GET"])
 @admin_required
@@ -5290,12 +5148,6 @@ def ubi_entitlement():
         if force:
             invalidate_entitlement_cache(wallet)
         result = get_ubi_entitlement(wallet)
-        # Safety net: if the on-chain check says the user is now face-verified,
-        # make sure GoodMarket attribution is recorded. This catches users whose
-        # FV callback went somewhere other than /fv-callback (legacy links, odd
-        # redirects). The helper is idempotent and session-cached.
-        if result.get("is_verified"):
-            _ensure_goodmarket_attribution(wallet, reason="ubi_entitlement")
         return jsonify(result)
     except Exception as e:
         logger.error(f"UBI entitlement route error: {e}")
@@ -5308,13 +5160,6 @@ def wallet_page():
     wallet = session.get("wallet")
     if not wallet or not session.get("verified"):
         return redirect(url_for("routes.index"))
-    # Safety net for legacy /wallet?fv_pending=1 redirects from FV links issued
-    # before the /fv-callback standardization deploy. The new FV links built in
-    # templates/wallet.html route directly to /fv-callback, but any in-flight
-    # user who completed FV on the old link will land here — back-fill their
-    # attribution so verified_after_goodmarket isn't lost.
-    if request.args.get("fv_pending") == "1":
-        _ensure_goodmarket_attribution(wallet, reason="wallet_fv_pending")
     try:
         supabase = get_supabase_client()
         if supabase:
