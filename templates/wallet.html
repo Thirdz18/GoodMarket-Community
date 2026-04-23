@@ -1724,10 +1724,10 @@
         if (!pill || !dot || !label) return;
 
         // Defaults
-        let state = 'unverified';  // unverified | verified | warning | expired | revoked | error
+        let state = 'unverified';  // unverified | verified | warning | expired | renewal | error
         let color = '#888';
         let bg = 'rgba(255,255,255,0.06)';
-        let pillText = 'Not verified';
+        let pillText = 'Unverified';
         let ctaText  = 'Verify Now';
         let showCta  = true;
 
@@ -1764,7 +1764,7 @@
             // is not yet past. Most common cause: the wallet was unlinked from the user's
             // GoodDollar identity (e.g. via connect-another-wallet) — the date persists
             // but the whitelist entry is removed.
-            state = 'revoked';
+            state = 'renewal';
             color = '#f97316';
             bg = 'rgba(249,115,22,0.12)';
             pillText = 'Verification needs renewal';
@@ -1781,7 +1781,7 @@
         if (state === 'expired') {
             remEl.textContent = 'Expired';
             remEl.style.color = '#ef4444';
-        } else if (state === 'revoked') {
+        } else if (state === 'renewal') {
             remEl.textContent = 'Verification needs renewal';
             remEl.style.color = '#f97316';
         } else if (d && d.seconds_remaining) {
@@ -1799,7 +1799,7 @@
             cta.style.display = 'none';
         }
 
-        // Top-of-page banner: only show in 'warning', 'expired', or 'revoked' states.
+        // Top-of-page banner: only show in 'warning', 'expired', or 'renewal' states.
         if (banner && bText && bIcon) {
             if (state === 'expired') {
                 banner.style.display = '';
@@ -1810,15 +1810,15 @@
                 bText.innerHTML = '<strong>Face Verification expired</strong>' +
                     (d && d.expires_at_iso ? ' on ' + fmtDateLocal(d.expires_at_iso) : '') +
                     '. Re-verify to resume daily G$ claims.';
-            } else if (state === 'revoked') {
+            } else if (state === 'renewal') {
                 banner.style.display = '';
                 banner.style.background = 'rgba(249,115,22,0.10)';
                 banner.style.border = '1px solid rgba(249,115,22,0.35)';
                 banner.style.color = '#fdba74';
                 bIcon.textContent = '🔗';
-                bText.innerHTML = '<strong>This wallet was removed from the GoodDollar whitelist.</strong> ' +
-                    'This usually happens when you link another wallet to your identity. ' +
-                    'Re-verify here to use this wallet for daily G$ claims.';
+                bText.innerHTML = '<strong>Wallet verification needs renewal.</strong> ' +
+                    'Your face identity may still be valid, but this wallet is not currently verified for claims. ' +
+                    'Re-verify to continue using this wallet for daily G$ claims.';
             } else if (state === 'warning') {
                 banner.style.display = '';
                 banner.style.background = 'rgba(245,158,11,0.10)';
