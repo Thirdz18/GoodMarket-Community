@@ -26,6 +26,7 @@ learn_earn_bp = Blueprint('learn_earn', __name__, url_prefix='/learn-earn')
 
 _nft_purchase_memory_jobs = {}
 _nft_purchase_memory_lock = threading.Lock()
+_gd_decimals_cache: int | None = None
 
 # ── In-memory caches ──────────────────────────────────────────────────────────
 _QUIZ_QUESTIONS_TTL = 300   # 5 minutes  – questions rarely change
@@ -54,6 +55,36 @@ def _get_gooddollar_contract_address() -> str:
         or _GD_CONTRACT_ADDRESS
         or '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A'
     )
+
+
+def _get_gooddollar_decimals(w3, token_address: str) -> int:
+    """Read token decimals with a safe fallback to 18."""
+    global _gd_decimals_cache
+    if _gd_decimals_cache is not None:
+        return _gd_decimals_cache
+
+    try:
+        token_contract = w3.eth.contract(
+            address=w3.to_checksum_address(token_address),
+            abi=[
+                {
+                    "constant": True,
+                    "inputs": [],
+                    "name": "decimals",
+                    "outputs": [{"name": "", "type": "uint8"}],
+                    "type": "function",
+                }
+            ],
+        )
+        token_decimals = int(token_contract.functions.decimals().call())
+        if token_decimals < 0 or token_decimals > 36:
+            raise ValueError(f"Unexpected token decimals: {token_decimals}")
+        _gd_decimals_cache = token_decimals
+    except Exception as decimals_err:
+        logger.warning(f"⚠️ Falling back to 18 decimals for G$ amount parsing: {decimals_err}")
+        _gd_decimals_cache = 18
+
+    return _gd_decimals_cache
 
 
 def _wallet_from_session_or_request(data: dict) -> str:
@@ -2400,6 +2431,7 @@ def check_deposit():
 
         from web3 import Web3
         w3 = Web3(Web3.HTTPProvider(celo_rpc_url, request_kwargs={'timeout': 10}))
+        gd_unit = 10 ** _get_gooddollar_decimals(w3, gooddollar_address)
 
         current_block = w3.eth.block_number
         blocks_per_2h = 1440  # Celo ~5s blocks, 2 hours lookback like proven P2P approach
@@ -2444,7 +2476,7 @@ def check_deposit():
             if hasattr(raw_amount, 'hex'):
                 raw_amount = raw_amount.hex()
             amount_wei = int(raw_amount, 16) if raw_amount and raw_amount != '0x' else 0
-            amount_gd = amount_wei / (10 ** 18)
+            amount_gd = amount_wei / gd_unit
             if amount_gd >= COLLABORATION_MIN_GD:
                 qualifying_log = log
                 break
@@ -2460,7 +2492,7 @@ def check_deposit():
         if hasattr(raw_amount, 'hex'):
             raw_amount = raw_amount.hex()
         amount_wei = int(raw_amount, 16)
-        verified_amount = amount_wei / (10 ** 18)
+        verified_amount = amount_wei / gd_unit
 
         from_topic = qualifying_log['topics'][1].hex() if hasattr(qualifying_log['topics'][1], 'hex') else qualifying_log['topics'][1]
         sender_address = '0x' + from_topic[-40:]
@@ -2560,6 +2592,7 @@ def check_collaboration_deposit(submission_id):
         celo_rpc_url = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
         from web3 import Web3
         w3 = Web3(Web3.HTTPProvider(celo_rpc_url, request_kwargs={'timeout': 10}))
+        gd_unit = 10 ** _get_gooddollar_decimals(w3, gooddollar_address)
         current_block = w3.eth.block_number
         from_block = max(int(since_block), current_block - 1440)
 
@@ -2603,6 +2636,10 @@ def check_collaboration_deposit(submission_id):
 
             transfer_topic_lower = transfer_topic.lower()
             normalized_wallet = Web3.to_checksum_address(wallet_address).lower()
+            matched_token_transfer = False
+            matched_sender = False
+            matched_recipient = False
+            max_amount_gd = 0.0
             matched_receipt_log = None
             for receipt_log in receipt.logs:
                 log_address = receipt_log['address']
@@ -2616,20 +2653,25 @@ def check_collaboration_deposit(submission_id):
                 if not first_topic or first_topic.lower() != transfer_topic_lower:
                     continue
 
+                matched_token_transfer = True
+
                 from_topic = log_topics[1].hex() if hasattr(log_topics[1], 'hex') else log_topics[1]
                 to_topic = log_topics[2].hex() if hasattr(log_topics[2], 'hex') else log_topics[2]
                 from_addr = '0x' + from_topic[-40:]
                 to_addr = '0x' + to_topic[-40:]
                 if from_addr.lower() != normalized_wallet:
                     continue
+                matched_sender = True
                 if to_addr.lower() != contract_checksum.lower():
                     continue
+                matched_recipient = True
 
                 raw_amount = receipt_log.get('data', '0x0')
                 if hasattr(raw_amount, 'hex'):
                     raw_amount = raw_amount.hex()
                 amount_wei = int(raw_amount, 16) if raw_amount and raw_amount != '0x' else 0
-                amount_gd = amount_wei / (10 ** 18)
+                amount_gd = amount_wei / gd_unit
+                max_amount_gd = max(max_amount_gd, amount_gd)
                 if amount_gd >= scan_min:
                     matched_receipt_log = receipt_log
                     break
@@ -2637,11 +2679,23 @@ def check_collaboration_deposit(submission_id):
             if matched_receipt_log:
                 logs = [matched_receipt_log]
             else:
+                if not matched_token_transfer:
+                    root_error = 'Submitted transaction has no G$ Transfer event. Ensure you sent G$ token (not CELO/cUSD).'
+                elif not matched_sender:
+                    root_error = 'Submitted transaction does not send G$ from the monitored wallet address.'
+                elif not matched_recipient:
+                    root_error = 'Submitted transaction does not send G$ to the collaboration contract address.'
+                else:
+                    root_error = (
+                        f'Submitted transaction transfers G$, but amount is too low '
+                        f'({max_amount_gd:,.2f} G$ < required {scan_min:,.2f} G$).'
+                    )
+
                 return jsonify({
                     'success': True,
                     'found': False,
                     'scanned_to': current_block,
-                    'error': f'No qualifying transfer found in submitted transaction (minimum {scan_min:,.2f} G$).'
+                    'error': root_error
                 }), 200
         else:
             logs = w3.eth.get_logs({
@@ -2659,7 +2713,7 @@ def check_collaboration_deposit(submission_id):
             if hasattr(raw_amount, 'hex'):
                 raw_amount = raw_amount.hex()
             amount_wei = int(raw_amount, 16) if raw_amount and raw_amount != '0x' else 0
-            amount_gd = amount_wei / (10 ** 18)
+            amount_gd = amount_wei / gd_unit
             if amount_gd >= scan_min:
                 qualifying_log = log
                 break
@@ -2679,7 +2733,7 @@ def check_collaboration_deposit(submission_id):
         if hasattr(raw_amount, 'hex'):
             raw_amount = raw_amount.hex()
         amount_wei = int(raw_amount, 16)
-        verified_amount = amount_wei / (10 ** 18)
+        verified_amount = amount_wei / gd_unit
 
         if verified_amount < required_min:
             return jsonify({
@@ -2775,6 +2829,7 @@ def verify_sponsorship():
 
         from web3 import Web3
         w3 = Web3(Web3.HTTPProvider(celo_rpc_url, request_kwargs={'timeout': 30}))
+        gd_unit = 10 ** _get_gooddollar_decimals(w3, gooddollar_address)
 
         if not w3.is_connected():
             return jsonify({'success': False, 'error': 'Unable to connect to Celo network. Please try again.'}), 503
@@ -2819,7 +2874,7 @@ def verify_sponsorship():
                 continue
 
             amount_wei = int(log['data'].hex() if hasattr(log['data'], 'hex') else log['data'], 16)
-            amount_gd = amount_wei / (10 ** 18)
+            amount_gd = amount_wei / gd_unit
 
             if amount_gd < COLLABORATION_MIN_GD:
                 return jsonify({
@@ -2906,7 +2961,8 @@ def get_nft_balance(current_user):
         erc20_abi = [{"inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"type": "uint256"}], "stateMutability": "view", "type": "function"}]
         token = w3.eth.contract(address=Web3.to_checksum_address(g_dollar_address), abi=erc20_abi)
         balance_wei = token.functions.balanceOf(Web3.to_checksum_address(current_user)).call()
-        balance = balance_wei / (10 ** 18)
+        gd_unit = 10 ** _get_gooddollar_decimals(w3, g_dollar_address)
+        balance = balance_wei / gd_unit
         result = {'success': True, 'balance': balance}
         _nft_balance_cache[current_user] = (result, now + _NFT_BALANCE_TTL)
         return jsonify(result)
