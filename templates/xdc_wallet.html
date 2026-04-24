@@ -931,7 +931,11 @@
                     body: JSON.stringify({ to, data, value: valueHex, chain_id: XDC_CHAIN_ID, wait_receipt: true })
                 });
                 const d = await res.json();
-                if (!d.success) throw new Error(d.error || 'Server-side transaction failed');
+                if (!d.success) {
+                    const reason = d.error || 'Server-side transaction failed';
+                    const hashHint = d.tx_hash ? ` Hash: ${d.tx_hash}.` : '';
+                    throw new Error(`${reason}.${hashHint}`.trim());
+                }
                 return d.tx_hash;
             }
 
@@ -984,8 +988,16 @@
                     const statusHex = String(receipt.status || '').toLowerCase();
                     const successStatuses = new Set(['0x1', '1']);
                     if (!successStatuses.has(statusHex)) {
+                        let reasonMsg = '';
+                        try {
+                            const reasonRes = await fetch(`/api/xdc/tx-revert-reason/${encodeURIComponent(txHash)}`);
+                            const reasonData = await reasonRes.json();
+                            if (reasonRes.ok && reasonData && reasonData.reason) {
+                                reasonMsg = ` Reason: ${reasonData.reason}`;
+                            }
+                        } catch (_ignore) {}
                         throw new Error(
-                            `Transaction reverted on XDC. Hash: ${txHash}.`
+                            `Transaction reverted on XDC. Hash: ${txHash}.${reasonMsg}`
                         );
                     }
                     return receipt;

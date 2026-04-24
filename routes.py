@@ -5568,6 +5568,60 @@ def tx_receipt(tx_hash):
         return jsonify({"found": False, "status": "pending", "error": str(e)})
 
 
+@routes.route("/api/xdc/tx-revert-reason/<tx_hash>", methods=["GET"])
+@auth_required
+def xdc_tx_revert_reason(tx_hash):
+    """Fetch exact-ish revert reason for a mined failed tx on XDC, if available."""
+    try:
+        from web3 import Web3
+        from blockchain import XDC_RPC
+
+        w3 = Web3(Web3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 12}))
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        if receipt is None:
+            return jsonify({"success": True, "found": False, "status": "pending"})
+        if int(receipt.get("status", 0)) == 1:
+            return jsonify({"success": True, "found": True, "status": "success", "reverted": False, "reason": None})
+
+        tx = w3.eth.get_transaction(tx_hash)
+        call_obj = {
+            "from": tx.get("from"),
+            "to": tx.get("to"),
+            "data": tx.get("input", "0x"),
+            "value": tx.get("value", 0),
+        }
+        replay_block = max(int(receipt.get("blockNumber", 0)) - 1, 0)
+
+        reason = "Transaction reverted (no reason returned)"
+        try:
+            w3.eth.call(call_obj, replay_block)
+        except Exception as call_err:
+            msg = str(call_err or "")
+            lower_msg = msg.lower()
+            marker_idx = lower_msg.find("execution reverted:")
+            if marker_idx == -1:
+                marker_idx = lower_msg.find("revert")
+            if marker_idx != -1:
+                parsed = msg[marker_idx:].strip()
+                parsed = parsed.split("\n")[0].strip()
+                reason = parsed.split(" (")[0].strip()
+            elif msg:
+                reason = msg[:240]
+
+        return jsonify({
+            "success": True,
+            "found": True,
+            "status": "failed",
+            "reverted": True,
+            "reason": reason,
+            "tx_hash": tx_hash,
+            "block_number": receipt.get("blockNumber"),
+        })
+    except Exception as e:
+        logger.error(f"xdc_tx_revert_reason error for {tx_hash}: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @routes.route("/api/ubi-entitlement", methods=["GET"])
 @auth_required
 def ubi_entitlement():
