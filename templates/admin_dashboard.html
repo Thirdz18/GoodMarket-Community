@@ -5792,8 +5792,10 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
 
         function _normalizeCollabStatus(sub) {
             const rawStatus = String((sub && sub.status) || '').toLowerCase();
-            const paidAmount = Number((sub && sub.paid_amount_gd) || 0);
-            const hasTxHash = !!String((sub && sub.tx_hash) || '').trim();
+            const paidAmountRaw = (sub && sub.paid_amount_gd) ?? (sub && sub.amount_gd) ?? (sub && sub.amount) ?? 0;
+            const paidAmount = Number(paidAmountRaw || 0);
+            const txHashRaw = (sub && sub.tx_hash) || (sub && sub.transaction_hash) || '';
+            const hasTxHash = !!String(txHashRaw).trim();
 
             // Backward-compat for records that already have payment proof
             // but are still labeled as awaiting_payment.
@@ -5848,9 +5850,10 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                     const rowId = id || `missing-collab-id-${index}`;
                     const wallet = sub.wallet_address || '';
                     const walletShort = wallet.length > 12 ? `${wallet.slice(0, 8)}...${wallet.slice(-6)}` : wallet;
-                    const txHash = sub.tx_hash || '';
+                    const txHash = (sub.tx_hash || sub.transaction_hash || '').trim();
                     const txShort = txHash ? `${txHash.slice(0, 10)}...${txHash.slice(-8)}` : '—';
-                    const amount = Number(sub.paid_amount_gd || 0);
+                    const amountRaw = sub.paid_amount_gd ?? sub.amount_gd ?? sub.amount ?? 0;
+                    const amount = Number(amountRaw || 0);
                     const normalizedStatus = _normalizeCollabStatus(sub);
                     const hasActionableId = !!id;
                     const canApprove = hasActionableId && normalizedStatus === 'paid';

@@ -4160,6 +4160,11 @@ def get_collaboration_submissions():
         for sub in submissions:
             if not sub.get('id') and sub.get('submission_id'):
                 sub['id'] = sub.get('submission_id')
+            paid_amount, tx_hash = _collab_payment_metadata(sub)
+            if not sub.get('paid_amount_gd') and paid_amount > 0:
+                sub['paid_amount_gd'] = paid_amount
+            if not sub.get('tx_hash') and tx_hash:
+                sub['tx_hash'] = tx_hash
         return jsonify({
             "success": True,
             "submissions": submissions,
@@ -4229,6 +4234,30 @@ def _update_collaboration_submission(supabase, submission_identifier, payload, p
     return type('obj', (object,), {'data': []})()
 
 
+def _collab_payment_metadata(submission: dict):
+    """Read payment proof fields with backward compatibility across legacy column names."""
+    tx_hash = (
+        submission.get('tx_hash')
+        or submission.get('transaction_hash')
+        or ''
+    )
+
+    raw_amount = (
+        submission.get('paid_amount_gd')
+        if submission.get('paid_amount_gd') is not None
+        else submission.get('amount_gd')
+    )
+    if raw_amount is None:
+        raw_amount = submission.get('amount')
+
+    try:
+        paid_amount = float(raw_amount or 0)
+    except (TypeError, ValueError):
+        paid_amount = 0.0
+
+    return paid_amount, str(tx_hash or '').strip()
+
+
 @routes.route("/api/admin/collaboration/submissions/<submission_id>/approve", methods=["POST"])
 @admin_required
 def approve_collaboration_submission(submission_id):
@@ -4243,8 +4272,8 @@ def approve_collaboration_submission(submission_id):
             return jsonify({"success": False, "error": "Submission not found"}), 404
 
         current_status = (submission.get('status') or '').strip().lower()
-        paid_amount = float(submission.get('paid_amount_gd') or 0)
-        has_payment_proof = bool((submission.get('tx_hash') or '').strip()) or paid_amount > 0
+        paid_amount, tx_hash = _collab_payment_metadata(submission)
+        has_payment_proof = bool(tx_hash) or paid_amount > 0
 
         # Backward-compat: some rows may still be tagged awaiting_payment
         # even though payment metadata is already present.
