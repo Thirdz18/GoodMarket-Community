@@ -117,28 +117,89 @@ def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transact
     tuple_like = bool(re.search(r"\(\s*['\"]?0x[a-fA-F0-9]{8}['\"]?\s*,\s*['\"]?0x[a-fA-F0-9]{8}['\"]?\s*\)", parsed or raw_msg))
     selector_only = bool(parsed and re.fullmatch(r"['\"]?0x[a-fA-F0-9]{8}['\"]?", parsed))
 
+    selector_catalog = {
+        # GoodDollar MessagePassingBridge known selectors (observed in production)
+        "0x10ecdf44": {
+            "label": "LayerZero/bridge fee check failed",
+            "user_reason": (
+                "Bridge fee is no longer sufficient for this route right now. "
+                "Refresh fee estimate and retry with a slightly higher XDC fee."
+            ),
+            "category": "fee_mismatch",
+        },
+        "0xc5426f8d": {
+            "label": "Bridge route is paused/closed",
+            "user_reason": "Bridge route is currently paused. Please retry later.",
+            "category": "route_paused",
+        },
+        "0x92a27eac": {
+            "label": "LayerZero fee mismatch",
+            "user_reason": (
+                "Bridge fee sent is lower than required right now. "
+                "Refresh fee estimate and retry with a slightly higher fee."
+            ),
+            "category": "fee_mismatch",
+        },
+        "0x2e9394cc": {
+            "label": "Missing bridge fee",
+            "user_reason": "Missing bridge fee. Enter a positive XDC bridge fee and retry.",
+            "category": "fee_mismatch",
+        },
+        "0x068a5053": {
+            "label": "Unsupported target chain",
+            "user_reason": "Selected target chain is not supported by the bridge route.",
+            "category": "route_config",
+        },
+        "0x2c863d26": {
+            "label": "Token transferFrom failed",
+            "user_reason": "Token transfer could not be completed. Re-check balance and allowance.",
+            "category": "token_constraints",
+        },
+        "0x76420e1d": {
+            "label": "Token transfer failed",
+            "user_reason": "Token transfer failed on bridge contract. Re-check token balance and route health.",
+            "category": "token_constraints",
+        },
+    }
+
     technical_details = None
     user_reason = fallback_reason
+    selector = selector_match.group(0).lower() if selector_match else None
+    selector_meta = selector_catalog.get(selector) if selector else None
     if selector_match and (tuple_like or selector_only):
-        selector = selector_match.group(0).lower()
-        user_reason = "Bridge could not process this transfer. Please confirm bridge amount and token pair (XDC G$ → Celo G$), then try again."
-        technical_details = f"Bridge custom error ({selector})"
+        user_reason = (
+            selector_meta.get("user_reason")
+            if selector_meta
+            else "Bridge could not process this transfer. Please confirm bridge amount and token pair (XDC G$ → Celo G$), then try again."
+        )
+        technical_details = (
+            f"Bridge custom error ({selector}: {selector_meta.get('label')})"
+            if selector_meta
+            else f"Bridge custom error ({selector})"
+        )
     elif parsed:
         cleaned = parsed.strip()
         if cleaned:
             user_reason = cleaned
-        selector = selector_match.group(0).lower() if selector_match else None
         if selector:
-            technical_details = f"Bridge custom error ({selector})"
+            technical_details = (
+                f"Bridge custom error ({selector}: {selector_meta.get('label')})"
+                if selector_meta
+                else f"Bridge custom error ({selector})"
+            )
     else:
-        selector = selector_match.group(0).lower() if selector_match else None
         if selector:
-            technical_details = f"Bridge custom error ({selector})"
+            technical_details = (
+                f"Bridge custom error ({selector}: {selector_meta.get('label')})"
+                if selector_meta
+                else f"Bridge custom error ({selector})"
+            )
 
     return {
         "reason": user_reason or fallback_reason,
         "technical_details": technical_details,
-        "error_selector": selector_match.group(0).lower() if selector_match else None,
+        "error_selector": selector,
+        "error_category": selector_meta.get("category") if selector_meta else None,
         "raw_reason": parsed or raw_msg or None,
     }
 
@@ -155,6 +216,33 @@ def _extract_xdc_revert_reason(w3, call_obj: dict, replay_block: int, fallback_r
         }
     except Exception as call_err:
         return _parse_xdc_revert_message(str(call_err or ""), fallback_reason=fallback_reason)
+
+
+def _decode_bridge_to_input(input_data: str) -> dict | None:
+    """Best-effort decoder for bridgeTo(address,uint256,uint256,uint8) calldata."""
+    try:
+        data = (input_data or "").strip().lower()
+        if not data.startswith("0x1fec5c5c"):
+            return None
+        payload = data[10:]
+        if len(payload) < (32 * 4 * 2):
+            return None
+
+        chunks = [payload[i:i + 64] for i in range(0, 64 * 4, 64)]
+        target = "0x" + chunks[0][-40:]
+        target_chain_id = int(chunks[1], 16)
+        amount_wei = int(chunks[2], 16)
+        bridge_service = int(chunks[3], 16)
+        return {
+            "method_id": "0x1fec5c5c",
+            "target": target,
+            "target_chain_id": target_chain_id,
+            "amount_wei": str(amount_wei),
+            "amount_gd": str(amount_wei / (10 ** 18)),
+            "bridge_service": bridge_service,
+        }
+    except Exception:
+        return None
 
 @routes.route('/api/daily-task/claim', methods=['POST'])
 @auth_required
@@ -5646,6 +5734,7 @@ def xdc_tx_revert_reason(tx_hash):
             return jsonify({"success": True, "found": True, "status": "success", "reverted": False, "reason": None})
 
         tx = w3.eth.get_transaction(tx_hash)
+        bridge_context = _decode_bridge_to_input(tx.get("input", "0x"))
         call_obj = {
             "from": tx.get("from"),
             "to": tx.get("to"),
@@ -5660,6 +5749,17 @@ def xdc_tx_revert_reason(tx_hash):
             replay_block,
             fallback_reason="Transaction reverted on XDC."
         )
+        logger.error(
+            "xdc_tx_revert_reason: tx=%s selector=%s category=%s from=%s to=%s value_wei=%s bridge_ctx=%s reason=%s",
+            tx_hash,
+            reason_data.get("error_selector"),
+            reason_data.get("error_category"),
+            tx.get("from"),
+            tx.get("to"),
+            tx.get("value"),
+            bridge_context,
+            reason_data.get("reason"),
+        )
 
         return jsonify({
             "success": True,
@@ -5669,6 +5769,8 @@ def xdc_tx_revert_reason(tx_hash):
             "reason": reason_data.get("reason"),
             "technical_details": reason_data.get("technical_details"),
             "error_selector": reason_data.get("error_selector"),
+            "error_category": reason_data.get("error_category"),
+            "bridge_context": bridge_context,
             "tx_hash": tx_hash,
             "block_number": receipt.get("blockNumber"),
         })
@@ -7185,6 +7287,7 @@ def server_sign_tx():
                         "error": reason_data.get("reason"),
                         "technical_details": reason_data.get("technical_details"),
                         "error_selector": reason_data.get("error_selector"),
+                        "error_category": reason_data.get("error_category"),
                         "tx_hash": "0x" + tx_hash.hex()
                     }), 400
             return jsonify({"success": True, "tx_hash": "0x" + tx_hash.hex()})
@@ -7237,6 +7340,7 @@ def server_sign_tx():
                         "error": reason_data.get("reason"),
                         "technical_details": reason_data.get("technical_details"),
                         "error_selector": reason_data.get("error_selector"),
+                        "error_category": reason_data.get("error_category"),
                         "tx_hash": "0x" + tx_hash.hex()
                     }), 400
             return jsonify({"success": True, "tx_hash": "0x" + tx_hash.hex()})

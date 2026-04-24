@@ -1038,11 +1038,15 @@
                     if (!successStatuses.has(statusHex)) {
                         let cleanReason = 'Transaction reverted on XDC.';
                         let technicalDetails = '';
+                        let errorCategory = null;
+                        let bridgeContext = null;
                         try {
                             const reasonRes = await fetch(`/api/xdc/tx-revert-reason/${encodeURIComponent(txHash)}`);
                             const reasonData = await reasonRes.json();
                             if (reasonRes.ok && reasonData) {
                                 if (reasonData.reason) cleanReason = reasonData.reason;
+                                if (reasonData.error_category) errorCategory = reasonData.error_category;
+                                if (reasonData.bridge_context) bridgeContext = reasonData.bridge_context;
                                 if (reasonData.technical_details) {
                                     technicalDetails = reasonData.technical_details;
                                 } else if (reasonData.error_selector) {
@@ -1061,19 +1065,39 @@
                             `target token: ${targetToken}`,
                             `attempted amount: ${attemptedAmount}`,
                             `selector: ${selectorValue || 'n/a'}`,
+                            `category: ${errorCategory || 'n/a'}`,
                             `tx hash: ${txHashValue}`,
                         ];
+                        if (bridgeContext && bridgeContext.amount_gd) {
+                            supportDetails.push(`decoded amount (wei): ${bridgeContext.amount_wei}`);
+                            supportDetails.push(`decoded amount (G$): ${bridgeContext.amount_gd}`);
+                            supportDetails.push(`decoded target chain: ${bridgeContext.target_chain_id}`);
+                        }
                         const isSelectorOnly = Boolean(
                             selectorValue &&
                             (!cleanReason || cleanReason === 'Transaction reverted on XDC.')
                         );
-                        const friendlyReason = isSelectorOnly
+                        const selectorMessageMap = {
+                            '0x10ecdf44': 'Bridge fee is likely below current route requirement. Refresh fee and retry with a slightly higher XDC fee.',
+                            '0x92a27eac': 'Bridge fee is lower than current LayerZero requirement. Increase fee and retry.',
+                            '0xc5426f8d': 'Bridge route appears paused/closed right now. Retry later.',
+                            '0x2c863d26': 'Token transferFrom failed. Check G$ allowance and balance.',
+                            '0x76420e1d': 'Token transfer failed. Check token and bridge route state.',
+                        };
+                        const mappedReason = selectorValue ? selectorMessageMap[selectorValue] : null;
+                        const friendlyReason = mappedReason || (isSelectorOnly
                             ? 'Bridge could not process this transfer. Please confirm bridge amount and token pair (XDC G$ → Celo G$), then try again.'
-                            : cleanReason;
+                            : cleanReason);
+                        const retryGuide = `
+                            <br><br><strong>Recommended retries:</strong><br>
+                            • Amount ladder: retry at 75%, then 50%, then 25% of current amount.<br>
+                            • Fee ladder: ${bridgeFeeSourceState === 'fallback_default' ? 'start at fallback +10%' : 'start at current fee +10%'}; then +20%; then +35%.<br>
+                            • Keep at least 0.0015 XDC extra for gas reserve.
+                        `;
                         const detailsBlock = supportDetails.length
                             ? `<br><br><details><summary><strong>Support details (for CS/debug)</strong></summary><div style="margin-top:6px;">${supportDetails.join('<br>')}</div></details>`
                             : '';
-                        throw new Error(`${friendlyReason}${detailsBlock}`);
+                        throw new Error(`${friendlyReason}${retryGuide}${detailsBlock}`);
                     }
                     return receipt;
                 }
@@ -1189,11 +1213,18 @@
                 const bridgeIface = new ethers.Interface(BRIDGE_ABI);
                 const readProvider = await _xswapReadProvider();
                 const gd = new ethers.Contract(XDC_GD_TOKEN, ERC20_ABI, readProvider);
+                const sourceBridge = new ethers.Contract(XDC_CELO_BRIDGE, BRIDGE_ABI, readProvider);
                 const celoProvider = new ethers.JsonRpcProvider('https://forno.celo.org');
                 const targetBridge = new ethers.Contract(XDC_CELO_BRIDGE, BRIDGE_ABI, celoProvider);
 
                 btn.innerHTML = '<span class="spinner-inline"></span> Checking bridge limits...';
                 try {
+                    const sourceCanBridge = await sourceBridge.canBridge(toAddr, amountWei);
+                    if (!sourceCanBridge) {
+                        throw new Error(
+                            'Source-chain bridge preflight failed (canBridge=false). Lower amount or retry later.'
+                        );
+                    }
                     const canBridge = await targetBridge.canBridge(toAddr, amountWei);
                     if (!canBridge) {
                         throw new Error(
