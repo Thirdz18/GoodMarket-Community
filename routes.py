@@ -4248,6 +4248,18 @@ def approve_collaboration_submission(submission_id):
             preferred_column=matched_column
         )
         if not (result.data or []):
+            fallback_payload = {
+                'status': 'approved',
+                'updated_at': datetime.utcnow().isoformat() + 'Z'
+            }
+            logger.warning("⚠️ collaboration approve fallback: retrying without rejection_reason column.")
+            result = _update_collaboration_submission(
+                supabase=supabase,
+                submission_identifier=submission_id,
+                payload=fallback_payload,
+                preferred_column=matched_column
+            )
+        if not (result.data or []):
             return jsonify({"success": False, "error": "Failed to update submission status to approved"}), 500
 
         admin_wallet = session.get('wallet')
@@ -4298,7 +4310,19 @@ def reject_collaboration_submission(submission_id):
             preferred_column=matched_column
         )
         if not (result.data or []):
-            return jsonify({"success": False, "error": "Failed to update submission status to rejected. Please check DB schema (missing rejection_reason column)."}), 500
+            fallback_payload = {
+                'status': 'rejected',
+                'updated_at': datetime.utcnow().isoformat() + 'Z'
+            }
+            logger.warning("⚠️ collaboration reject fallback: rejection_reason column may be missing; retrying without reason field.")
+            result = _update_collaboration_submission(
+                supabase=supabase,
+                submission_identifier=submission_id,
+                payload=fallback_payload,
+                preferred_column=matched_column
+            )
+        if not (result.data or []):
+            return jsonify({"success": False, "error": "Failed to update submission status to rejected."}), 500
 
         admin_wallet = session.get('wallet')
         log_admin_action(
