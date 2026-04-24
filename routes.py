@@ -4203,6 +4203,26 @@ def _update_collaboration_submission(supabase, submission_identifier, payload, p
             )
             if result.data:
                 return result
+
+            # Some Supabase/PostgREST configurations can apply the update
+            # but return an empty representation on UPDATE ... SELECT.
+            # Retry with a minimal update call, then re-fetch to confirm.
+            safe_supabase_operation(
+                lambda column=column: supabase.table('collaboration_submissions').update(payload).eq(column, submission_identifier).execute(),
+                fallback_result=None,
+                operation_name=f"update collaboration submission by {column} (no select fallback)"
+            )
+            refreshed = safe_supabase_operation(
+                lambda column=column: supabase.table('collaboration_submissions').select('*').eq(column, submission_identifier).limit(1).execute(),
+                fallback_result=type('obj', (object,), {'data': []})(),
+                operation_name=f"re-fetch collaboration submission by {column} after update"
+            )
+            refreshed_data = refreshed.data or []
+            if refreshed_data:
+                status_matches = (refreshed_data[0].get('status') or '').strip().lower() == (payload.get('status') or '').strip().lower()
+                reason_matches = payload.get('rejection_reason') is None or refreshed_data[0].get('rejection_reason') == payload.get('rejection_reason')
+                if status_matches and reason_matches:
+                    return refreshed
         except Exception as update_error:
             logger.warning(f"⚠️ Collaboration update failed for column '{column}': {update_error}")
 
