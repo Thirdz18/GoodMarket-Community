@@ -1182,6 +1182,12 @@ def learn_earn_dashboard():
         return redirect(url_for('routes.index'))
 
     wallet = session.get('wallet')
+    is_admin_user = False
+    try:
+        from supabase_client import is_admin
+        is_admin_user = bool(is_admin(wallet))
+    except Exception as admin_err:
+        logger.warning(f"⚠️ Could not resolve admin status for Learn & Earn dashboard: {admin_err}")
 
     # Track page visit
     try:
@@ -1196,6 +1202,7 @@ def learn_earn_dashboard():
         'learn_and_earn.html',
         wallet=wallet,
         login_method=session.get('login_method', 'walletconnect'),
+        is_admin_user=is_admin_user,
         escrow_address=achievement_nft_service.escrow_address,
         escrow_enabled=achievement_nft_service.is_escrow_configured
     ))
@@ -2480,11 +2487,29 @@ def check_collaboration_deposit(submission_id):
         wallet_address = _wallet_from_session_or_request(data)
         partner_name = (data.get('partner_name') or '').strip()
         since_block = data.get('since_block', 0)
+        allow_test_amount = str(data.get('allow_test_amount', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+        expected_amount = data.get('expected_amount')
+
+        try:
+            expected_amount = float(expected_amount) if expected_amount is not None else None
+        except (TypeError, ValueError):
+            expected_amount = None
 
         if not partner_name:
             return jsonify({'success': False, 'error': 'Partner name required.'}), 400
         if not wallet_address or not wallet_address.startswith('0x') or len(wallet_address) != 42:
             return jsonify({'success': False, 'error': 'A valid wallet address is required.'}), 400
+
+        is_admin_user = False
+        try:
+            from supabase_client import is_admin
+            is_admin_user = bool(is_admin(wallet_address))
+        except Exception as admin_err:
+            logger.warning(f"⚠️ Could not resolve admin status for collaboration payment check: {admin_err}")
+
+        if allow_test_amount and not is_admin_user:
+            logger.warning(f"⚠️ Non-admin attempted test amount mode: {wallet_address[:8]}...")
+            allow_test_amount = False
 
         supabase = get_supabase_client()
         if not supabase:
@@ -2521,6 +2546,11 @@ def check_collaboration_deposit(submission_id):
         if not logs:
             return jsonify({'success': True, 'found': False, 'scanned_to': current_block}), 200
 
+        required_min = COLLABORATION_MIN_GD
+        scan_min = required_min
+        if allow_test_amount and expected_amount and expected_amount > 0:
+            scan_min = expected_amount
+
         qualifying_log = None
         for log in reversed(logs):
             raw_amount = log.get('data', '0x0')
@@ -2528,7 +2558,7 @@ def check_collaboration_deposit(submission_id):
                 raw_amount = raw_amount.hex()
             amount_wei = int(raw_amount, 16) if raw_amount and raw_amount != '0x' else 0
             amount_gd = amount_wei / (10 ** 18)
-            if amount_gd >= COLLABORATION_MIN_GD:
+            if amount_gd >= scan_min:
                 qualifying_log = log
                 break
 
@@ -2537,7 +2567,7 @@ def check_collaboration_deposit(submission_id):
                 'success': True,
                 'found': False,
                 'scanned_to': current_block,
-                'error': f'No qualifying transfer found yet (minimum {COLLABORATION_MIN_GD:,} G$).'
+                'error': f'No qualifying transfer found yet (minimum {scan_min:,.2f} G$).'
             }), 200
 
         tx_hash = qualifying_log['transactionHash'].hex() if hasattr(qualifying_log['transactionHash'], 'hex') else qualifying_log['transactionHash']
@@ -2548,6 +2578,18 @@ def check_collaboration_deposit(submission_id):
             raw_amount = raw_amount.hex()
         amount_wei = int(raw_amount, 16)
         verified_amount = amount_wei / (10 ** 18)
+
+        if verified_amount < required_min:
+            return jsonify({
+                'success': True,
+                'found': True,
+                'test_only': True,
+                'message': f'Test deposit detected ({verified_amount:,.2f} G$). Collaborator minimum remains {required_min:,.0f} G$.',
+                'tx_hash': tx_hash,
+                'amount': verified_amount,
+                'date': datetime.utcnow().strftime('%B %d, %Y'),
+                'explorer_url': f'https://celoscan.io/tx/{tx_hash}'
+            }), 200
 
         cert_id = uuid.uuid4().hex[:12]
         date_str = datetime.utcnow().strftime('%B %d, %Y')
