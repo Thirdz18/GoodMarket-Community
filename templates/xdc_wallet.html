@@ -1050,24 +1050,28 @@
                                 }
                             }
                         } catch (_ignore) {}
-                        const supportDetails = [];
-                        if (bridgeAttemptContext) {
-                            supportDetails.push(`source token: ${bridgeAttemptContext.source_token}`);
-                            supportDetails.push(`target token: ${bridgeAttemptContext.target_token}`);
-                            supportDetails.push(`attempted amount: ${bridgeAttemptContext.attempted_amount}`);
-                        }
-                        if (technicalDetails) supportDetails.push(technicalDetails);
-                        if (txHash) supportDetails.push(`tx: ${txHash}`);
+                        const selectorFromTechnical = (technicalDetails || "").match(/0x[a-f0-9]{8}/i)?.[0]?.toLowerCase() || null;
+                        const selectorValue = selectorFromTechnical || null;
+                        const sourceToken = bridgeAttemptContext?.source_token || 'n/a';
+                        const targetToken = bridgeAttemptContext?.target_token || 'n/a';
+                        const attemptedAmount = bridgeAttemptContext?.attempted_amount || 'n/a';
+                        const txHashValue = txHash || 'n/a';
+                        const supportDetails = [
+                            `source token: ${sourceToken}`,
+                            `target token: ${targetToken}`,
+                            `attempted amount: ${attemptedAmount}`,
+                            `selector: ${selectorValue || 'n/a'}`,
+                            `tx hash: ${txHashValue}`,
+                        ];
                         const isSelectorOnly = Boolean(
-                            technicalDetails &&
-                            /^Bridge custom error \(0x[a-f0-9]{8}\)$/i.test(technicalDetails) &&
+                            selectorValue &&
                             (!cleanReason || cleanReason === 'Transaction reverted on XDC.')
                         );
                         const friendlyReason = isSelectorOnly
-                            ? 'Bridge rejected the transfer parameters. Please verify amount/token and try again.'
+                            ? 'Bridge could not process this transfer. Please confirm bridge amount and token pair (XDC G$ → Celo G$), then try again.'
                             : cleanReason;
                         const detailsBlock = supportDetails.length
-                            ? `<br><br><strong>Support details:</strong><br>${supportDetails.join('<br>')}`
+                            ? `<br><br><details><summary><strong>Support details (for CS/debug)</strong></summary><div style="margin-top:6px;">${supportDetails.join('<br>')}</div></details>`
                             : '';
                         throw new Error(`${friendlyReason}${detailsBlock}`);
                     }
