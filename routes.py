@@ -6026,7 +6026,7 @@ def xdc_bridge_estimate_fee():
         except Exception:
             return jsonify({"success": False, "error": "Invalid amount"}), 400
 
-        default_fee_xdc = 0.005
+        default_fee_xdc = 0.008
         fee_source = "fallback_default"
         bridge_fee_xdc = default_fee_xdc
         raw_payload = None
@@ -6043,23 +6043,48 @@ def xdc_bridge_estimate_fee():
 
                 candidate = None
                 if isinstance(payload, dict):
-                    # Support multiple shapes defensively.
+                    # Support multiple estimate API shapes:
+                    # 1) direct fields (fee/nativeFee/etc)
+                    # 2) nested data object
+                    # 3) path-keyed map, e.g. LZ_XDC_TO_CELO
                     for key in ("fee", "bridgeFee", "nativeFee", "estimatedFee"):
                         if key in payload:
                             candidate = payload.get(key)
                             break
+
                     if candidate is None and "data" in payload and isinstance(payload["data"], dict):
                         for key in ("fee", "bridgeFee", "nativeFee", "estimatedFee"):
                             if key in payload["data"]:
                                 candidate = payload["data"].get(key)
                                 break
-                if candidate is not None:
-                    bridge_fee_xdc = float(candidate)
-                    if bridge_fee_xdc > 0:
-                        fee_source = "goodserver_estimatefees"
-                    else:
-                        bridge_fee_xdc = default_fee_xdc
-                        fee_source = "fallback_default"
+
+                    if candidate is None:
+                        route_keys = (
+                            "LZ_XDC_TO_CELO",
+                            "LZ_50_TO_42220",
+                            "XDC_TO_CELO",
+                            "50_TO_42220",
+                        )
+                        for route_key in route_keys:
+                            if route_key in payload:
+                                route_val = payload.get(route_key)
+                                if isinstance(route_val, dict):
+                                    for key in ("fee", "bridgeFee", "nativeFee", "estimatedFee", "value"):
+                                        if key in route_val:
+                                            candidate = route_val.get(key)
+                                            break
+                                else:
+                                    candidate = route_val
+                                if candidate is not None:
+                                    break
+
+                    if candidate is not None:
+                        bridge_fee_xdc = float(candidate)
+                        if bridge_fee_xdc > 0:
+                            fee_source = "goodserver_estimatefees"
+                        else:
+                            bridge_fee_xdc = default_fee_xdc
+                            fee_source = "fallback_default"
         except Exception as api_err:
             logger.warning(f"xdc bridge fee estimate fallback: {api_err}")
 
