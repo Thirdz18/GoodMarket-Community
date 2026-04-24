@@ -751,6 +751,12 @@
                     </a>
                 </li>
                 <li class="menu-item">
+                    <a class="menu-link" onclick="showSection('collaboration-review-section')">
+                        <span class="menu-icon">🤝</span>
+                        <span>Collaboration Review</span>
+                    </a>
+                </li>
+                <li class="menu-item">
                     <a class="menu-link" onclick="showSection('developer-profile-section')">
                         <span class="menu-icon">👨‍💻</span>
                         <span>Developer Profile</span>
@@ -1622,6 +1628,37 @@ CORRECT: C
                     <h2 style="color: #fbbf24; margin-bottom: 1rem;">⏳ Pending Submissions</h2>
                     <div id="discourse-pending-content">
                         <div class="loading"><div class="spinner"></div><p>Loading submissions...</p></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Collaboration Review Section -->
+            <section id="collaboration-review-section" class="section">
+                <div class="page-header">
+                    <h1 class="page-title">🤝 Collaboration Review</h1>
+                    <p style="color: rgba(241, 245, 249, 0.7);">Approve or reject Learn &amp; Earn collaboration submissions</p>
+                </div>
+
+                <div class="content-box" style="margin-bottom: 1.2rem;">
+                    <h2 style="margin-bottom: 0.8rem;">Filters</h2>
+                    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;">
+                        <select id="collabStatusFilter" class="form-control" style="max-width: 260px;">
+                            <option value="">All statuses</option>
+                            <option value="paid">Paid</option>
+                            <option value="approved">Approved</option>
+                            <option value="rejected">Rejected</option>
+                            <option value="published">Published</option>
+                            <option value="awaiting_payment">Awaiting Payment</option>
+                            <option value="draft">Draft</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="loadCollaborationSubmissions()">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div class="content-box">
+                    <h2 style="color:#fbbf24; margin-bottom: 1rem;">🧾 Submissions</h2>
+                    <div id="collaborationReviewContent">
+                        <div class="loading"><div class="spinner"></div><p>Loading collaboration submissions...</p></div>
                     </div>
                 </div>
             </section>
@@ -2628,6 +2665,9 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                 case 'discourse-task':
                     loadDiscourseAdminSettings();
                     loadDiscoursePendingSubmissions();
+                    break;
+                case 'collaboration-review':
+                    loadCollaborationSubmissions();
                     break;
                 case 'developerProfile':
                     loadCurrentProfile();
@@ -5732,6 +5772,144 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
             } catch (error) {
                 console.error('Error rejecting discourse submission:', error);
                 alert('❌ Error rejecting submission: ' + error.message);
+            }
+        }
+
+        // ============================================================
+        // COLLABORATION REVIEW ADMIN FUNCTIONS
+        // ============================================================
+        function _collabStatusBadge(status) {
+            const s = String(status || '').toLowerCase();
+            if (s === 'approved') return '<span style="color:#34d399;font-weight:700;">✅ Approved</span>';
+            if (s === 'rejected') return '<span style="color:#f87171;font-weight:700;">❌ Rejected</span>';
+            if (s === 'published') return '<span style="color:#60a5fa;font-weight:700;">🚀 Published</span>';
+            if (s === 'paid') return '<span style="color:#fbbf24;font-weight:700;">💰 Paid</span>';
+            if (s === 'awaiting_payment') return '<span style="color:#c084fc;font-weight:700;">⏳ Awaiting Payment</span>';
+            if (s === 'draft') return '<span style="color:#94a3b8;font-weight:700;">📝 Draft</span>';
+            return `<span style="color:#cbd5e1;">${status || 'unknown'}</span>`;
+        }
+
+        async function loadCollaborationSubmissions() {
+            const contentDiv = document.getElementById('collaborationReviewContent');
+            const statusFilter = (document.getElementById('collabStatusFilter') || {}).value || '';
+            try {
+                const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : '';
+                const response = await fetch(`/api/admin/collaboration/submissions${qs}`);
+                const data = await response.json();
+                if (!data.success) {
+                    contentDiv.innerHTML = `<p style="color:#ef4444;">Error: ${data.error || 'Failed to load submissions'}</p>`;
+                    return;
+                }
+
+                const submissions = data.submissions || [];
+                if (!submissions.length) {
+                    contentDiv.innerHTML = `
+                        <div style="padding:2rem;text-align:center;background:rgba(16,185,129,0.08);border:1px dashed rgba(16,185,129,0.25);border-radius:10px;">
+                            <p style="color:#10b981;font-size:1.05rem;">✅ No collaboration submissions found</p>
+                        </div>`;
+                    return;
+                }
+
+                let html = `
+                    <div style="margin-bottom:1rem; padding:0.9rem 1rem; background:rgba(251,191,36,0.1); border-left:4px solid #fbbf24; border-radius:8px;">
+                        <strong style="color:#fbbf24;">${submissions.length} submission(s) loaded</strong>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Partner</th>
+                                <th>Wallet</th>
+                                <th>Status</th>
+                                <th>Amount</th>
+                                <th>TX</th>
+                                <th>Rejection Reason</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+                submissions.forEach((sub) => {
+                    const id = sub.id || '';
+                    const wallet = sub.wallet_address || '';
+                    const walletShort = wallet.length > 12 ? `${wallet.slice(0, 8)}...${wallet.slice(-6)}` : wallet;
+                    const txHash = sub.tx_hash || '';
+                    const txShort = txHash ? `${txHash.slice(0, 10)}...${txHash.slice(-8)}` : '—';
+                    const amount = Number(sub.paid_amount_gd || 0);
+                    const canApprove = String(sub.status || '').toLowerCase() === 'paid';
+                    const canReject = !['published', 'rejected'].includes(String(sub.status || '').toLowerCase());
+
+                    html += `
+                        <tr id="collab-row-${id}">
+                            <td style="font-weight:600;">${sub.partner_name || '—'}</td>
+                            <td style="font-family:monospace;">${walletShort}</td>
+                            <td>${_collabStatusBadge(sub.status)}</td>
+                            <td>${amount > 0 ? amount.toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' G$' : '—'}</td>
+                            <td>${txHash ? `<a href="https://celoscan.io/tx/${txHash}" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:underline;">${txShort}</a>` : '—'}</td>
+                            <td style="max-width:220px;white-space:normal;">${sub.rejection_reason || '—'}</td>
+                            <td style="font-size:0.85rem;">${sub.created_at ? new Date(sub.created_at).toLocaleString() : '—'}</td>
+                            <td>
+                                <button class="btn btn-primary" onclick="approveCollaborationSubmission('${id}')" ${canApprove ? '' : 'disabled'}
+                                    style="margin-right:0.45rem;padding:0.35rem 0.7rem;font-size:0.82rem;background:linear-gradient(135deg,#10b981,#059669);${canApprove ? '' : 'opacity:0.45;cursor:not-allowed;'}">
+                                    ✅ Approve
+                                </button>
+                                <button class="btn btn-danger" onclick="rejectCollaborationSubmission('${id}')" ${canReject ? '' : 'disabled'}
+                                    style="padding:0.35rem 0.7rem;font-size:0.82rem;${canReject ? '' : 'opacity:0.45;cursor:not-allowed;'}">
+                                    ❌ Reject
+                                </button>
+                            </td>
+                        </tr>`;
+                });
+
+                html += '</tbody></table>';
+                contentDiv.innerHTML = html;
+            } catch (error) {
+                console.error('Error loading collaboration submissions:', error);
+                contentDiv.innerHTML = '<p style="color:#ef4444;">Error loading collaboration submissions.</p>';
+            }
+        }
+
+        async function approveCollaborationSubmission(submissionId) {
+            if (!submissionId) return;
+            if (!confirm('Approve this collaboration submission?')) return;
+            try {
+                const response = await fetch(`/api/admin/collaboration/submissions/${submissionId}/approve`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    alert(`❌ Error: ${data.error || 'Failed to approve submission.'}`);
+                    return;
+                }
+                alert('✅ Collaboration submission approved.');
+                await loadCollaborationSubmissions();
+            } catch (error) {
+                console.error('Error approving collaboration submission:', error);
+                alert('❌ Error approving collaboration submission: ' + error.message);
+            }
+        }
+
+        async function rejectCollaborationSubmission(submissionId) {
+            if (!submissionId) return;
+            const reason = prompt('Enter rejection reason (optional):');
+            if (reason === null) return;
+            try {
+                const response = await fetch(`/api/admin/collaboration/submissions/${submissionId}/reject`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: reason || '' })
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    alert(`❌ Error: ${data.error || 'Failed to reject submission.'}`);
+                    return;
+                }
+                alert('✅ Collaboration submission rejected.');
+                await loadCollaborationSubmissions();
+            } catch (error) {
+                console.error('Error rejecting collaboration submission:', error);
+                alert('❌ Error rejecting collaboration submission: ' + error.message);
             }
         }
 
