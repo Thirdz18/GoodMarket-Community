@@ -5568,6 +5568,89 @@ def tx_receipt(tx_hash):
         return jsonify({"found": False, "status": "pending", "error": str(e)})
 
 
+@routes.route("/api/xdc/tx-revert-reason/<tx_hash>", methods=["GET"])
+@auth_required
+def xdc_tx_revert_reason(tx_hash):
+    """Fetch exact-ish revert reason for a mined failed tx on XDC, if available."""
+    try:
+        import re
+        from web3 import Web3
+        from blockchain import XDC_RPC
+
+        def _format_selector_hint(selector_hex: str) -> str:
+            selector = (selector_hex or "").lower()
+            selector_hints = {
+                "0x10ecdf44": "Bridge custom error (0x10ecdf44). This usually means the bridge contract rejected the request parameters or native fee.",
+                "0x08c379a0": "Error(string)",
+                "0x4e487b71": "Panic(uint256)",
+            }
+            return selector_hints.get(selector, f"Custom contract error (selector: {selector}).")
+
+        def _reason_from_rpc_error_text(raw_msg: str) -> str:
+            text = str(raw_msg or "").strip()
+            if not text:
+                return "Transaction reverted (no reason returned)"
+
+            lowered = text.lower()
+            marker_idx = lowered.find("execution reverted:")
+            if marker_idx != -1:
+                parsed = text[marker_idx:].split("\n")[0].strip()
+                parsed = parsed.split(" (")[0].strip()
+                # Some providers return execution reverted: ('0x1234abcd','0x1234abcd')
+                selectors = re.findall(r"0x[a-fA-F0-9]{8}", parsed)
+                if selectors:
+                    return _format_selector_hint(selectors[0])
+                return parsed
+
+            marker_idx = lowered.find("revert")
+            if marker_idx != -1:
+                parsed = text[marker_idx:].split("\n")[0].strip()
+                selectors = re.findall(r"0x[a-fA-F0-9]{8}", parsed)
+                if selectors:
+                    return _format_selector_hint(selectors[0])
+                return parsed
+
+            selectors = re.findall(r"0x[a-fA-F0-9]{8}", text)
+            if selectors:
+                return _format_selector_hint(selectors[0])
+            return text[:240]
+
+        w3 = Web3(Web3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 12}))
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        if receipt is None:
+            return jsonify({"success": True, "found": False, "status": "pending"})
+        if int(receipt.get("status", 0)) == 1:
+            return jsonify({"success": True, "found": True, "status": "success", "reverted": False, "reason": None})
+
+        tx = w3.eth.get_transaction(tx_hash)
+        call_obj = {
+            "from": tx.get("from"),
+            "to": tx.get("to"),
+            "data": tx.get("input", "0x"),
+            "value": tx.get("value", 0),
+        }
+        replay_block = max(int(receipt.get("blockNumber", 0)) - 1, 0)
+
+        reason = "Transaction reverted (no reason returned)"
+        try:
+            w3.eth.call(call_obj, replay_block)
+        except Exception as call_err:
+            reason = _reason_from_rpc_error_text(call_err)
+
+        return jsonify({
+            "success": True,
+            "found": True,
+            "status": "failed",
+            "reverted": True,
+            "reason": reason,
+            "tx_hash": tx_hash,
+            "block_number": receipt.get("blockNumber"),
+        })
+    except Exception as e:
+        logger.error(f"xdc_tx_revert_reason error for {tx_hash}: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @routes.route("/api/ubi-entitlement", methods=["GET"])
 @auth_required
 def ubi_entitlement():
@@ -7025,6 +7108,18 @@ def server_sign_tx():
 
     def _get_revert_reason(w3, from_addr, to, data, value, block_number):
         """Replay a failed call to extract the revert reason."""
+        import re
+
+        def _selector_hint(selector_hex: str) -> str:
+            selector = (selector_hex or "").lower()
+            if selector == "0x10ecdf44":
+                return "Bridge custom error (0x10ecdf44). The bridge rejected current parameters or native fee."
+            if selector == "0x08c379a0":
+                return "Error(string)"
+            if selector == "0x4e487b71":
+                return "Panic(uint256)"
+            return f"Custom contract error (selector: {selector})."
+
         try:
             w3.eth.call({"from": from_addr, "to": to, "data": data, "value": value}, block_number)
             return "Transaction reverted (no reason returned)"
@@ -7038,7 +7133,13 @@ def server_sign_tx():
                     # Remove hex data suffix if present
                     for sep in (" (", "\n"):
                         reason = reason.split(sep)[0]
+                    selectors = re.findall(r"0x[a-fA-F0-9]{8}", msg)
+                    if selectors:
+                        return _selector_hint(selectors[0])
                     return reason
+            selectors = re.findall(r"0x[a-fA-F0-9]{8}", msg)
+            if selectors:
+                return _selector_hint(selectors[0])
             return msg[:200]
 
     try:
