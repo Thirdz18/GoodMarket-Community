@@ -4197,7 +4197,7 @@ def _update_collaboration_submission(supabase, submission_identifier, payload, p
     for column in columns:
         try:
             result = safe_supabase_operation(
-                lambda column=column: supabase.table('collaboration_submissions').update(payload).eq(column, submission_identifier).execute(),
+                lambda column=column: supabase.table('collaboration_submissions').update(payload).eq(column, submission_identifier).select('*').execute(),
                 fallback_result=type('obj', (object,), {'data': []})(),
                 operation_name=f"update collaboration submission by {column}"
             )
@@ -4247,6 +4247,8 @@ def approve_collaboration_submission(submission_id):
             payload=update_payload,
             preferred_column=matched_column
         )
+        if not (result.data or []):
+            return jsonify({"success": False, "error": "Failed to update submission status to approved"}), 500
 
         admin_wallet = session.get('wallet')
         log_admin_action(
@@ -4295,6 +4297,8 @@ def reject_collaboration_submission(submission_id):
             payload=update_payload,
             preferred_column=matched_column
         )
+        if not (result.data or []):
+            return jsonify({"success": False, "error": "Failed to update submission status to rejected. Please check DB schema (missing rejection_reason column)."}), 500
 
         admin_wallet = session.get('wallet')
         log_admin_action(

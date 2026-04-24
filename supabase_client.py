@@ -481,6 +481,7 @@ CREATE TABLE IF NOT EXISTS collaboration_submissions (
     tx_hash VARCHAR(66),
     cert_id VARCHAR(24),
     cert_filename VARCHAR(255),
+    rejection_reason TEXT,
     paid_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -490,6 +491,7 @@ CREATE INDEX IF NOT EXISTS idx_collab_sub_status ON collaboration_submissions(st
 CREATE INDEX IF NOT EXISTS idx_collab_sub_created_at ON collaboration_submissions(created_at);
 ALTER TABLE collaboration_submissions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all operations on collaboration_submissions" ON collaboration_submissions FOR ALL USING (true);
+ALTER TABLE collaboration_submissions ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
 
 CREATE TABLE IF NOT EXISTS collaboration_modules (
     id VARCHAR(64) PRIMARY KEY,
