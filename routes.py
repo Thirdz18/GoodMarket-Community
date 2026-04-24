@@ -4157,6 +4157,109 @@ def get_collaboration_submissions():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/admin/collaboration/submissions/<submission_id>/approve", methods=["POST"])
+@admin_required
+def approve_collaboration_submission(submission_id):
+    """Approve a paid collaboration submission for admin review workflow."""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({"success": False, "error": "Database not available"}), 500
+
+        existing = safe_supabase_operation(
+            lambda: supabase.table('collaboration_submissions').select('*').eq('id', submission_id).limit(1).execute(),
+            fallback_result=type('obj', (object,), {'data': []})(),
+            operation_name="get collaboration submission for approve"
+        )
+        if not existing.data:
+            return jsonify({"success": False, "error": "Submission not found"}), 404
+
+        submission = existing.data[0]
+        current_status = (submission.get('status') or '').strip().lower()
+        if current_status == 'published':
+            return jsonify({"success": False, "error": "Published submissions cannot be re-approved"}), 400
+        if current_status not in ('paid', 'approved'):
+            return jsonify({"success": False, "error": "Only paid submissions can be approved"}), 400
+
+        update_payload = {
+            'status': 'approved',
+            'rejection_reason': None,
+            'updated_at': datetime.utcnow().isoformat() + 'Z'
+        }
+        result = safe_supabase_operation(
+            lambda: supabase.table('collaboration_submissions').update(update_payload).eq('id', submission_id).execute(),
+            fallback_result=type('obj', (object,), {'data': []})(),
+            operation_name="approve collaboration submission"
+        )
+
+        admin_wallet = session.get('wallet')
+        log_admin_action(
+            admin_wallet=admin_wallet,
+            action_type="approve_collaboration_submission",
+            action_details={"submission_id": submission_id}
+        )
+
+        return jsonify({
+            "success": True,
+            "submission": (result.data or [submission])[0]
+        })
+    except Exception as e:
+        logger.error(f"❌ Approve collaboration submission error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@routes.route("/api/admin/collaboration/submissions/<submission_id>/reject", methods=["POST"])
+@admin_required
+def reject_collaboration_submission(submission_id):
+    """Reject a collaboration submission and save an optional reason."""
+    try:
+        data = request.get_json(silent=True) or {}
+        reason = (data.get('reason') or '').strip()
+
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({"success": False, "error": "Database not available"}), 500
+
+        existing = safe_supabase_operation(
+            lambda: supabase.table('collaboration_submissions').select('*').eq('id', submission_id).limit(1).execute(),
+            fallback_result=type('obj', (object,), {'data': []})(),
+            operation_name="get collaboration submission for reject"
+        )
+        if not existing.data:
+            return jsonify({"success": False, "error": "Submission not found"}), 404
+
+        submission = existing.data[0]
+        current_status = (submission.get('status') or '').strip().lower()
+        if current_status == 'published':
+            return jsonify({"success": False, "error": "Published submissions cannot be rejected"}), 400
+
+        update_payload = {
+            'status': 'rejected',
+            'rejection_reason': reason or None,
+            'updated_at': datetime.utcnow().isoformat() + 'Z'
+        }
+        result = safe_supabase_operation(
+            lambda: supabase.table('collaboration_submissions').update(update_payload).eq('id', submission_id).execute(),
+            fallback_result=type('obj', (object,), {'data': []})(),
+            operation_name="reject collaboration submission"
+        )
+
+        admin_wallet = session.get('wallet')
+        log_admin_action(
+            admin_wallet=admin_wallet,
+            action_type="reject_collaboration_submission",
+            action_details={"submission_id": submission_id, "reason": reason}
+        )
+
+        return jsonify({
+            "success": True,
+            "submission": (result.data or [submission])[0]
+        })
+    except Exception as e:
+        logger.error(f"❌ Reject collaboration submission error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @routes.route("/api/admin/collaboration/submissions/<submission_id>/generate-quiz-draft", methods=["POST"])
 @admin_required
 def generate_collaboration_quiz_draft(submission_id):
@@ -4251,8 +4354,8 @@ def publish_collaboration_submission(submission_id):
         if not sub.data:
             return jsonify({"success": False, "error": "Submission not found"}), 404
         submission = sub.data[0]
-        if submission.get('status') != 'paid':
-            return jsonify({"success": False, "error": "Only paid submissions can be published"}), 400
+        if submission.get('status') not in ('paid', 'approved'):
+            return jsonify({"success": False, "error": "Only paid or approved submissions can be published"}), 400
 
         modules = safe_supabase_operation(
             lambda: supabase.table('collaboration_modules').select('*')

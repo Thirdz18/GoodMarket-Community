@@ -3336,6 +3336,89 @@ document.addEventListener('DOMContentLoaded', async function() {
         var ESCROW_ADDRESS  = '{{ escrow_address | default("") }}';
         var ESCROW_ENABLED  = {{ 'true' if escrow_enabled else 'false' }};
 
+        // Collect wallet providers the same way wallet.html does so
+        // collaboration works in Trust Wallet dApp browser, MetaMask extension,
+        // MiniPay, and other multi-provider setups.
+        window.__learnEarn6963Providers = window.__learnEarn6963Providers || [];
+        (function _initLearnEarnEip6963Discovery() {
+            try {
+                window.addEventListener('eip6963:announceProvider', function(event) {
+                    var detail = event && event.detail;
+                    if (!detail || !detail.provider) return;
+                    var uuid = detail.info && detail.info.uuid;
+                    var already = window.__learnEarn6963Providers.find(function(d) {
+                        return (d.info && d.info.uuid && uuid && d.info.uuid === uuid) || d.provider === detail.provider;
+                    });
+                    if (!already) window.__learnEarn6963Providers.push(detail);
+                });
+                window.dispatchEvent(new Event('eip6963:requestProvider'));
+                var retries = 0;
+                var t = setInterval(function() {
+                    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                    if (++retries >= 6) clearInterval(t);
+                }, 200);
+                window.addEventListener('ethereum#initialized', function() {
+                    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                }, { once: true });
+            } catch (_) {}
+        })();
+
+        function _vCollectInjectedProviders() {
+            var out = [];
+            function push(p) {
+                if (p && typeof p.request === 'function' && out.indexOf(p) === -1) out.push(p);
+            }
+            if (window.ethereum) {
+                if (Array.isArray(window.ethereum.providers)) {
+                    window.ethereum.providers.forEach(push);
+                }
+                push(window.ethereum);
+            }
+            if (window.trustwallet) push(window.trustwallet);
+            if (window.trustWallet) push(window.trustWallet);
+            if (Array.isArray(window.__learnEarn6963Providers)) {
+                window.__learnEarn6963Providers.forEach(function(detail) {
+                    if (detail && detail.provider) push(detail.provider);
+                });
+            }
+            return out;
+        }
+
+        function _vGetEthProvider() {
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            var candidates = _vCollectInjectedProviders();
+            if (!candidates.length) return null;
+
+            var trust = candidates.find(function(p) { return p && (p.isTrust || p.isTrustWallet); });
+            if (trust) return trust;
+
+            var miniPay = candidates.find(function(p) { return p && p.isMiniPay; });
+            if (miniPay) return miniPay;
+
+            var metamask = candidates.find(function(p) { return p && p.isMetaMask && !p.isBraveWallet; });
+            if (metamask) return metamask;
+
+            if (window.ethereum && Array.isArray(window.ethereum.providers) && window.ethereum.providers.length) {
+                return window.ethereum.providers[0];
+            }
+            if (window.ethereum && typeof window.ethereum.request === 'function') return window.ethereum;
+            return candidates[0];
+        }
+
+        async function _vAwaitEthProvider(timeoutMs) {
+            var budget = typeof timeoutMs === 'number' ? timeoutMs : 900;
+            var started = Date.now();
+            var p = _vGetEthProvider();
+            if (p) return p;
+            while (Date.now() - started < budget) {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                await new Promise(function(resolve) { setTimeout(resolve, 120); });
+                p = _vGetEthProvider();
+                if (p) return p;
+            }
+            return null;
+        }
+
         function openCollaborationWizard() {
             swCurrentStep = 1;
             swSponsorName = '';
@@ -3348,7 +3431,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             swStopScan();
 
             // Detect DApp browser (injected wallet)
-            swIsDappBrowser = !!(window.ethereum);
+            swIsDappBrowser = !!_vGetEthProvider();
             var dappAmountWrap = document.getElementById('sw-dapp-amount-wrap');
             if (dappAmountWrap) dappAmountWrap.style.display = swIsDappBrowser ? 'block' : 'none';
 
@@ -3539,7 +3622,8 @@ document.addEventListener('DOMContentLoaded', async function() {
         }
 
         async function swSendViaWallet(amountG) {
-            if (!window.ethereum) {
+            var provider = await _vAwaitEthProvider(1200);
+            if (!provider) {
                 alert('No wallet found. Please open this page inside a DApp browser (MiniPay, MetaMask, Trust Wallet).');
                 return;
             }
@@ -3558,7 +3642,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (scanBlock) scanBlock.textContent = 'Requesting accounts...';
 
                 // Request wallet accounts
-                var accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                var accounts = await provider.request({ method: 'eth_requestAccounts' });
                 if (!accounts || accounts.length === 0) {
                     throw new Error('No accounts returned. Please unlock your wallet and try again.');
                 }
@@ -3571,16 +3655,16 @@ document.addEventListener('DOMContentLoaded', async function() {
                 // Switch / verify Celo Mainnet (chainId 42220 = 0xA4EC)
                 if (s3title) s3title.textContent = 'Switching to Celo Network';
                 if (s3sub) s3sub.textContent = 'Making sure your wallet is on the Celo Mainnet...';
-                var chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                var chainId = await provider.request({ method: 'eth_chainId' });
                 if (parseInt(chainId, 16) !== 42220) {
                     try {
-                        await window.ethereum.request({
+                        await provider.request({
                             method: 'wallet_switchEthereumChain',
                             params: [{ chainId: '0xA4EC' }]
                         });
                     } catch (switchErr) {
                         if (switchErr.code === 4902) {
-                            await window.ethereum.request({
+                            await provider.request({
                                 method: 'wallet_addEthereumChain',
                                 params: [{
                                     chainId: '0xA4EC',
@@ -3613,7 +3697,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 if (scanBlock) scanBlock.textContent = 'Approve the transaction popup in your wallet app';
 
                 // Send the ERC-20 transfer transaction
-                var txHash = await window.ethereum.request({
+                var txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{
                         from: swDappWalletAddress,
@@ -4605,16 +4689,6 @@ document.addEventListener('DOMContentLoaded', async function() {
             return false;
         }
 
-        // ── Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet ────
-        function _vGetEthProvider() {
-            if (!window.ethereum) return null;
-            if (window.ethereum.providers && window.ethereum.providers.length) {
-                var mm = window.ethereum.providers.find(function(p) { return p.isMetaMask && !p.isBraveWallet; });
-                if (mm) return mm;
-                return window.ethereum.providers[0];
-            }
-            return window.ethereum;
-        }
         const BUY_LOGIN_METHOD = "{{ login_method }}";
         const BUY_WALLET_ADDRESS = (document.getElementById('sw-wallet-input') || {}).value || '';
         const BUY_SERVER_SIGNING = (BUY_LOGIN_METHOD === 'custodial' || BUY_LOGIN_METHOD === 'turnkey');
