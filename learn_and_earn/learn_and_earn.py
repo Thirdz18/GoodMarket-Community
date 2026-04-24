@@ -2753,6 +2753,18 @@ def check_collaboration_deposit(submission_id):
         verified_amount = amount_wei / gd_unit
 
         if verified_amount < required_min:
+            # Persist the latest detected collaboration payment metadata even for
+            # below-minimum "test" deposits so operators can still audit tx_hash
+            # and amount in collaboration_submissions.
+            supabase.table('collaboration_submissions')\
+                .update({
+                    'paid_amount_gd': verified_amount,
+                    'tx_hash': tx_hash,
+                    'updated_at': datetime.utcnow().isoformat() + 'Z'
+                })\
+                .eq('id', submission_id)\
+                .execute()
+
             return jsonify({
                 'success': True,
                 'found': True,
