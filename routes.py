@@ -4370,13 +4370,20 @@ def learn_earn_page():
         return redirect(url_for("routes.index"))
 
     wallet = session.get("wallet")
+    is_admin_user = False
+    try:
+        from supabase_client import is_admin
+        is_admin_user = bool(is_admin(wallet))
+    except Exception as admin_err:
+        logger.warning(f"⚠️ Could not resolve admin status for /learn-earn route: {admin_err}")
 
     # Track Learn & Earn page visit
     analytics.track_page_view(wallet, "learn_earn")
 
     return render_template("learn_and_earn.html",
                          wallet=wallet,
-                         login_method=session.get("login_method", "walletconnect"))
+                         login_method=session.get("login_method", "walletconnect"),
+                         is_admin_user=is_admin_user)
 
 # Username functionality removed
 

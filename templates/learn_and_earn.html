@@ -1695,14 +1695,18 @@
                     <!-- DApp browser: amount input (shown only when wallet is detected) -->
                     <div id="sw-dapp-amount-wrap" style="display:none; margin-bottom:20px;">
                         <label style="color:#a78bfa; font-weight:600; display:block; margin-bottom:8px;">
-                            <i class="fas fa-coins"></i> Amount (G$) <span style="color:rgba(255,255,255,0.5); font-size:0.85rem; font-weight:400;">min. 100,000</span>
+                            <i class="fas fa-coins"></i> Amount (G$) <span id="sw-amount-min-label" style="color:rgba(255,255,255,0.5); font-size:0.85rem; font-weight:400;">min. 100,000</span>
                         </label>
-                        <input type="number" id="sw-dapp-amount" min="100000" value="100000" step="1"
+                        <input type="number" id="sw-dapp-amount" min="1" value="100000" step="1"
                             style="width:100%; background:rgba(255,255,255,0.1); border:2px solid rgba(139,92,246,0.5);
                             color:#fff; padding:14px 16px; border-radius:12px; font-size:1.05rem; outline:none;
                             transition:border-color 0.3s;"
                             onfocus="this.style.borderColor='#8b5cf6'"
                             onblur="this.style.borderColor='rgba(139,92,246,0.5)'">
+                        <label id="sw-test-mode-row" style="display:flex; align-items:flex-start; gap:8px; margin-top:10px; color:rgba(255,255,255,0.78); font-size:0.83rem; cursor:pointer;">
+                            <input type="checkbox" id="sw-test-mode-toggle" style="margin-top:2px;">
+                            <span>Allow test amount (admin only). Official collaborators still require at least <strong>100,000 G$</strong>.</span>
+                        </label>
                         <div id="sw-amount-error" style="color:#f87171; font-size:0.9rem; margin-top:6px; display:none;"></div>
                     </div>
                     <div style="display:flex; gap:12px;">
@@ -1815,7 +1819,7 @@
                     </p>
                     <p style="color:#a78bfa; font-size:0.9rem; margin-bottom:24px;" id="sw-success-amount"></p>
 
-                    <div style="background:rgba(52,211,153,0.1); border:2px solid rgba(52,211,153,0.4); border-radius:14px; padding:20px; margin-bottom:24px;">
+                    <div id="sw-certificate-block" style="background:rgba(52,211,153,0.1); border:2px solid rgba(52,211,153,0.4); border-radius:14px; padding:20px; margin-bottom:24px;">
                         <p style="color:#34d399; font-weight:600; margin-bottom:16px;">
                             <i class="fas fa-certificate"></i> Your Certificate is Ready
                         </p>
@@ -3325,6 +3329,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         var swDappTxHash = '';
         var swSubmissionId = '';
         var swDraftModules = [];
+        var swExpectedAmount = 100000;
+        var swAllowTestAmount = false;
+        var swIsAdminUser = {{ 'true' if (is_admin_user | default(false)) else 'false' }};
         var G_TOKEN_ADDRESS = '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A';
         var ESCROW_ADDRESS  = '{{ escrow_address | default("") }}';
         var ESCROW_ENABLED  = {{ 'true' if escrow_enabled else 'false' }};
@@ -3336,6 +3343,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             swDappTxHash = '';
             swSubmissionId = '';
             swDraftModules = [];
+            swExpectedAmount = 100000;
+            swAllowTestAmount = false;
             swStopScan();
 
             // Detect DApp browser (injected wallet)
@@ -3348,6 +3357,10 @@ document.addEventListener('DOMContentLoaded', async function() {
             var mt = document.getElementById('sw-module-title'); if (mt) mt.value = '';
             var mu = document.getElementById('sw-module-url'); if (mu) mu.value = '';
             var mc = document.getElementById('sw-module-content'); if (mc) mc.value = '';
+            var amtInput = document.getElementById('sw-dapp-amount'); if (amtInput) amtInput.value = '100000';
+            var testModeToggle = document.getElementById('sw-test-mode-toggle'); if (testModeToggle) testModeToggle.checked = false;
+            var testModeRow = document.getElementById('sw-test-mode-row'); if (testModeRow) testModeRow.style.display = swIsAdminUser ? 'flex' : 'none';
+            var minLabel = document.getElementById('sw-amount-min-label'); if (minLabel) minLabel.textContent = 'min. 100,000';
             swRenderModuleList();
             var walletInput = document.getElementById('sw-wallet-input');
             if (walletInput && walletInput.type !== 'hidden') walletInput.value = '';
@@ -3373,6 +3386,8 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (spin) spin.style.animationPlayState = 'running';
             var txInfo = document.getElementById('sw-dapp-tx-info');
             if (txInfo) txInfo.style.display = 'none';
+            var certBlock = document.getElementById('sw-certificate-block');
+            if (certBlock) certBlock.style.display = 'block';
             // Reset step 3 header to normal text
             var s3title = document.getElementById('sw-step3-title');
             if (s3title) s3title.textContent = 'Watching for Your Deposit';
@@ -3497,16 +3512,27 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (swIsDappBrowser) {
                 // Validate amount input
                 var amtInput = document.getElementById('sw-dapp-amount');
+                var testModeToggle = document.getElementById('sw-test-mode-toggle');
+                var allowTestAmount = !!(swIsAdminUser && testModeToggle && testModeToggle.checked);
                 var amt = amtInput ? parseFloat(amtInput.value) : 100000;
-                if (isNaN(amt) || amt < 100000) {
+                if (isNaN(amt) || amt <= 0) {
                     var ae = document.getElementById('sw-amount-error');
-                    if (ae) { ae.textContent = 'Minimum collaboration amount is 100,000 G$.'; ae.style.display = 'block'; }
+                    if (ae) { ae.textContent = 'Please enter a valid amount greater than 0.'; ae.style.display = 'block'; }
+                    return;
+                }
+                if (!allowTestAmount && amt < 100000) {
+                    var aeMin = document.getElementById('sw-amount-error');
+                    if (aeMin) { aeMin.textContent = 'Minimum collaboration amount is 100,000 G$.'; aeMin.style.display = 'block'; }
                     return;
                 }
                 var ae2 = document.getElementById('sw-amount-error');
                 if (ae2) ae2.style.display = 'none';
+                swExpectedAmount = amt;
+                swAllowTestAmount = allowTestAmount;
                 swSendViaWallet(amt);
             } else {
+                swExpectedAmount = 100000;
+                swAllowTestAmount = false;
                 swGoTo(3);
                 swBeginScanning();
             }
@@ -3634,7 +3660,16 @@ document.addEventListener('DOMContentLoaded', async function() {
             var s3title = document.getElementById('sw-step3-title');
             if (s3title) s3title.textContent = 'Watching for Your Deposit';
             var s3sub = document.getElementById('sw-step3-subtitle');
-            if (s3sub) s3sub.innerHTML = 'Send <strong style="color:#34d399;">at least 100,000 G$</strong> to the address below \u2014 we\u2019re already scanning the blockchain for it.';
+            if (s3sub) {
+                if (swAllowTestAmount) {
+                    var testAmtDisplay = (swExpectedAmount % 1 === 0)
+                        ? Number(swExpectedAmount).toLocaleString()
+                        : parseFloat(Number(swExpectedAmount).toFixed(2)).toLocaleString();
+                    s3sub.innerHTML = 'Send <strong style="color:#34d399;">at least ' + testAmtDisplay + ' G$</strong> for this test run. Official collaborations still require 100,000 G$.';
+                } else {
+                    s3sub.innerHTML = 'Send <strong style="color:#34d399;">at least 100,000 G$</strong> to the address below \u2014 we\u2019re already scanning the blockchain for it.';
+                }
+            }
             var manualBlock = document.getElementById('sw-manual-send-block');
             if (manualBlock) manualBlock.style.display = 'block';
             swGoTo(2);
@@ -3749,7 +3784,9 @@ document.addEventListener('DOMContentLoaded', async function() {
                         wallet_address: walletAddr,
                         since_block: swSinceBlock,
                         sponsor_name: swSponsorName,
-                        partner_name: swSponsorName
+                        partner_name: swSponsorName,
+                        expected_amount: swExpectedAmount,
+                        allow_test_amount: swAllowTestAmount
                     }),
                     signal: controller.signal
                 })
@@ -3796,11 +3833,29 @@ document.addEventListener('DOMContentLoaded', async function() {
                 var amount = data.amount || 0;
                 var amtDisplay = (amount % 1 === 0) ? Number(amount).toLocaleString() : parseFloat(Number(amount).toFixed(2)).toLocaleString();
                 var msgEl = document.getElementById('sw-success-msg');
-                if (msgEl) msgEl.textContent = 'Thank you, ' + swSponsorName + '! your collaboration payment was detected on-chain automatically.';
+                if (msgEl) {
+                    if (data.test_only) {
+                        msgEl.textContent = data.message || ('Test payment detected for ' + swSponsorName + '.');
+                    } else {
+                        msgEl.textContent = 'Thank you, ' + swSponsorName + '! your collaboration payment was detected on-chain automatically.';
+                    }
+                }
                 var amtEl = document.getElementById('sw-success-amount');
                 if (amtEl) amtEl.textContent = 'Collaboration Amount: ' + amtDisplay + ' G\u0024 \u2022 Date: ' + (data.date || '');
                 var dlEl = document.getElementById('sw-download-link');
-                if (dlEl) { dlEl.href = data.download_url || '#'; dlEl.setAttribute('download', 'GoodDollar_Collaboration_Certificate.png'); }
+                var certBlock = document.getElementById('sw-certificate-block');
+                if (dlEl) {
+                    if (data.download_url) {
+                        dlEl.href = data.download_url;
+                        dlEl.setAttribute('download', 'GoodDollar_Collaboration_Certificate.png');
+                        dlEl.style.display = 'inline-block';
+                        if (certBlock) certBlock.style.display = 'block';
+                    } else {
+                        dlEl.removeAttribute('href');
+                        dlEl.style.display = 'none';
+                        if (certBlock) certBlock.style.display = 'none';
+                    }
+                }
                 var exEl = document.getElementById('sw-explorer-link');
                 if (exEl) {
                     if (data.explorer_url) { exEl.href = data.explorer_url; exEl.style.display = 'inline'; }
@@ -3817,6 +3872,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (overlay) {
                 overlay.addEventListener('click', function(e) {
                     if (e.target === overlay) closeCollaborationWizard();
+                });
+            }
+            var testToggle = document.getElementById('sw-test-mode-toggle');
+            if (testToggle) {
+                testToggle.addEventListener('change', function() {
+                    var label = document.getElementById('sw-amount-min-label');
+                    if (label) label.textContent = this.checked ? 'test mode: any amount > 0' : 'min. 100,000';
                 });
             }
             window.loadNFTMarketplace();
