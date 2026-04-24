@@ -2679,24 +2679,41 @@ def check_collaboration_deposit(submission_id):
             if matched_receipt_log:
                 logs = [matched_receipt_log]
             else:
-                if not matched_token_transfer:
-                    root_error = 'Submitted transaction has no G$ Transfer event. Ensure you sent G$ token (not CELO/cUSD).'
-                elif not matched_sender:
-                    root_error = 'Submitted transaction does not send G$ from the monitored wallet address.'
-                elif not matched_recipient:
-                    root_error = 'Submitted transaction does not send G$ to the collaboration contract address.'
-                else:
-                    root_error = (
-                        f'Submitted transaction transfers G$, but amount is too low '
-                        f'({max_amount_gd:,.2f} G$ < required {scan_min:,.2f} G$).'
-                    )
+                # Fallback (same behavior used by Reloadly flow):
+                # even if the provided tx hash does not contain the final transfer,
+                # continue scanning recent blocks for an actual G$ deposit event.
+                try:
+                    logs = w3.eth.get_logs({
+                        'fromBlock': from_block,
+                        'toBlock': 'latest',
+                        'address': erc20_checksum,
+                        'topics': topics
+                    })
+                except Exception:
+                    logs = []
 
-                return jsonify({
-                    'success': True,
-                    'found': False,
-                    'scanned_to': current_block,
-                    'error': root_error
-                }), 200
+                if logs:
+                    # Continue with normal qualifying-log flow below.
+                    pass
+                else:
+                    if not matched_token_transfer:
+                        root_error = 'Submitted transaction has no G$ Transfer event. Ensure you sent G$ token (not CELO/cUSD).'
+                    elif not matched_sender:
+                        root_error = 'Submitted transaction does not send G$ from the monitored wallet address.'
+                    elif not matched_recipient:
+                        root_error = 'Submitted transaction does not send G$ to the collaboration contract address.'
+                    else:
+                        root_error = (
+                            f'Submitted transaction transfers G$, but amount is too low '
+                            f'({max_amount_gd:,.2f} G$ < required {scan_min:,.2f} G$).'
+                        )
+
+                    return jsonify({
+                        'success': True,
+                        'found': False,
+                        'scanned_to': current_block,
+                        'error': root_error
+                    }), 200
         else:
             logs = w3.eth.get_logs({
                 'fromBlock': from_block,
