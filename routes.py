@@ -4382,7 +4382,10 @@ def approve_collaboration_submission(submission_id):
         if current_status == 'published':
             return jsonify({"success": False, "error": "Published submissions cannot be re-approved"}), 400
         if current_status not in ('paid', 'approved'):
-            return jsonify({"success": False, "error": "Only paid submissions can be approved"}), 400
+            return jsonify({
+                "success": False,
+                "error": "Only submissions with detected payment proof can be approved."
+            }), 400
 
         update_payload = {
             'status': 'approved',
