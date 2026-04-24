@@ -6013,6 +6013,71 @@ def xdc_prepare_send():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/xdc/bridge/estimate-fee", methods=["GET"])
+@auth_required
+def xdc_bridge_estimate_fee():
+    """Estimate bridge fee for XDC -> Celo G$ bridge with safe fallback."""
+    try:
+        amount = request.args.get("amount", "1").strip() or "1"
+        try:
+            amount_val = float(amount)
+            if amount_val <= 0:
+                raise ValueError("amount must be > 0")
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid amount"}), 400
+
+        default_fee_xdc = 0.005
+        fee_source = "fallback_default"
+        bridge_fee_xdc = default_fee_xdc
+        raw_payload = None
+
+        url = (
+            "https://goodserver.gooddollar.org/bridge/estimatefees"
+            f"?sourceChainId=50&targetChainId=42220&amount={amount}"
+        )
+        try:
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                raw_payload = body[:1000]  # keep logs/surface bounded
+                payload = json.loads(body) if body else {}
+
+                candidate = None
+                if isinstance(payload, dict):
+                    # Support multiple shapes defensively.
+                    for key in ("fee", "bridgeFee", "nativeFee", "estimatedFee"):
+                        if key in payload:
+                            candidate = payload.get(key)
+                            break
+                    if candidate is None and "data" in payload and isinstance(payload["data"], dict):
+                        for key in ("fee", "bridgeFee", "nativeFee", "estimatedFee"):
+                            if key in payload["data"]:
+                                candidate = payload["data"].get(key)
+                                break
+                if candidate is not None:
+                    bridge_fee_xdc = float(candidate)
+                    if bridge_fee_xdc > 0:
+                        fee_source = "goodserver_estimatefees"
+                    else:
+                        bridge_fee_xdc = default_fee_xdc
+                        fee_source = "fallback_default"
+        except Exception as api_err:
+            logger.warning(f"xdc bridge fee estimate fallback: {api_err}")
+
+        return jsonify({
+            "success": True,
+            "source_chain_id": 50,
+            "target_chain_id": 42220,
+            "amount": amount_val,
+            "bridge_fee_xdc": bridge_fee_xdc,
+            "bridge_fee_wei": str(int(bridge_fee_xdc * (10 ** 18))),
+            "source": fee_source,
+            "raw_payload_preview": raw_payload if fee_source != "goodserver_estimatefees" else None,
+        })
+    except Exception as e:
+        logger.error(f"xdc_bridge_estimate_fee error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 
 def _get_fernet():
     """Return a Fernet instance keyed from SESSION_SECRET using PBKDF2 (stronger than SHA-256)."""

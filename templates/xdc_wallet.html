@@ -598,6 +598,49 @@
             <div class="alert" id="xswapAlert"></div>
         </div>
 
+        <!-- Bridge XDC G$ -> Celo G$ -->
+        <div class="card" style="border-color: rgba(167,139,250,0.35); background: linear-gradient(135deg, rgba(124,58,237,0.12), rgba(37,99,235,0.05));">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>🌉 Bridge G$ (XDC → Celo)</span>
+                <span style="font-size:0.72rem;color:rgba(255,255,255,0.55);font-weight:600;">LayerZero Bridge</span>
+            </div>
+
+            <div class="info-box" style="margin-bottom:0.9rem;">
+                Bridge your <strong>G$ on XDC</strong> to <strong>G$ on Celo</strong> using the official GoodDollar bridge contract.
+                This flow will submit up to two transactions: <em>approve</em> (if needed), then <em>bridgeTo</em>.
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label">Amount (G$ on XDC)</label>
+                    <div class="amount-row">
+                        <input class="form-input" id="bridgeAmountXdcToCelo" type="number" min="0.000000000000000001" step="any" placeholder="0.00" oninput="scheduleBridgeFeeEstimate()">
+                        <button class="max-btn" onclick="setBridgeMax()">MAX</button>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label class="form-label">Bridge Fee (XDC)</label>
+                    <input class="form-input" id="bridgeFeeXdcToCelo" type="number" min="0.000001" step="0.000001" value="0.005">
+                </div>
+            </div>
+
+            <div class="info-box" style="margin-bottom:0.75rem;">
+                Destination wallet: <code id="bridgeDestinationWallet" style="color:#c4b5fd;">{{ wallet }}</code><br>
+                Destination chain: <strong>Celo Mainnet (Chain ID 42220)</strong><br>
+                Fee source: <span id="bridgeFeeSource" style="color:#bfdbfe;">manual</span>
+            </div>
+
+            <div style="display:flex;gap:0.6rem;flex-wrap:wrap;">
+                <button class="send-btn" id="btnBridgeEstimateFee" onclick="estimateBridgeFeeXdcToCelo()" style="margin:0;flex:1 1 180px;background:linear-gradient(135deg,#0ea5e9,#0369a1);">
+                    Estimate Fee
+                </button>
+                <button class="send-btn" id="btnBridgeXdcToCelo" onclick="bridgeXdcToCelo()" style="margin:0;flex:1 1 220px;background:linear-gradient(135deg,#7c3aed,#5b21b6);">
+                    Bridge to Celo
+                </button>
+            </div>
+            <div class="alert" id="bridgeAlertXdcToCelo"></div>
+        </div>
+
         <!-- Transaction History -->
         <div class="card">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -636,6 +679,8 @@
         const XSWAP_V2_ROUTER = "0xf9c5E4f6E627201aB2d6FB6391239738Cf4bDcf9";
         const WXDC_ADDRESS = "0x951857744785E80e2De051c32EE7b25f9c458C42";
         const XDC_GD_TOKEN = "0xEC2136843a983885AebF2feB3931F73A8eBEe50c";
+        const XDC_CELO_BRIDGE = "0xa3247276DbCC76Dd7705273f766eB3E8a5ecF4a5";
+        const CELO_CHAIN_ID = 42220;
         const XSWAP_ROUTER_ABI = [
             "function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)",
             "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
@@ -644,6 +689,9 @@
         const ERC20_ABI = [
             "function approve(address spender, uint256 value) external returns (bool)",
             "function allowance(address owner, address spender) external view returns (uint256)"
+        ];
+        const BRIDGE_ABI = [
+            "function bridgeTo(address target, uint256 targetChainId, uint256 amount, address bridge) payable",
         ];
 
         function _providerLabel(provider) {
@@ -675,6 +723,7 @@
         let xswapDirection = "GD_TO_XDC";
         let xswapQuoteReady = false;
         let xswapQuoteData = null;
+        let bridgeFeeEstimateDebounce = null;
 
         async function loadBalances() {
             try {
@@ -716,6 +765,71 @@
             if (!el) return;
             el.className = 'alert';
             el.innerHTML = '';
+        }
+
+        function showBridgeAlert(type, msg) {
+            const el = document.getElementById('bridgeAlertXdcToCelo');
+            if (!el) return;
+            el.className = `alert ${type} show`;
+            el.innerHTML = msg;
+        }
+
+        function clearBridgeAlert() {
+            const el = document.getElementById('bridgeAlertXdcToCelo');
+            if (!el) return;
+            el.className = 'alert';
+            el.innerHTML = '';
+        }
+
+        function setBridgeMax() {
+            const gdText = (document.getElementById('gdXdcBalance').textContent || '0').replace(/[^\d.]/g, '');
+            const gdBal = parseFloat(gdText || '0') || 0;
+            document.getElementById('bridgeAmountXdcToCelo').value = gdBal > 0 ? gdBal.toFixed(6) : '0';
+            scheduleBridgeFeeEstimate();
+        }
+
+        function scheduleBridgeFeeEstimate() {
+            if (bridgeFeeEstimateDebounce) clearTimeout(bridgeFeeEstimateDebounce);
+            bridgeFeeEstimateDebounce = setTimeout(() => {
+                estimateBridgeFeeXdcToCelo(false);
+            }, 450);
+        }
+
+        async function estimateBridgeFeeXdcToCelo(showSuccessAlert = true) {
+            const amountStr = (document.getElementById('bridgeAmountXdcToCelo').value || '').trim() || '1';
+            const btn = document.getElementById('btnBridgeEstimateFee');
+            const feeInput = document.getElementById('bridgeFeeXdcToCelo');
+            const feeSourceEl = document.getElementById('bridgeFeeSource');
+            if (!btn || !feeInput || !feeSourceEl) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-inline"></span> Estimating...';
+            try {
+                const res = await fetch(`/api/xdc/bridge/estimate-fee?amount=${encodeURIComponent(amountStr)}`);
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'Fee estimation failed');
+                }
+
+                const feeXdc = parseFloat(data.bridge_fee_xdc || '0');
+                if (Number.isFinite(feeXdc) && feeXdc > 0) {
+                    feeInput.value = feeXdc.toFixed(6);
+                }
+                feeSourceEl.textContent = data.source === 'goodserver_estimatefees'
+                    ? 'goodserver estimatefees'
+                    : 'fallback default (manual check recommended)';
+                if (showSuccessAlert) {
+                    showBridgeAlert('alert-success', `✅ Estimated bridge fee: ${feeInput.value} XDC`);
+                }
+            } catch (err) {
+                feeSourceEl.textContent = 'manual';
+                if (showSuccessAlert) {
+                    showBridgeAlert('alert-error', '❌ Could not estimate fee automatically. You may still enter fee manually.');
+                }
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Estimate Fee';
+            }
         }
 
         function setXswapDirection(direction) {
@@ -879,6 +993,74 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = 'Swap Now';
+            }
+        }
+
+        async function bridgeXdcToCelo() {
+            clearBridgeAlert();
+            const btn = document.getElementById('btnBridgeXdcToCelo');
+            const amountStr = (document.getElementById('bridgeAmountXdcToCelo').value || '').trim();
+            const feeStr = (document.getElementById('bridgeFeeXdcToCelo').value || '').trim();
+
+            if (!amountStr || parseFloat(amountStr) <= 0) {
+                return showBridgeAlert('alert-error', '❌ Enter a valid bridge amount.');
+            }
+            if (!feeStr || parseFloat(feeStr) <= 0) {
+                return showBridgeAlert('alert-error', '❌ Enter a valid bridge fee in XDC.');
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-inline"></span> Preparing...';
+
+            try {
+                const amountWei = ethers.parseUnits(amountStr, 18);
+                const feeWei = ethers.parseUnits(feeStr, 18);
+                const toAddr = normalizeAddr(WALLET);
+
+                const erc20Iface = new ethers.Interface(ERC20_ABI);
+                const bridgeIface = new ethers.Interface(BRIDGE_ABI);
+                const readProvider = await _xswapReadProvider();
+                const gd = new ethers.Contract(XDC_GD_TOKEN, ERC20_ABI, readProvider);
+
+                btn.innerHTML = '<span class="spinner-inline"></span> Checking allowance...';
+                const allowance = await gd.allowance(toAddr, XDC_CELO_BRIDGE);
+                if (allowance < amountWei) {
+                    btn.innerHTML = '<span class="spinner-inline"></span> Approving G$...';
+                    const approveData = erc20Iface.encodeFunctionData('approve', [XDC_CELO_BRIDGE, ethers.MaxUint256]);
+                    const approveTx = await _sendXswapTx({ to: XDC_GD_TOKEN, data: approveData });
+                    showBridgeAlert(
+                        'alert-success',
+                        `✅ Approve submitted.<br><a class="tx-link" href="https://xdcscan.com/tx/${approveTx}" target="_blank" rel="noopener">View approve tx ↗ ${approveTx.substring(0,10)}...${approveTx.slice(-8)}</a>`
+                    );
+                }
+
+                btn.innerHTML = '<span class="spinner-inline"></span> Bridging to Celo...';
+                const bridgeData = bridgeIface.encodeFunctionData('bridgeTo', [
+                    toAddr,
+                    CELO_CHAIN_ID,
+                    amountWei,
+                    XDC_CELO_BRIDGE
+                ]);
+                const bridgeTx = await _sendXswapTx({
+                    to: XDC_CELO_BRIDGE,
+                    data: bridgeData,
+                    valueHex: ethers.toBeHex(feeWei)
+                });
+
+                showBridgeAlert(
+                    'alert-success',
+                    `✅ Bridge submitted to Celo!<br>
+                    <a class="tx-link" href="https://xdcscan.com/tx/${bridgeTx}" target="_blank" rel="noopener">View on XDCScan ↗ ${bridgeTx.substring(0,10)}...${bridgeTx.slice(-8)}</a><br>
+                    <span style="color:rgba(255,255,255,0.7);font-size:0.8rem;">Final mint on Celo may take a few minutes.</span>`
+                );
+                setTimeout(() => { loadBalances(); loadGDInfo(); loadHistory(); }, 4000);
+            } catch (err) {
+                let msg = err.message || 'Bridge failed';
+                if (err.code === 4001) msg = 'Bridge transaction rejected by user.';
+                showBridgeAlert('alert-error', '❌ ' + msg);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Bridge to Celo';
             }
         }
 
@@ -1417,6 +1599,7 @@
             loadBalances();
             loadHistory();
             loadGDInfo();
+            estimateBridgeFeeXdcToCelo(false);
         });
     </script>
 </body>
