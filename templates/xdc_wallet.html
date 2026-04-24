@@ -1046,22 +1046,23 @@
             if (!feeStr || parseFloat(feeStr) <= 0) {
                 return showBridgeAlert('alert-error', '❌ Enter a valid bridge fee in XDC.');
             }
-            if (bridgeFeeSourceState === 'fallback_default' && parseFloat(feeStr) <= BRIDGE_FALLBACK_FEE_XDC_TO_CELO) {
-                return showBridgeAlert(
-                    'alert-error',
-                    `❌ Current bridge fee is using fallback default (${BRIDGE_FALLBACK_FEE_XDC_TO_CELO.toFixed(6)} XDC). This can still be too low during congestion and may trigger wallet "network fee" alerts. Click Estimate Fee again, or set a slightly higher manual fee and retry.`
-                );
-            }
-
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-inline"></span> Preparing...';
 
             try {
                 const amountWei = ethers.parseUnits(amountStr, 18);
                 const feeWei = ethers.parseUnits(feeStr, 18);
+                const feeXdc = parseFloat(feeStr);
                 const toAddr = normalizeAddr(WALLET);
                 const recommendedGasReserveWei = ethers.parseUnits('0.0015', 18);
                 const minimumRequiredWei = feeWei + recommendedGasReserveWei;
+                let preflightWarning = '';
+
+                if (bridgeFeeSourceState === 'fallback_default' && feeXdc <= BRIDGE_FALLBACK_FEE_XDC_TO_CELO) {
+                    preflightWarning =
+                        `⚠️ Using fallback fee (${BRIDGE_FALLBACK_FEE_XDC_TO_CELO.toFixed(6)} XDC). ` +
+                        'If wallet shows a network fee warning, raise the bridge fee slightly and retry.';
+                }
 
                 const erc20Iface = new ethers.Interface(ERC20_ABI);
                 const bridgeIface = new ethers.Interface(BRIDGE_ABI);
@@ -1119,9 +1120,13 @@
                         const preflightMsg = preflightErr?.message || String(preflightErr || '');
                         const lowFeeHints = ['revert', 'fee', 'insufficient', 'underpriced', 'lz'];
                         if (lowFeeHints.some((hint) => preflightMsg.toLowerCase().includes(hint))) {
-                            throw new Error('Bridge pre-check failed: fee/value may be too low for current LayerZero cost. Re-estimate fee and retry with a slightly higher XDC fee.');
+                            preflightWarning =
+                                '⚠️ Wallet pre-check could not confirm current LayerZero fee. ' +
+                                'Bridge will still be sent using your manual fee. If wallet warns again, increase fee slightly.';
+                        } else {
+                            preflightWarning =
+                                '⚠️ Wallet pre-check could not be completed. Continuing with the bridge transaction anyway.';
                         }
-                        throw new Error('Bridge pre-check failed in wallet. Please retry, then increase bridge fee slightly if the wallet still shows a network fee alert.');
                     }
                 }
 
@@ -1157,7 +1162,7 @@
 
                 showBridgeAlert(
                     'alert-success',
-                    `✅ Bridge submitted to Celo!<br>
+                    `${preflightWarning ? `${preflightWarning}<br>` : ''}✅ Bridge submitted to Celo!<br>
                     <a class="tx-link" href="https://xdcscan.com/tx/${bridgeTx}" target="_blank" rel="noopener">View on XDCScan ↗ ${bridgeTx.substring(0,10)}...${bridgeTx.slice(-8)}</a><br>
                     <span style="color:rgba(255,255,255,0.7);font-size:0.8rem;">Final mint on Celo may take a few minutes.</span>`
                 );
