@@ -4138,9 +4138,9 @@ def get_collaboration_submissions():
         if not supabase:
             return jsonify({"success": False, "error": "Database not available"}), 500
 
-        status = (request.args.get('status') or '').strip()
+        status = (request.args.get('status') or '').strip().lower()
         query = supabase.table('collaboration_submissions').select('*').order('created_at', desc=True)
-        if status:
+        if status and status != 'for_review':
             query = query.eq('status', status)
         result = safe_supabase_operation(
             lambda: query.execute(),
@@ -4148,6 +4148,14 @@ def get_collaboration_submissions():
             operation_name="get collaboration submissions"
         )
         submissions = result.data or []
+
+        # Virtual filter for the admin review queue to hide already-finalized rows.
+        if status == 'for_review':
+            hidden_statuses = {'rejected', 'published'}
+            submissions = [
+                sub for sub in submissions
+                if (sub.get('status') or '').strip().lower() not in hidden_statuses
+            ]
         # Legacy-compat: older rows may use submission_id instead of id.
         for sub in submissions:
             if not sub.get('id') and sub.get('submission_id'):
