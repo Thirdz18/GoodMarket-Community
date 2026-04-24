@@ -94,6 +94,67 @@ def _coerce_bool(value) -> bool:
         return value != 0
     return False
 
+
+def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transaction reverted on XDC.") -> dict:
+    """Normalize XDC revert outputs into user-facing and technical fields."""
+    raw_msg = str(raw_message or "").strip()
+    parsed = ""
+    lower_msg = raw_msg.lower()
+
+    marker_idx = lower_msg.find("execution reverted:")
+    if marker_idx == -1:
+        marker_idx = lower_msg.find("revert")
+    if marker_idx != -1:
+        parsed = raw_msg[marker_idx:].split("\n")[0].strip()
+        if parsed.lower().startswith("execution reverted:"):
+            parsed = parsed.split(":", 1)[1].strip()
+        elif parsed.lower().startswith("revert"):
+            parsed = parsed[6:].strip(" :")
+    elif raw_msg:
+        parsed = raw_msg[:240]
+
+    selector_match = re.search(r"0x[a-fA-F0-9]{8}", parsed or raw_msg)
+    tuple_like = bool(re.search(r"\(\s*['\"]?0x[a-fA-F0-9]{8}['\"]?\s*,\s*['\"]?0x[a-fA-F0-9]{8}['\"]?\s*\)", parsed or raw_msg))
+    selector_only = bool(parsed and re.fullmatch(r"['\"]?0x[a-fA-F0-9]{8}['\"]?", parsed))
+
+    technical_details = None
+    user_reason = fallback_reason
+    if selector_match and (tuple_like or selector_only):
+        selector = selector_match.group(0).lower()
+        technical_details = f"Bridge custom error ({selector})"
+    elif parsed:
+        cleaned = parsed.strip()
+        if cleaned:
+            user_reason = cleaned
+        selector = selector_match.group(0).lower() if selector_match else None
+        if selector:
+            technical_details = f"Bridge custom error ({selector})"
+    else:
+        selector = selector_match.group(0).lower() if selector_match else None
+        if selector:
+            technical_details = f"Bridge custom error ({selector})"
+
+    return {
+        "reason": user_reason or fallback_reason,
+        "technical_details": technical_details,
+        "error_selector": selector_match.group(0).lower() if selector_match else None,
+        "raw_reason": parsed or raw_msg or None,
+    }
+
+
+def _extract_xdc_revert_reason(w3, call_obj: dict, replay_block: int, fallback_reason: str = "Transaction reverted on XDC.") -> dict:
+    """Replay a failed XDC call and normalize reason output."""
+    try:
+        w3.eth.call(call_obj, replay_block)
+        return {
+            "reason": fallback_reason,
+            "technical_details": None,
+            "error_selector": None,
+            "raw_reason": None,
+        }
+    except Exception as call_err:
+        return _parse_xdc_revert_message(str(call_err or ""), fallback_reason=fallback_reason)
+
 @routes.route('/api/daily-task/claim', methods=['POST'])
 @auth_required
 def claim_daily_task():
@@ -5592,28 +5653,21 @@ def xdc_tx_revert_reason(tx_hash):
         }
         replay_block = max(int(receipt.get("blockNumber", 0)) - 1, 0)
 
-        reason = "Transaction reverted (no reason returned)"
-        try:
-            w3.eth.call(call_obj, replay_block)
-        except Exception as call_err:
-            msg = str(call_err or "")
-            lower_msg = msg.lower()
-            marker_idx = lower_msg.find("execution reverted:")
-            if marker_idx == -1:
-                marker_idx = lower_msg.find("revert")
-            if marker_idx != -1:
-                parsed = msg[marker_idx:].strip()
-                parsed = parsed.split("\n")[0].strip()
-                reason = parsed.split(" (")[0].strip()
-            elif msg:
-                reason = msg[:240]
+        reason_data = _extract_xdc_revert_reason(
+            w3,
+            call_obj,
+            replay_block,
+            fallback_reason="Transaction reverted on XDC."
+        )
 
         return jsonify({
             "success": True,
             "found": True,
             "status": "failed",
             "reverted": True,
-            "reason": reason,
+            "reason": reason_data.get("reason"),
+            "technical_details": reason_data.get("technical_details"),
+            "error_selector": reason_data.get("error_selector"),
             "tx_hash": tx_hash,
             "block_number": receipt.get("blockNumber"),
         })
@@ -7077,24 +7131,6 @@ def server_sign_tx():
     if not to_addr:
         return jsonify({"success": False, "error": "to address required"}), 400
 
-    def _get_revert_reason(w3, from_addr, to, data, value, block_number):
-        """Replay a failed call to extract the revert reason."""
-        try:
-            w3.eth.call({"from": from_addr, "to": to, "data": data, "value": value}, block_number)
-            return "Transaction reverted (no reason returned)"
-        except Exception as exc:
-            msg = str(exc)
-            # Parse "execution reverted: STF" or similar formats
-            for marker in ("execution reverted:", "revert"):
-                idx = msg.lower().find(marker)
-                if idx != -1:
-                    reason = msg[idx:].strip()
-                    # Remove hex data suffix if present
-                    for sep in (" (", "\n"):
-                        reason = reason.split(sep)[0]
-                    return reason
-            return msg[:200]
-
     try:
         from web3 import Web3
         from blockchain import XDC_RPC, XDC_CHAIN_ID as XDC_CID
@@ -7133,9 +7169,23 @@ def server_sign_tx():
             if wait_receipt:
                 receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
                 if receipt.get("status") == 0:
-                    reason = _get_revert_reason(w3, from_addr, checksum_to, tx_data, value_int, receipt["blockNumber"])
-                    logger.error(f"server_sign_tx revert: {reason} tx={tx_hash.hex()}")
-                    return jsonify({"success": False, "error": reason, "tx_hash": "0x" + tx_hash.hex()}), 400
+                    reason_data = _extract_xdc_revert_reason(
+                        w3,
+                        {"from": from_addr, "to": checksum_to, "data": tx_data, "value": value_int},
+                        receipt["blockNumber"],
+                        fallback_reason="Transaction reverted on XDC."
+                    )
+                    logger.error(
+                        f"server_sign_tx revert: {reason_data.get('reason')} "
+                        f"selector={reason_data.get('error_selector')} tx={tx_hash.hex()}"
+                    )
+                    return jsonify({
+                        "success": False,
+                        "error": reason_data.get("reason"),
+                        "technical_details": reason_data.get("technical_details"),
+                        "error_selector": reason_data.get("error_selector"),
+                        "tx_hash": "0x" + tx_hash.hex()
+                    }), 400
             return jsonify({"success": True, "tx_hash": "0x" + tx_hash.hex()})
 
         else:  # turnkey
@@ -7171,9 +7221,23 @@ def server_sign_tx():
             if wait_receipt:
                 receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
                 if receipt.get("status") == 0:
-                    reason = _get_revert_reason(w3, from_addr, checksum_to, tx_data, value_int, receipt["blockNumber"])
-                    logger.error(f"server_sign_tx revert: {reason} tx={tx_hash.hex()}")
-                    return jsonify({"success": False, "error": reason, "tx_hash": "0x" + tx_hash.hex()}), 400
+                    reason_data = _extract_xdc_revert_reason(
+                        w3,
+                        {"from": from_addr, "to": checksum_to, "data": tx_data, "value": value_int},
+                        receipt["blockNumber"],
+                        fallback_reason="Transaction reverted on XDC."
+                    )
+                    logger.error(
+                        f"server_sign_tx revert: {reason_data.get('reason')} "
+                        f"selector={reason_data.get('error_selector')} tx={tx_hash.hex()}"
+                    )
+                    return jsonify({
+                        "success": False,
+                        "error": reason_data.get("reason"),
+                        "technical_details": reason_data.get("technical_details"),
+                        "error_selector": reason_data.get("error_selector"),
+                        "tx_hash": "0x" + tx_hash.hex()
+                    }), 400
             return jsonify({"success": True, "tx_hash": "0x" + tx_hash.hex()})
 
     except Exception as e:

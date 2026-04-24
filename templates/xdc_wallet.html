@@ -988,16 +988,28 @@
                     const statusHex = String(receipt.status || '').toLowerCase();
                     const successStatuses = new Set(['0x1', '1']);
                     if (!successStatuses.has(statusHex)) {
-                        let reasonMsg = '';
+                        let cleanReason = 'Transaction reverted on XDC.';
+                        let technicalDetails = '';
                         try {
                             const reasonRes = await fetch(`/api/xdc/tx-revert-reason/${encodeURIComponent(txHash)}`);
                             const reasonData = await reasonRes.json();
-                            if (reasonRes.ok && reasonData && reasonData.reason) {
-                                reasonMsg = ` Reason: ${reasonData.reason}`;
+                            if (reasonRes.ok && reasonData) {
+                                if (reasonData.reason) cleanReason = reasonData.reason;
+                                if (reasonData.technical_details) {
+                                    technicalDetails = reasonData.technical_details;
+                                } else if (reasonData.error_selector) {
+                                    technicalDetails = `Bridge custom error (${reasonData.error_selector})`;
+                                }
                             }
                         } catch (_ignore) {}
+                        const supportDetails = [];
+                        if (technicalDetails) supportDetails.push(technicalDetails);
+                        if (txHash) supportDetails.push(`tx: ${txHash}`);
+                        const detailsSuffix = supportDetails.length
+                            ? ` Technical details: ${supportDetails.join(' | ')}.`
+                            : '';
                         throw new Error(
-                            `Transaction reverted on XDC. Hash: ${txHash}.${reasonMsg}`
+                            `${cleanReason}${detailsSuffix}`
                         );
                     }
                     return receipt;
