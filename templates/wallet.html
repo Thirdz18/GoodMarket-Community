@@ -2551,7 +2551,7 @@
             setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
 
             try {
-                await ensureGasReadyBeforeClaim({ forceOnchain: true });
+                await ensureGasReadyBeforeClaim();
             } catch (e) {
                 btn.disabled = false;
                 label.textContent = 'Claim G$';
@@ -2692,14 +2692,28 @@
                 return { gasReady: true, toppedUp: false, source: 'wallet_balance' };
             }
 
+            const requestFaucetGas = async (forceFlag) => {
+                const gasRes = await fetch('/api/faucet/gas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                    body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: !!forceFlag })
+                });
+                const gasData = await gasRes.json();
+                return {
+                    gasData,
+                    terminal: gasData.terminal_status || gasData.status
+                };
+            };
+
             setClaimGasUiState('requesting_faucet');
-            const gasRes = await fetch('/api/faucet/gas', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
-                body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: forceOnchain })
-            });
-            const gasData = await gasRes.json();
-            const terminal = gasData.terminal_status || gasData.status;
+            let { gasData, terminal } = await requestFaucetGas(forceOnchain);
+
+            // Match XDC policy: if blocked by recent-refill cooldown on the first
+            // API-first attempt, retry once with force_onchain=true as an explicit
+            // fallback path.
+            if (!forceOnchain && terminal === 'recent_refill' && !gasData.gas_ready) {
+                ({ gasData, terminal } = await requestFaucetGas(true));
+            }
 
             if (!gasData.success && !gasData.gas_ready) {
                 throw new Error(gasData.error || gasData.reason || 'Faucet unavailable.');
@@ -2758,7 +2772,7 @@
                 const gasSnap = await getProviderGasSnapshot(provider);
                 if (!gasSnap.gasReady) {
                     setStatus('Checking wallet gas…', 'var(--text-dim)');
-                    await ensureGasReadyBeforeClaim({ forceOnchain: true });
+                    await ensureGasReadyBeforeClaim();
                 } else {
                     setClaimGasUiState('gas_ready');
                 }
@@ -2801,7 +2815,7 @@
                 let finalGasSnap = await getProviderGasSnapshot(provider);
                 if (!finalGasSnap.gasReady) {
                     setStatus('Gas changed while preparing tx. Retrying faucet top-up…', 'var(--text-dim)');
-                    await ensureGasReadyBeforeClaim({ forceOnchain: true });
+                    await ensureGasReadyBeforeClaim();
                     finalGasSnap = await getProviderGasSnapshot(provider);
                     if (!finalGasSnap.gasReady) {
                         throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
@@ -2815,7 +2829,7 @@
                     // Automatic one-time recovery for the common -32000 insufficient funds race.
                     if (!isInsufficientFundsError(sendErr)) throw sendErr;
                     setStatus('Gas became insufficient at send time. Re-running faucet fallback once…', '#facc15');
-                    await ensureGasReadyBeforeClaim({ forceOnchain: true });
+                    await ensureGasReadyBeforeClaim();
                     txHash = await sendClaimTransaction(provider, from);
                 }
                 label.textContent = 'Confirming…';
