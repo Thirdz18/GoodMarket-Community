@@ -5824,7 +5824,11 @@ def ubi_entitlement():
         if force:
             invalidate_entitlement_cache(wallet)
         result = get_ubi_entitlement(wallet)
-        return jsonify(result)
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, private"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         logger.error(f"UBI entitlement route error: {e}")
         return jsonify({"success": False, "error": str(e), "entitlement": 0, "can_claim": False}), 500
@@ -5848,7 +5852,11 @@ def fv_status():
         if force:
             invalidate_fv_expiry_cache(wallet)
         result = get_identity_expiry(wallet)
-        return jsonify(result)
+        response = jsonify(result)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, private"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
     except Exception as e:
         logger.error(f"FV status route error: {e}")
         return jsonify({

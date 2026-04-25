@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>GoodMarket</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="theme-color" content="#050510">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1474,7 +1477,9 @@
             push(window.ethereum);
         }
         if (window.trustwallet) push(window.trustwallet);
+        if (window.trustwallet && window.trustwallet.ethereum) push(window.trustwallet.ethereum);
         if (window.trustWallet) push(window.trustWallet);
+        if (window.trustWallet && window.trustWallet.ethereum) push(window.trustWallet.ethereum);
         for (const detail of _eip6963Providers()) push(detail.provider);
         return out;
     }
@@ -1510,6 +1515,11 @@
             return rdns.includes('trustwallet') || name.includes('trust');
         });
         if (trustBy6963 && trustBy6963.provider) return trustBy6963.provider;
+
+        // MiniPay can co-exist with other injections in Opera/Android webviews.
+        // Prefer it explicitly so Claim/Send uses the in-app dApp wallet.
+        const miniPay = candidates.find(p => p && p.isMiniPay);
+        if (miniPay) return miniPay;
 
         // Preserve existing MetaMask preference for multi-provider setups
         // (e.g. MetaMask + Brave or MetaMask + Coinbase both injecting).
@@ -1558,6 +1568,16 @@
         return null;
     }
 
+    // Compatibility helper used in other GoodMarket templates. Keeping the
+    // `_v*` aliases here makes wallet provider selection behavior consistent.
+    function _vGetEthProvider() {
+        return _getEthProvider();
+    }
+
+    async function _vAwaitEthProvider(timeoutMs) {
+        return _awaitEthProvider(timeoutMs);
+    }
+
     // Diagnostic: open the claim page inside the failing wallet's dApp browser,
     // then in the console call `window._gmDebugDumpWallets()` to see exactly
     // what the page sees. Useful when reports like "Trust Wallet doesn't work"
@@ -1581,6 +1601,8 @@
             ethereumIsMiniPay: !!(window.ethereum && window.ethereum.isMiniPay),
             hasWindowTrustwallet: !!window.trustwallet,
             hasWindowTrustWallet: !!window.trustWallet,
+            hasWindowTrustwalletEthereum: !!(window.trustwallet && window.trustwallet.ethereum),
+            hasWindowTrustWalletEthereum: !!(window.trustWallet && window.trustWallet.ethereum),
             nestedProvidersLength: (window.ethereum && Array.isArray(window.ethereum.providers))
                 ? window.ethereum.providers.length : 0,
             eip6963Count: info6963.length,
@@ -2134,7 +2156,7 @@
 
             let txHash = null;
             if (!window.useServerSigning) {
-                const provider = await _awaitEthProvider();
+                const provider = await _vAwaitEthProvider();
                 if (!provider) throw new Error('No wallet detected. Please connect your GoodMarket wallet.');
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
@@ -2523,7 +2545,7 @@
             // Always force-bypass the backend cache on the first check.
             // Stale cache (up to 3 min) caused "Already Claimed Today" to appear for
             // wallets whose face-verification status had just changed.
-            fetch('/api/ubi-entitlement?force=1')
+            fetch('/api/ubi-entitlement?force=1', { cache: 'no-store' })
                 .then(r => r.json())
                 .then(d => {
                     // Guard: if the session wallet changed (user switched wallets),
@@ -2774,7 +2796,7 @@
                 });
             };
 
-            const provider = await _awaitEthProvider();
+            const provider = await _vAwaitEthProvider();
             if (!provider) {
                 setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
                 return;
@@ -2968,7 +2990,7 @@
         }
 
         async function signWithWallet(address) {
-            const provider = await _awaitEthProvider();
+            const provider = await _vAwaitEthProvider();
             if (!provider) {
                 throw new Error('No wallet detected. Open this page in MiniPay, MetaMask, Trust Wallet, or WalletConnect.');
             }
@@ -3031,7 +3053,7 @@
         }
 
         async function signWithWalletConnect(address) {
-            const provider = _getWalletConnectProvider() || (await _awaitEthProvider());
+            const provider = _getWalletConnectProvider() || (await _vAwaitEthProvider());
             if (!provider) {
                 throw new Error('WalletConnect signer unavailable. Reconnect your wallet and try again.');
             }
