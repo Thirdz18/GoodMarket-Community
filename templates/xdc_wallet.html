@@ -1946,6 +1946,7 @@
                 const expectedWallet = WALLET ? normalizeAddr(WALLET).toLowerCase() : '';
                 let requiredBal = 0;
                 let currentBal = 0;
+                let gasRequestedFromFaucet = false;
 
                 btnText.textContent = '⏳ Checking XDC gas...';
                 const preGasRes = await fetch('/api/xdc/faucet/gas', {
@@ -1958,6 +1959,7 @@
                 currentBal = Number(preGasData.balance_xdc || 0);
 
                 if (!preGasData.gas_ready) {
+                    gasRequestedFromFaucet = true;
                     let topupData = preGasData;
                     const preTerminalStatus = preGasData.terminal_status || preGasData.status || 'unknown';
 
@@ -2006,6 +2008,17 @@
                             `${gasHint} Please top up your wallet and retry.`
                         );
                     }
+                }
+
+                if (gasRequestedFromFaucet) {
+                    btnText.textContent = '🔄 Refresh then claim again';
+                    setAlert(
+                        'alert-success',
+                        '⛽ <strong>Gas request sent from GoodDollar faucet.</strong><br>' +
+                        'This step only tops up gas (hindi pa ito ang G$ claim).<br>' +
+                        'Please refresh this page, then click <strong>Claim G$ on XDC</strong> again.'
+                    );
+                    return;
                 }
 
                 btnText.textContent = '⏳ Confirming wallet balance...';
