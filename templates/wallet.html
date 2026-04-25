@@ -2353,6 +2353,8 @@
     // ── UBI Claim ─────────────────────────────────────────────
     (function() {
         const UBI_CONTRACT  = '0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1';
+        const XDC_UBI_CONTRACT = '0x22867567E2D80f2049200E25C6F31CB6Ec2F0faf';
+        const XDC_CHAIN_ID_HEX = '0x32';
         const CLAIM_DATA    = '0x4e71d92d';
         const SESSION_WALLET = WALLET.toLowerCase();
         let claimed = false;
@@ -2368,6 +2370,67 @@
         function setStatus(msg, color) {
             status.innerHTML = msg;
             status.style.color = color || 'var(--text-dim)';
+        }
+
+        function appendStatusLine(msg, color) {
+            const safeMsg = (msg || '').toString();
+            const current = status.innerHTML || '';
+            status.innerHTML = current ? `${current}<br>${safeMsg}` : safeMsg;
+            if (color) status.style.color = color;
+        }
+
+        async function claimXdcServerSide() {
+            const res = await fetch('/api/server/sign-tx', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chain_id: 50 })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success || !data.tx_hash) {
+                throw new Error(data.error || 'XDC claim failed');
+            }
+            return data.tx_hash;
+        }
+
+        async function claimXdcInjected(provider, from) {
+            const currentChain = await provider.request({ method: 'eth_chainId' });
+            const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
+            if (normalizedCurrentChain !== XDC_CHAIN_ID_HEX) {
+                try {
+                    await provider.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: XDC_CHAIN_ID_HEX }]
+                    });
+                } catch (switchErr) {
+                    if (switchErr && switchErr.code === 4001) {
+                        throw new Error('XDC network switch was cancelled.');
+                    }
+                    if (switchErr && switchErr.code !== 4902) {
+                        throw new Error(switchErr.message || 'Could not switch to XDC network.');
+                    }
+                    try {
+                        await provider.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: XDC_CHAIN_ID_HEX,
+                                chainName: 'XDC Network',
+                                rpcUrls: ['https://erpc.xinfin.network'],
+                                nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+                                blockExplorerUrls: ['https://xdcscan.com']
+                            }]
+                        });
+                    } catch (addErr) {
+                        if (addErr && addErr.code === 4001) {
+                            throw new Error('Adding XDC network was cancelled.');
+                        }
+                        throw new Error((addErr && addErr.message) || 'Could not add XDC network.');
+                    }
+                }
+            }
+            return provider.request({
+                method: 'eth_sendTransaction',
+                params: [{ from, to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chainId: XDC_CHAIN_ID_HEX }]
+            });
         }
 
         function getNextResetMs() {
@@ -2430,7 +2493,7 @@
                 _hideReVerifyHint();
                 needsVerification = false;
                 window._walletNeedsFV = false;
-                label.textContent = 'Claim ' + d.entitlement_formatted + ' G$';
+                label.textContent = 'Claim ' + d.entitlement_formatted + ' G$ (Celo + XDC)';
                 icon.textContent = '🪙';
                 btn.style.background = '';
                 btn.disabled = false;
@@ -2569,15 +2632,39 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chain_id: 42220 })
             }).then(r => r.json()).then(d => {
-                if (!d.success) throw new Error(d.error || 'Claim failed');
+                if (!d.success) throw new Error(d.error || 'Celo claim failed');
                 label.textContent = 'Confirming…';
-                setStatus('Transaction sent! Waiting for confirmation…', 'var(--text-dim)');
+                setStatus('✅ Celo claim submitted. Waiting for confirmation…', 'var(--text-dim)');
                 pollReceipt(d.tx_hash, 20);
+                appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
+                return claimXdcServerSide()
+                    .then((xdcTxHash) => {
+                        appendStatusLine(
+                            `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
+                            '#86efac'
+                        );
+                    })
+                    .catch((xdcErr) => {
+                        appendStatusLine(`⚠️ XDC claim failed: ${(xdcErr && xdcErr.message) || 'Unknown error'}`, '#fbbf24');
+                    });
             }).catch(err => {
-                btn.disabled = false;
-                label.textContent = 'Claim G$';
-                icon.textContent = '🪙';
-                setStatus('Error: ' + (err.message || 'Claim failed'), 'var(--red)');
+                appendStatusLine('⚠️ Celo claim failed. Trying XDC claim anyway…', '#fbbf24');
+                claimXdcServerSide()
+                    .then((xdcTxHash) => {
+                        appendStatusLine(
+                            `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
+                            '#86efac'
+                        );
+                    })
+                    .catch((xdcErr) => {
+                        appendStatusLine(`❌ XDC claim failed: ${(xdcErr && xdcErr.message) || 'Unknown error'}`, 'var(--red)');
+                    })
+                    .finally(() => {
+                        btn.disabled = false;
+                        label.textContent = 'Claim G$';
+                        icon.textContent = '🪙';
+                        appendStatusLine('❌ Celo claim failed: ' + (err.message || 'Claim failed'), 'var(--red)');
+                    });
             });
         }
 
@@ -2833,15 +2920,46 @@
                     txHash = await sendClaimTransaction(provider, from);
                 }
                 label.textContent = 'Confirming…';
-                setStatus('Transaction sent! Waiting for confirmation…', 'var(--text-dim)');
+                setStatus('✅ Celo claim submitted. Waiting for confirmation…', 'var(--text-dim)');
                 pollReceipt(txHash, 20);
+
+                appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
+                try {
+                    const xdcTxHash = await claimXdcInjected(provider, from);
+                    appendStatusLine(
+                        `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
+                        '#86efac'
+                    );
+                } catch (xdcErr) {
+                    const rawXdc = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
+                    const xdcMsg = (rawXdc || '').toLowerCase().includes('user rejected') ? 'XDC transaction cancelled.' : rawXdc;
+                    appendStatusLine('⚠️ ' + xdcMsg, '#fbbf24');
+                }
             } catch (err) {
-                btn.disabled = false;
-                label.textContent = 'Claim G$';
-                icon.textContent = '🪙';
                 const raw = (err && (err.shortMessage || err.message)) || 'Claim failed';
                 const msg = (raw || '').toLowerCase().includes('user rejected') ? 'Transaction cancelled.' : raw;
-                setStatus('Error: ' + msg, 'var(--red)');
+                appendStatusLine('⚠️ Celo claim failed. Trying XDC claim anyway…', '#fbbf24');
+                try {
+                    const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                    if (accounts && accounts.length) {
+                        const from = accounts[0];
+                        if (from.toLowerCase() === WALLET.toLowerCase()) {
+                            const xdcTxHash = await claimXdcInjected(provider, from);
+                            appendStatusLine(
+                                `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
+                                '#86efac'
+                            );
+                        }
+                    }
+                } catch (xdcErr) {
+                    const xdcRaw = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
+                    appendStatusLine('❌ ' + xdcRaw, 'var(--red)');
+                } finally {
+                    btn.disabled = false;
+                    label.textContent = 'Claim G$';
+                    icon.textContent = '🪙';
+                    appendStatusLine('❌ Celo claim failed: ' + msg, 'var(--red)');
+                }
             }
         }
 
