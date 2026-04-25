@@ -1943,51 +1943,96 @@
                     }
                 }
 
+                const expectedWallet = WALLET ? normalizeAddr(WALLET).toLowerCase() : '';
+                let requiredBal = 0;
+                let currentBal = 0;
+
                 btnText.textContent = '⏳ Checking XDC gas...';
-                const gasRes = await fetch('/api/xdc/faucet/gas', {
+                const preGasRes = await fetch('/api/xdc/faucet/gas', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wallet: WALLET, force_onchain: true })
+                    body: JSON.stringify({ wallet: WALLET, force_onchain: false })
                 });
-                const gasData = await gasRes.json();
-                const terminalStatus = gasData.terminal_status || gasData.status || 'unknown';
-                if (!gasData.success || !gasData.gas_ready) {
-                    const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
-                    const currentBal = Number(gasData.balance_xdc || 0);
-                    const requiredBal = Number(gasData.required_gas_xdc || 0);
-                    const gasHint = (
-                        Number.isFinite(currentBal) &&
-                        Number.isFinite(requiredBal) &&
-                        requiredBal > 0
-                    )
-                        ? ` Current: ${currentBal.toFixed(6)} XDC, required: ${requiredBal.toFixed(6)} XDC.`
-                        : '';
+                const preGasData = await preGasRes.json();
+                requiredBal = Number(preGasData.required_gas_xdc || 0);
+                currentBal = Number(preGasData.balance_xdc || 0);
 
-                    if (terminalStatus === 'recent_refill') {
-                        throw new Error(`Gas refill cooldown active (${cooldown}s). Please retry after cooldown.`);
+                if (!preGasData.gas_ready) {
+                    let topupData = preGasData;
+                    const preTerminalStatus = preGasData.terminal_status || preGasData.status || 'unknown';
+
+                    // /api/xdc/faucet/gas with force_onchain:false already attempts top-up in most cases.
+                    // Only retry with force_onchain:true when blocked by recent-refill cooldown.
+                    if (preTerminalStatus === 'recent_refill') {
+                        btnText.textContent = '⏳ Requesting XDC faucet top-up...';
+                        const topupRes = await fetch('/api/xdc/faucet/gas', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ wallet: WALLET, force_onchain: true })
+                        });
+                        topupData = await topupRes.json();
                     }
-                    if (terminalStatus === 'not_configured') {
+
+                    const terminalStatus = topupData.terminal_status || topupData.status || 'unknown';
+                    const cooldown = Number(topupData.recent_refill_cooldown_seconds || 0);
+                    currentBal = Number(topupData.balance_xdc || currentBal || 0);
+                    requiredBal = Number(topupData.required_gas_xdc || requiredBal || 0);
+
+                    if (!topupData.gas_ready) {
+                        const gasHint = (
+                            Number.isFinite(currentBal) &&
+                            Number.isFinite(requiredBal) &&
+                            requiredBal > 0
+                        )
+                            ? ` Current: ${currentBal.toFixed(6)} XDC, required: ${requiredBal.toFixed(6)} XDC.`
+                            : '';
+
+                        if (terminalStatus === 'recent_refill') {
+                            throw new Error(`Gas refill cooldown active (${cooldown}s). Please retry after cooldown.`);
+                        }
+                        if (terminalStatus === 'not_configured') {
+                            throw new Error(
+                                `XDC faucet is not configured right now. Please top up your wallet manually and retry.${gasHint}`
+                            );
+                        }
+                        if (terminalStatus === 'onchain_failed') {
+                            throw new Error(
+                                `${topupData.error || topupData.reason || 'XDC faucet top-up failed.'}` +
+                                `${gasHint} Retry after a few seconds. If unchanged, manual top-up is needed.`
+                            );
+                        }
                         throw new Error(
-                            `XDC faucet is not configured right now. Please top up your wallet manually and retry.${gasHint}`
+                            `${topupData.error || topupData.reason || 'Insufficient XDC gas.'}` +
+                            `${gasHint} Please top up your wallet and retry.`
                         );
                     }
-                    if (terminalStatus === 'onchain_failed') {
-                        throw new Error(
-                            `${gasData.error || gasData.reason || 'XDC faucet top-up failed.'}` +
-                            `${gasHint} Retry after a few seconds. If unchanged, manual top-up is needed.`
-                        );
-                    }
+                }
+
+                btnText.textContent = '⏳ Confirming wallet balance...';
+                const connectedAccounts = await ep.request({ method: 'eth_requestAccounts' });
+                if (!Array.isArray(connectedAccounts) || connectedAccounts.length === 0) {
+                    throw new Error('Wallet not connected. Please connect your wallet first, then retry.');
+                }
+                const connectedAddress = normalizeAddr(String(connectedAccounts[0] || '')).toLowerCase();
+                if (expectedWallet && connectedAddress && connectedAddress !== expectedWallet) {
                     throw new Error(
-                        `${gasData.error || gasData.reason || 'Insufficient XDC gas.'}` +
-                        `${gasHint} Please top up your wallet and retry.`
+                        `Connected wallet mismatch. Connected: ${connectedAddress}, expected: ${expectedWallet}.`
                     );
                 }
 
-                btnText.textContent = '⏳ Requesting accounts...';
-                const accounts = await ep.request({ method: 'eth_requestAccounts' });
-                const from = accounts[0];
+                const walletBalanceHex = await ep.request({
+                    method: 'eth_getBalance',
+                    params: [connectedAccounts[0], 'latest']
+                });
+                const walletBalance = Number(ethers.formatEther(walletBalanceHex || '0x0'));
+                if (Number.isFinite(requiredBal) && requiredBal > 0 && walletBalance < requiredBal) {
+                    throw new Error(
+                        `XDC balance still insufficient after faucet attempt. Current: ${walletBalance.toFixed(6)} XDC, required: ${requiredBal.toFixed(6)} XDC.`
+                    );
+                }
 
                 btnText.textContent = `⏳ Confirm in ${walletName}...`;
+                const from = connectedAccounts[0];
 
                 // Call UBIScheme.claim() — function selector: keccak256("claim()") = 0x4e71d92d
                 const txHash = await ep.request({
