@@ -13,6 +13,7 @@ import time
 import urllib.request
 import urllib.error
 import uuid
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from datetime import datetime, timedelta, timezone
 import re
 from collaboration_automation import (
@@ -204,7 +205,7 @@ def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transact
     }
 
 
-def _parse_bridge_fee_candidate_xdc(candidate) -> float | None:
+def _parse_bridge_fee_candidate_xdc(candidate) -> Decimal | None:
     """Parse bridge fee candidate into decimal XDC, auto-detecting wei-like integer payloads."""
     if candidate is None:
         return None
@@ -213,27 +214,27 @@ def _parse_bridge_fee_candidate_xdc(candidate) -> float | None:
             return None
 
         if isinstance(candidate, (int, float)):
-            numeric = float(candidate)
+            numeric = Decimal(str(candidate))
         elif isinstance(candidate, str):
             txt = candidate.strip()
             if not txt:
                 return None
             if txt.startswith(("0x", "0X")):
-                numeric = float(int(txt, 16))
+                numeric = Decimal(int(txt, 16))
             else:
-                numeric = float(txt)
+                numeric = Decimal(txt)
         else:
             return None
 
-        if not (numeric > 0):
+        if numeric <= 0:
             return None
 
         # Some APIs return wei (e.g., "1617600000000000000") instead of decimal XDC.
         # Detect very large integer-like numbers and normalize to XDC units.
-        if numeric >= 1e9:
-            return numeric / (10 ** 18)
+        if numeric >= Decimal("1e9"):
+            return numeric / Decimal("1e18")
         return numeric
-    except Exception:
+    except (InvalidOperation, ValueError, TypeError):
         return None
 
 
@@ -6281,10 +6282,10 @@ def xdc_bridge_estimate_fee():
             return jsonify({"success": False, "error": "Invalid chain ids or amount"}), 400
 
         fallback_fees = {
-            (50, 42220): 1.6176,   # XDC -> Celo
-            (42220, 50): 0.1151,   # Celo -> XDC
+            (50, 42220): Decimal("1.6176"),   # XDC -> Celo
+            (42220, 50): Decimal("0.1151"),   # Celo -> XDC
         }
-        default_fee_xdc = fallback_fees.get((source_chain_id_val, target_chain_id_val), 1.6176)
+        default_fee_xdc = fallback_fees.get((source_chain_id_val, target_chain_id_val), Decimal("1.6176"))
         fee_source = "fallback_default"
         bridge_fee_xdc = default_fee_xdc
         raw_payload = None
@@ -6364,22 +6365,26 @@ def xdc_bridge_estimate_fee():
 
         # Add a safety buffer so UI defaults are less likely to underpay rapidly changing
         # LayerZero route requirements between estimation and submission.
-        safety_multiplier = 1.25 if fee_source == "fallback_default" else 1.15
-        minimum_extra_xdc = 0.05
+        safety_multiplier = Decimal("1.25") if fee_source == "fallback_default" else Decimal("1.15")
+        minimum_extra_xdc = Decimal("0.05")
         recommended_bridge_fee_xdc = max(
             bridge_fee_xdc * safety_multiplier,
             bridge_fee_xdc + minimum_extra_xdc
         )
+        bridge_fee_wei = int((recommended_bridge_fee_xdc * Decimal("1e18")).to_integral_value(rounding=ROUND_CEILING))
+        estimated_fee_wei = int((bridge_fee_xdc * Decimal("1e18")).to_integral_value(rounding=ROUND_CEILING))
 
         return jsonify({
             "success": True,
             "source_chain_id": source_chain_id_val,
             "target_chain_id": target_chain_id_val,
             "amount": amount_val,
-            "bridge_fee_xdc": recommended_bridge_fee_xdc,
-            "bridge_fee_wei": str(int(recommended_bridge_fee_xdc * (10 ** 18))),
-            "estimated_bridge_fee_xdc": bridge_fee_xdc,
-            "recommended_bridge_fee_xdc": recommended_bridge_fee_xdc,
+            "bridge_fee_xdc": float(recommended_bridge_fee_xdc),
+            "bridge_fee_wei": str(bridge_fee_wei),
+            "estimated_bridge_fee_xdc": float(bridge_fee_xdc),
+            "estimated_bridge_fee_wei": str(estimated_fee_wei),
+            "recommended_bridge_fee_xdc": float(recommended_bridge_fee_xdc),
+            "recommended_bridge_fee_wei": str(bridge_fee_wei),
             "source": fee_source,
             "raw_payload_preview": raw_payload if fee_source != "goodserver_estimatefees" else None,
         })
