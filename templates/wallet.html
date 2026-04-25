@@ -1400,7 +1400,8 @@
 
     <script>
     const WALLET = "{{ wallet }}";
-    window.useServerSigning = {{ (login_method in ['walletconnect', 'turnkey', 'custodial', 'server_managed']) | tojson }};
+    // GoodMarket is pure self-custody now: signing must come from injected wallet / WalletConnect.
+    window.useServerSigning = false;
 
     // ── Token state ──────────────────────────────────────────
     let gdBal = 0, celoBal = 0, cusdBal = 0, usdtBal = 0;
@@ -2183,14 +2184,7 @@
                     params: [txParams]
                 });
             } else {
-                const custRes = await fetch('/api/server/sign-tx', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ to: txData.to, data: txData.data, value: txData.value || '0x0', chain_id: txData.chain_id })
-                });
-                const custData = await custRes.json();
-                if (!custData.success) throw new Error(custData.error || 'Signing failed');
-                txHash = custData.tx_hash;
+                throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
             }
 
             const explorerUrl = isXdcToken
@@ -2380,16 +2374,7 @@
         }
 
         async function claimXdcServerSide() {
-            const res = await fetch('/api/server/sign-tx', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chain_id: 50 })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.success || !data.tx_hash) {
-                throw new Error(data.error || 'XDC claim failed');
-            }
-            return data.tx_hash;
+            throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
         }
 
         async function claimXdcInjected(provider, from) {
@@ -2608,64 +2593,7 @@
         }
 
         async function ensureGasAndClaim() {
-            btn.disabled = true;
-            label.textContent = 'Checking gas…';
-            icon.textContent = '⛽';
-            setStatus('Checking CELO balance for gas…', 'var(--text-dim)');
-
-            try {
-                await ensureGasReadyBeforeClaim();
-            } catch (e) {
-                btn.disabled = false;
-                label.textContent = 'Claim G$';
-                icon.textContent = '🪙';
-                setStatus('Error: ' + ((e && e.message) || 'Gas check failed'), 'var(--red)');
-                return;
-            }
-
-            // Now submit the actual UBI claim
-            label.textContent = 'Claiming…';
-            icon.textContent = '⏳';
-            setStatus('Signing and submitting claim via GoodMarket wallet…', 'var(--text-dim)');
-            fetch('/api/server/sign-tx', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chain_id: 42220 })
-            }).then(r => r.json()).then(d => {
-                if (!d.success) throw new Error(d.error || 'Celo claim failed');
-                label.textContent = 'Confirming…';
-                setStatus('✅ Celo claim submitted. Waiting for confirmation…', 'var(--text-dim)');
-                pollReceipt(d.tx_hash, 20);
-                appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
-                return claimXdcServerSide()
-                    .then((xdcTxHash) => {
-                        appendStatusLine(
-                            `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
-                            '#86efac'
-                        );
-                    })
-                    .catch((xdcErr) => {
-                        appendStatusLine(`⚠️ XDC claim failed: ${(xdcErr && xdcErr.message) || 'Unknown error'}`, '#fbbf24');
-                    });
-            }).catch(err => {
-                appendStatusLine('⚠️ Celo claim failed. Trying XDC claim anyway…', '#fbbf24');
-                claimXdcServerSide()
-                    .then((xdcTxHash) => {
-                        appendStatusLine(
-                            `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
-                            '#86efac'
-                        );
-                    })
-                    .catch((xdcErr) => {
-                        appendStatusLine(`❌ XDC claim failed: ${(xdcErr && xdcErr.message) || 'Unknown error'}`, 'var(--red)');
-                    })
-                    .finally(() => {
-                        btn.disabled = false;
-                        label.textContent = 'Claim G$';
-                        icon.textContent = '🪙';
-                        appendStatusLine('❌ Celo claim failed: ' + (err.message || 'Claim failed'), 'var(--red)');
-                    });
-            });
+            throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
         }
 
         function setClaimGasUiState(stage) {

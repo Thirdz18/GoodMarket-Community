@@ -187,7 +187,8 @@
         const LS_KEY        = "goodmarket_sent_payments";
         const WALLET_ADDRESS = "{{ wallet }}";
         const LOGIN_METHOD = "{{ login_method }}";
-        const IS_SERVER_SIGNING = ["walletconnect", "walletconnect"].includes(LOGIN_METHOD);
+        // Pure self-custody mode: never use server-side signing.
+        const IS_SERVER_SIGNING = false;
         const PREFER_WC_SIGNING = ["walletconnect", "manual", "manual_address"].includes((LOGIN_METHOD || "").toLowerCase());
 
         // Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet
