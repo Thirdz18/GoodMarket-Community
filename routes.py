@@ -204,6 +204,39 @@ def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transact
     }
 
 
+def _parse_bridge_fee_candidate_xdc(candidate) -> float | None:
+    """Parse bridge fee candidate into decimal XDC, auto-detecting wei-like integer payloads."""
+    if candidate is None:
+        return None
+    try:
+        if isinstance(candidate, bool):
+            return None
+
+        if isinstance(candidate, (int, float)):
+            numeric = float(candidate)
+        elif isinstance(candidate, str):
+            txt = candidate.strip()
+            if not txt:
+                return None
+            if txt.startswith(("0x", "0X")):
+                numeric = float(int(txt, 16))
+            else:
+                numeric = float(txt)
+        else:
+            return None
+
+        if not (numeric > 0):
+            return None
+
+        # Some APIs return wei (e.g., "1617600000000000000") instead of decimal XDC.
+        # Detect very large integer-like numbers and normalize to XDC units.
+        if numeric >= 1e9:
+            return numeric / (10 ** 18)
+        return numeric
+    except Exception:
+        return None
+
+
 def _extract_xdc_revert_reason(w3, call_obj: dict, replay_block: int, fallback_reason: str = "Transaction reverted on XDC.") -> dict:
     """Replay a failed XDC call and normalize reason output."""
     try:
@@ -6124,8 +6157,14 @@ def xdc_wallet_page():
         return redirect(url_for("routes.index"))
     login_method = session.get("login_method", "")
     is_custodial = login_method in ("custodial", "turnkey")
+    xdc_bridge_contract = os.getenv("XDC_CELO_BRIDGE_CONTRACT", "0xa3247276DbCC76Dd7705273f766eB3E8a5ecF4a5")
+    xdc_gd_token_contract = os.getenv("XDC_GD_TOKEN_CONTRACT", "0xEC2136843a983885AebF2feB3931F73A8eBEe50c")
+    celo_chain_id = int(os.getenv("CELO_MAINNET_CHAIN_ID", "42220"))
     return render_template("xdc_wallet.html", wallet=wallet,
-                           login_method=login_method, is_custodial=is_custodial)
+                           login_method=login_method, is_custodial=is_custodial,
+                           xdc_bridge_contract=xdc_bridge_contract,
+                           xdc_gd_token_contract=xdc_gd_token_contract,
+                           celo_chain_id=celo_chain_id)
 
 
 @routes.route("/api/xdc/balances", methods=["GET"])
@@ -6315,8 +6354,9 @@ def xdc_bridge_estimate_fee():
                     candidate = _extract_candidate(payload)
                     if candidate is None:
                         continue
-                    bridge_fee_xdc = float(candidate)
-                    if bridge_fee_xdc > 0:
+                    parsed_fee = _parse_bridge_fee_candidate_xdc(candidate)
+                    if parsed_fee and parsed_fee > 0:
+                        bridge_fee_xdc = parsed_fee
                         fee_source = "goodserver_estimatefees"
                         break
             except Exception as api_err:
@@ -6345,6 +6385,39 @@ def xdc_bridge_estimate_fee():
         })
     except Exception as e:
         logger.error(f"xdc_bridge_estimate_fee error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@routes.route("/api/xdc/bridge/debug-log", methods=["POST"])
+@auth_required
+def xdc_bridge_debug_log():
+    """Temporary bridge diagnostics logging for XDC->Celo failures."""
+    try:
+        wallet = session.get("wallet")
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"success": False, "error": "Invalid payload"}), 400
+
+        # Keep logs compact and safe.
+        event = str(payload.get("event", "unknown"))[:64]
+        attempt_id = str(payload.get("attempt_id", "n/a"))[:64]
+        details = payload.get("details")
+        if details is not None:
+            try:
+                details = json.dumps(details, ensure_ascii=False)[:2000]
+            except Exception:
+                details = str(details)[:2000]
+
+        logger.warning(
+            "xdc_bridge_debug wallet=%s event=%s attempt_id=%s details=%s",
+            wallet,
+            event,
+            attempt_id,
+            details,
+        )
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"xdc_bridge_debug_log error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

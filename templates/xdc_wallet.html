@@ -693,9 +693,9 @@
         const isCustodialMode = {{ 'true' if is_custodial else 'false' }};
         const XSWAP_V2_ROUTER = "0xf9c5E4f6E627201aB2d6FB6391239738Cf4bDcf9";
         const WXDC_ADDRESS = "0x951857744785E80e2De051c32EE7b25f9c458C42";
-        const XDC_GD_TOKEN = "0xEC2136843a983885AebF2feB3931F73A8eBEe50c";
-        const XDC_CELO_BRIDGE = "0xa3247276DbCC76Dd7705273f766eB3E8a5ecF4a5";
-        const CELO_CHAIN_ID = 42220;
+        const XDC_GD_TOKEN = "{{ xdc_gd_token_contract }}";
+        const XDC_CELO_BRIDGE = "{{ xdc_bridge_contract }}";
+        const CELO_CHAIN_ID = {{ celo_chain_id }};
         const XSWAP_ROUTER_ABI = [
             "function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)",
             "function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)",
@@ -811,6 +811,20 @@
             const n = Number(value || 0);
             if (!Number.isFinite(n)) return '—';
             return `${n.toFixed(6)} XDC`;
+        }
+
+        async function _bridgeDebugLog(event, details = {}) {
+            try {
+                await fetch('/api/xdc/bridge/debug-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event,
+                        attempt_id: bridgeAttemptContext?.attempt_id || null,
+                        details
+                    })
+                });
+            } catch (_) {}
         }
 
         function updateBridgeSummary() {
@@ -1088,7 +1102,9 @@
                         const selectorMessageMap = {
                             '0x10ecdf44': 'Bridge fee is likely below current route requirement (this is usually not an XDC wallet-balance issue). Refresh fee and retry with a slightly higher XDC fee.',
                             '0x92a27eac': 'Bridge fee is lower than current LayerZero requirement (wallet balance may still be sufficient). Increase fee and retry.',
+                            '0x2e9394cc': 'Bridge fee was missing/too low for this route attempt. Increase bridge fee and retry.',
                             '0xc5426f8d': 'Bridge route appears paused/closed right now. Retry later.',
+                            '0x068a5053': 'Selected target chain appears unsupported by the route right now.',
                             '0x2c863d26': 'Token transferFrom failed. Check G$ allowance and balance.',
                             '0x76420e1d': 'Token transfer failed. Check token and bridge route state.',
                         };
@@ -1096,6 +1112,14 @@
                         const friendlyReason = mappedReason || (isSelectorOnly
                             ? 'Bridge could not process this transfer. Please confirm bridge amount and token pair (XDC G$ → Celo G$), then try again.'
                             : cleanReason);
+                        await _bridgeDebugLog('tx_revert_decoded', {
+                            tx_hash: txHashValue,
+                            selector: selectorValue,
+                            reason: cleanReason,
+                            category: errorCategory,
+                            bridge_context: bridgeContext,
+                            support_details: supportDetails
+                        });
                         const retryGuide = `
                             <br><br><strong>Recommended retries:</strong><br>
                             • Amount ladder: retry at 75%, then 50%, then 25% of current amount.<br>
@@ -1196,7 +1220,7 @@
 
             try {
                 const amountWei = ethers.parseUnits(amountStr, 18);
-                const feeWei = ethers.parseUnits(feeStr, 18);
+                let feeWei = ethers.parseUnits(feeStr, 18);
                 const feeXdc = parseFloat(feeStr);
                 const grossReceive = parseFloat(amountStr) || 0;
                 const netReceive = grossReceive;
@@ -1205,11 +1229,27 @@
                 const minimumRequiredWei = feeWei + recommendedGasReserveWei;
                 let preflightWarning = '';
                 bridgeAttemptContext = {
+                    attempt_id: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `attempt-${Date.now()}`),
                     source_token: sourceToken,
                     target_token: targetToken,
                     attempted_amount: _fmtBridgeAmount(grossReceive),
-                    tx_hash: null
+                    tx_hash: null,
+                    entered_fee_xdc: feeXdc,
+                    entered_fee_wei: feeWei.toString(),
+                    effective_fee_xdc: feeXdc,
+                    effective_fee_wei: feeWei.toString(),
+                    preflight_attempts: []
                 };
+                await _bridgeDebugLog('bridge_start', {
+                    amount_input: amountStr,
+                    amount_wei: amountWei.toString(),
+                    entered_fee_xdc: feeXdc,
+                    entered_fee_wei: feeWei.toString(),
+                    bridge_contract: XDC_CELO_BRIDGE,
+                    source_chain_id: XDC_CHAIN_ID,
+                    target_chain_id: CELO_CHAIN_ID,
+                    fee_source_state: bridgeFeeSourceState
+                });
 
                 if (bridgeFeeSourceState === 'fallback_default' && feeXdc <= BRIDGE_FALLBACK_FEE_XDC_TO_CELO) {
                     preflightWarning =
@@ -1222,8 +1262,6 @@
                 const readProvider = await _xswapReadProvider();
                 const gd = new ethers.Contract(XDC_GD_TOKEN, ERC20_ABI, readProvider);
                 const sourceBridge = new ethers.Contract(XDC_CELO_BRIDGE, BRIDGE_ABI, readProvider);
-                const celoProvider = new ethers.JsonRpcProvider('https://forno.celo.org');
-                const targetBridge = new ethers.Contract(XDC_CELO_BRIDGE, BRIDGE_ABI, celoProvider);
 
                 btn.innerHTML = '<span class="spinner-inline"></span> Checking bridge limits...';
                 try {
@@ -1233,20 +1271,12 @@
                             'Source-chain bridge preflight failed (canBridge=false). Lower amount or retry later.'
                         );
                     }
-                    const canBridge = await targetBridge.canBridge(toAddr, amountWei);
-                    if (!canBridge) {
-                        throw new Error(
-                            'Bridge limit check failed on target chain (canBridge returned false). Lower the amount and try again.'
-                        );
-                    }
                 } catch (limitErr) {
                     const limitMessage = limitErr?.message || String(limitErr || '');
                     if (limitMessage.toLowerCase().includes('returned false')) {
                         throw limitErr;
                     }
-                    throw new Error(
-                        'Could not verify bridge limits via canBridge on Celo. Please retry in a moment.'
-                    );
+                    throw new Error('Could not verify bridge limits on source bridge. Please retry in a moment.');
                 }
 
                 if (!isCustodialMode) {
@@ -1267,46 +1297,92 @@
                         const hasXdc = ethers.formatUnits(onchainBalWei, 18);
                         throw new Error(`Not enough XDC balance. You need at least ${parseFloat(needXdc).toFixed(6)} XDC (bridge fee + gas reserve), but wallet has ${parseFloat(hasXdc).toFixed(6)} XDC.`);
                     }
-                    try {
-                        const preflightData = bridgeIface.encodeFunctionData('bridgeTo', [
-                            toAddr,
-                            CELO_CHAIN_ID,
-                            amountWei,
-                            BRIDGE_SERVICE_LAYERZERO
-                        ]);
-                        await ep.request({
-                            method: 'eth_estimateGas',
-                            params: [{
-                                from,
-                                to: XDC_CELO_BRIDGE,
-                                data: preflightData,
-                                value: ethers.toBeHex(feeWei),
-                                chainId: XDC_CHAIN_ID_HEX
-                            }]
-                        });
-                    } catch (preflightErr) {
-                        const preflightMsg = preflightErr?.message || String(preflightErr || '');
-                        const preflightMsgLower = preflightMsg.toLowerCase();
-                        const isKnownLowFeeSelector = preflightMsgLower.includes('0x10ecdf44')
-                            || preflightMsgLower.includes('0x92a27eac')
-                            || preflightMsgLower.includes('0x2e9394cc');
-                        if (isKnownLowFeeSelector) {
+                    const preflightData = bridgeIface.encodeFunctionData('bridgeTo', [
+                        toAddr,
+                        CELO_CHAIN_ID,
+                        amountWei,
+                        BRIDGE_SERVICE_LAYERZERO
+                    ]);
+                    const preflightMultipliers = [1.00, 1.15, 1.30];
+                    let effectiveFeeWei = feeWei;
+                    let preflightPassed = false;
+                    let lastPreflightMsg = '';
+
+                    for (const multiplier of preflightMultipliers) {
+                        const candidateFeeWei = multiplier === 1
+                            ? feeWei
+                            : (feeWei * BigInt(Math.round(multiplier * 100)) / 100n);
+                        try {
+                            await ep.request({
+                                method: 'eth_estimateGas',
+                                params: [{
+                                    from,
+                                    to: XDC_CELO_BRIDGE,
+                                    data: preflightData,
+                                    value: ethers.toBeHex(candidateFeeWei),
+                                    chainId: XDC_CHAIN_ID_HEX
+                                }]
+                            });
+                            bridgeAttemptContext.preflight_attempts.push({
+                                multiplier,
+                                ok: true,
+                                candidate_fee_wei: candidateFeeWei.toString()
+                            });
+                            effectiveFeeWei = candidateFeeWei;
+                            preflightPassed = true;
+                            break;
+                        } catch (attemptErr) {
+                            const attemptMsg = attemptErr?.message || String(attemptErr || '');
+                            const attemptMsgLower = attemptMsg.toLowerCase();
+                            const selectorMatch = attemptMsgLower.match(/0x[a-f0-9]{8}/);
+                            bridgeAttemptContext.preflight_attempts.push({
+                                multiplier,
+                                ok: false,
+                                candidate_fee_wei: candidateFeeWei.toString(),
+                                selector: selectorMatch ? selectorMatch[0] : null,
+                                error: attemptMsg.slice(0, 280)
+                            });
+                            await _bridgeDebugLog('preflight_attempt', {
+                                multiplier,
+                                candidate_fee_wei: candidateFeeWei.toString(),
+                                selector: selectorMatch ? selectorMatch[0] : null,
+                                error: attemptMsg.slice(0, 280),
+                                wallet_provider: _providerLabel(ep)
+                            });
+                            lastPreflightMsg = attemptMsg;
+                        }
+                    }
+
+                    if (!preflightPassed) {
+                        const msgLower = lastPreflightMsg.toLowerCase();
+                        if (
+                            msgLower.includes('0x10ecdf44') ||
+                            msgLower.includes('0x92a27eac') ||
+                            msgLower.includes('0x2e9394cc')
+                        ) {
                             throw new Error(
-                                'Bridge pre-check reports the route fee is currently higher than your entered fee. ' +
-                                'Click "Estimate Fee", then retry with at least +10% extra. ' +
-                                'Your XDC wallet balance can still be sufficient while the bridge fee itself is too low.'
+                                'Bridge pre-check reports route fee is above the current entered fee (even after auto-retry). ' +
+                                'Please refresh estimate and retry with a higher bridge fee.'
                             );
                         }
                         const lowFeeHints = ['revert', 'fee', 'insufficient', 'underpriced', 'lz'];
-                        if (lowFeeHints.some((hint) => preflightMsgLower.includes(hint))) {
+                        if (lowFeeHints.some((hint) => msgLower.includes(hint))) {
                             preflightWarning =
-                                '⚠️ Wallet pre-check could not confirm current LayerZero fee. ' +
-                                'Bridge will still be sent using your manual fee. If wallet warns again, increase fee slightly.';
+                                '⚠️ Wallet pre-check could not confirm current LayerZero fee after auto-retries.';
                         } else {
-                            preflightWarning =
-                                '⚠️ Wallet pre-check could not be completed. Continuing with the bridge transaction anyway.';
+                            preflightWarning = '⚠️ Wallet pre-check could not be completed after auto-retries.';
                         }
                     }
+
+                    bridgeAttemptContext.effective_fee_wei = effectiveFeeWei.toString();
+                    bridgeAttemptContext.effective_fee_xdc = Number(ethers.formatUnits(effectiveFeeWei, 18));
+                    await _bridgeDebugLog('preflight_summary', {
+                        attempts: bridgeAttemptContext.preflight_attempts,
+                        effective_fee_wei: bridgeAttemptContext.effective_fee_wei,
+                        effective_fee_xdc: bridgeAttemptContext.effective_fee_xdc,
+                        passed: preflightPassed
+                    });
+                    feeWei = effectiveFeeWei;
                 }
 
                 btn.innerHTML = '<span class="spinner-inline"></span> Checking allowance...';
@@ -1339,6 +1415,11 @@
                     fallbackGasLimit: 350000
                 });
                 bridgeAttemptContext.tx_hash = bridgeTx;
+                await _bridgeDebugLog('bridge_submitted', {
+                    tx_hash: bridgeTx,
+                    effective_fee_wei: feeWei.toString(),
+                    effective_fee_xdc: Number(ethers.formatUnits(feeWei, 18))
+                });
 
                 showBridgeAlert(
                     'alert-success',
@@ -1347,7 +1428,7 @@
                         <strong>From:</strong> ${sourceToken} (XDC Network)<br>
                         <strong>To:</strong> ${targetToken} (Celo Mainnet)<br>
                         <strong>Gross:</strong> ${_fmtBridgeAmount(grossReceive)}<br>
-                        <strong>Fee:</strong> ${_fmtBridgeFeeXdc(feeXdc)}<br>
+                        <strong>Fee:</strong> ${_fmtBridgeFeeXdc(Number(ethers.formatUnits(feeWei, 18)))}<br>
                         <strong>Net Est. Receive:</strong> ${_fmtBridgeAmount(netReceive)}
                     </div>
                     <a class="tx-link" href="https://xdcscan.com/tx/${bridgeTx}" target="_blank" rel="noopener">View on XDCScan ↗ ${bridgeTx.substring(0,10)}...${bridgeTx.slice(-8)}</a><br>
@@ -1359,12 +1440,21 @@
                 if (err.code === 4001) msg = 'Bridge transaction rejected by user.';
                 if (!bridgeAttemptContext) {
                     bridgeAttemptContext = {
+                        attempt_id: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `attempt-${Date.now()}`),
                         source_token: sourceToken,
                         target_token: targetToken,
                         attempted_amount: _fmtBridgeAmount(parseFloat(amountStr || '0')),
                         tx_hash: null
                     };
                 }
+                await _bridgeDebugLog('bridge_failed', {
+                    error: msg,
+                    tx_hash: bridgeAttemptContext.tx_hash || null,
+                    attempted_amount: amountStr,
+                    entered_fee_xdc: feeStr,
+                    effective_fee_wei: bridgeAttemptContext.effective_fee_wei || null,
+                    preflight_attempts: bridgeAttemptContext.preflight_attempts || []
+                });
                 showBridgeAlert('alert-error', '❌ ' + msg);
             } finally {
                 btn.disabled = false;
