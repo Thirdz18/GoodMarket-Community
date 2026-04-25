@@ -981,7 +981,7 @@
         </div>
     </div>
     <div id="walletReminderBanner" class="wallet-reminder-banner hidden">
-        ⚠️ Swap, claim G$, and send are supported only on dApp wallet browsers like MiniPay, Trust Wallet, and MetaMask (desktop users need the MetaMask extension).
+        ✅ MetaMask mobile and MetaMask desktop users can now claim both Celo G$ and XDC G$ in one unified flow. After a successful Celo claim, please wait at least 3 seconds so the Signer Network step for XDC can appear automatically.
     </div>
     <div id="walletDashboardFVMsg" class="alert alert-info" style="display:none;margin:0.9rem 1rem 0;padding:0.75rem 0.9rem;text-align:center;border-radius:12px;">
         Please click <strong>Claim G$</strong> button to start your face verification to start G$ daily claiming and using GoodMarket full features.
@@ -3187,11 +3187,16 @@
     document.addEventListener('DOMContentLoaded', () => {
         const reminderBanner = document.getElementById('walletReminderBanner');
         if (reminderBanner) {
-            reminderBanner.classList.remove('hidden');
-            setTimeout(() => {
-                reminderBanner.classList.add('hiding');
-                setTimeout(() => reminderBanner.classList.add('hidden'), 350);
-            }, 10000);
+            const bannerSeenKey = 'walletUnifiedClaimNoticeSeen_v1';
+            const bannerWasSeen = localStorage.getItem(bannerSeenKey) === '1';
+            if (!bannerWasSeen) {
+                reminderBanner.classList.remove('hidden');
+                localStorage.setItem(bannerSeenKey, '1');
+                setTimeout(() => {
+                    reminderBanner.classList.add('hiding');
+                    setTimeout(() => reminderBanner.classList.add('hidden'), 350);
+                }, 60000);
+            }
         }
         loadBalances();
         loadPortfolioCardholder();
