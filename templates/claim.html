@@ -153,6 +153,17 @@
                 ? window.__announced6963Providers.slice()
                 : [];
         }
+        function _isTrustWalletMobileContext() {
+            const ua = (navigator.userAgent || "").toLowerCase();
+            const uaTrust = ua.includes("trust") || ua.includes("trustwallet");
+            const touchMobile = /android|iphone|ipad|ipod/i.test(ua);
+            const hasTrustInjection = !!(
+                window.trustwallet ||
+                window.trustWallet ||
+                (window.ethereum && (window.ethereum.isTrust || window.ethereum.isTrustWallet))
+            );
+            return (uaTrust || hasTrustInjection) && touchMobile;
+        }
 
         function _coerceToRequestProvider(candidate) {
             if (!candidate) return null;
@@ -230,17 +241,28 @@
             return _pickProviderFromCandidates(candidates);
         }
 
-        async function _awaitEthProvider(timeoutMs = 800) {
+        async function _awaitEthProvider(timeoutMs) {
+            const trustBudget = _isTrustWalletMobileContext() ? 2600 : 800;
+            const budget = typeof timeoutMs === "number" ? timeoutMs : trustBudget;
             const start = Date.now();
             let found = _getEthProvider();
             if (found) return found;
-            while (Date.now() - start < timeoutMs) {
+            while (Date.now() - start < budget) {
                 try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch (_) {}
                 await new Promise((r) => setTimeout(r, 120));
                 found = _getEthProvider();
                 if (found) return found;
             }
             return null;
+        }
+        if (_isTrustWalletMobileContext()) {
+            window.addEventListener("pageshow", () => {
+                try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch (_) {}
+            });
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState !== "visible") return;
+                try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch (_) {}
+            });
         }
 
         async function initClaim() {

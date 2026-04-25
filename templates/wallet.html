@@ -1462,6 +1462,16 @@
         const ua = (navigator.userAgent || '').toLowerCase();
         return ua.includes('trust') || ua.includes('trustwallet');
     }
+    function _isTrustWalletMobileContext() {
+        const ua = (navigator.userAgent || '').toLowerCase();
+        const touchMobile = /android|iphone|ipad|ipod/i.test(ua);
+        const hasTrustInjection = !!(
+            window.trustwallet ||
+            window.trustWallet ||
+            (window.ethereum && (window.ethereum.isTrust || window.ethereum.isTrustWallet))
+        );
+        return (_isTrustWalletUA() || hasTrustInjection) && touchMobile;
+    }
 
     function _pickTrustWallet(candidates) {
         return candidates.find(p => p && (p.isTrust || p.isTrustWallet)) || null;
@@ -1554,7 +1564,9 @@
     // Send, FV signing) should use this instead of the sync `_getEthProvider`
     // so a first click doesn't spuriously fail with "No wallet detected".
     async function _awaitEthProvider(timeoutMs) {
-        const budget = typeof timeoutMs === 'number' ? timeoutMs : 800;
+        // Keep the longer wait strictly for Trust Wallet mobile.
+        const trustBudget = _isTrustWalletMobileContext() ? 2600 : 800;
+        const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
         const stepMs = 120;
         const start = Date.now();
         let first = _getEthProvider();
@@ -1566,6 +1578,17 @@
             if (p) return p;
         }
         return null;
+    }
+
+    // Re-prime discovery only for Trust Wallet mobile transitions.
+    if (_isTrustWalletMobileContext()) {
+        window.addEventListener('pageshow', () => {
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState !== 'visible') return;
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+        });
     }
 
     // Compatibility helper used in other GoodMarket templates. Keeping the

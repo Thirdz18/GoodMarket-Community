@@ -760,15 +760,99 @@
         let _wcSessionId = null;
         let _wcAddress = null;
 
-        // Handles EIP-5749 multi-wallet: prefer MetaMask over Brave Wallet
+        // Trust Wallet mobile-specific provider discovery:
+        // keep strict scope so non-Trust flows preserve existing behavior.
+        window.__swapEip6963Providers = window.__swapEip6963Providers || [];
+        (function _initSwapEip6963() {
+            try {
+                window.addEventListener('eip6963:announceProvider', (event) => {
+                    const detail = event && event.detail;
+                    if (!detail || !detail.provider) return;
+                    const uuid = detail.info && detail.info.uuid;
+                    const already = window.__swapEip6963Providers.find(d =>
+                        (d.info && d.info.uuid && uuid && d.info.uuid === uuid) ||
+                        d.provider === detail.provider
+                    );
+                    if (!already) window.__swapEip6963Providers.push(detail);
+                });
+                window.dispatchEvent(new Event('eip6963:requestProvider'));
+            } catch (_) {}
+        })();
+        function _swapEip6963Providers() {
+            return Array.isArray(window.__swapEip6963Providers)
+                ? window.__swapEip6963Providers.slice()
+                : [];
+        }
+        function _isTrustWalletMobileContext() {
+            const ua = (navigator.userAgent || '').toLowerCase();
+            const uaTrust = ua.includes('trust') || ua.includes('trustwallet');
+            const touchMobile = /android|iphone|ipad|ipod/i.test(ua);
+            const hasTrustInjection = !!(
+                window.trustwallet ||
+                window.trustWallet ||
+                (window.ethereum && (window.ethereum.isTrust || window.ethereum.isTrustWallet))
+            );
+            return (uaTrust || hasTrustInjection) && touchMobile;
+        }
+        function _collectSwapProviders() {
+            const out = [];
+            const push = (p) => { if (p && typeof p.request === 'function' && !out.includes(p)) out.push(p); };
+            if (window.ethereum) {
+                if (Array.isArray(window.ethereum.providers)) window.ethereum.providers.forEach(push);
+                push(window.ethereum);
+            }
+            if (window.trustwallet) push(window.trustwallet);
+            if (window.trustwallet && window.trustwallet.ethereum) push(window.trustwallet.ethereum);
+            if (window.trustWallet) push(window.trustWallet);
+            if (window.trustWallet && window.trustWallet.ethereum) push(window.trustWallet.ethereum);
+            for (const d of _swapEip6963Providers()) push(d.provider);
+            return out;
+        }
+        // Handles EIP-5749 multi-wallet: prefer Trust Wallet in Trust mobile;
+        // otherwise preserve MetaMask-first behavior.
         function _getEthProvider() {
-            if (!window.ethereum) return null;
-            if (window.ethereum.providers && window.ethereum.providers.length) {
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            const providers = _collectSwapProviders();
+            if (!providers.length) return null;
+            if (_isTrustWalletMobileContext()) {
+                const trust = providers.find(p => p && (p.isTrust || p.isTrustWallet));
+                if (trust) return trust;
+                const trust6963 = _swapEip6963Providers().find(d => {
+                    const info = d.info || {};
+                    const rdns = String(info.rdns || '').toLowerCase();
+                    const name = String(info.name || '').toLowerCase();
+                    return rdns.includes('trustwallet') || name.includes('trust');
+                });
+                if (trust6963 && trust6963.provider) return trust6963.provider;
+                return providers[0];
+            }
+            if (window.ethereum && window.ethereum.providers && window.ethereum.providers.length) {
                 const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
                 if (mm) return mm;
                 return window.ethereum.providers[0];
             }
-            return window.ethereum;
+            return window.ethereum || providers[0];
+        }
+        async function _awaitEthProvider(timeoutMs) {
+            const trustBudget = _isTrustWalletMobileContext() ? 2600 : 800;
+            const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
+            const start = Date.now();
+            let p = _getEthProvider();
+            if (p) return p;
+            while (Date.now() - start < budget) {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                await _delay(120);
+                p = _getEthProvider();
+                if (p) return p;
+            }
+            return null;
+        }
+        if (_isTrustWalletMobileContext()) {
+            window.addEventListener('pageshow', () => { try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {} });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible') return;
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            });
         }
 
         // Show the temporary MiniPay-only notice when (and only when) the page
@@ -897,7 +981,7 @@
             if (window.useServerSigning) {
                 throw new Error('This account uses server-side signing. Please use automatic server signing mode.');
             }
-            const ethProvider = _getEthProvider();
+            const ethProvider = await _awaitEthProvider();
             if (!ethProvider) {
                 if (!PREFER_WC_SIGNING) throw new Error("No wallet detected. Please connect your GoodMarket wallet.");
                 const wcBridgeProvider = { request: _wcBridgeRequest };

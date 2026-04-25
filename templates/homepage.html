@@ -2194,8 +2194,22 @@
         // provider asynchronously — a first, synchronous pick can return null
         // even though the wallet is actually present. Callers that gate user
         // actions (connect button) should await this instead.
+        function isTrustWalletMobileContext() {
+            const ua = (navigator.userAgent || '').toLowerCase();
+            const uaTrust = ua.includes('trust') || ua.includes('trustwallet');
+            const touchMobile = /android|iphone|ipad|ipod/i.test(ua);
+            const hasTrustInjection = !!(
+                window.trustwallet ||
+                window.trustWallet ||
+                (window.ethereum && (window.ethereum.isTrust || window.ethereum.isTrustWallet))
+            );
+            return (uaTrust || hasTrustInjection) && touchMobile;
+        }
+
         async function awaitPreferredInjectedProvider(timeoutMs) {
-            const budget = typeof timeoutMs === 'number' ? timeoutMs : 800;
+            // Keep the wider wait budget strictly for Trust Wallet mobile.
+            const trustBudget = isTrustWalletMobileContext() ? 2600 : 800;
+            const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
             const stepMs = 120;
             const start = Date.now();
             let first = getPreferredInjectedProvider();
@@ -2207,6 +2221,19 @@
                 if (p) return p;
             }
             return null;
+        }
+
+        // Warm-up re-discovery only for Trust Wallet mobile context.
+        if (isTrustWalletMobileContext()) {
+            window.addEventListener('pageshow', () => {
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                detectInjectedWallet();
+            });
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible') return;
+                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+                detectInjectedWallet();
+            });
         }
 
         function detectInjectedWallet(_retryDepth) {
