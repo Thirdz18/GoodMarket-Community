@@ -2439,6 +2439,11 @@
             showWalletStatus('walletConnectStatus', '⏳ Detecting wallet…', 'info');
             const provider = await awaitPreferredInjectedProvider();
             if (!provider) {
+                if (isTrustWalletMobileContext()) {
+                    showWalletStatus('walletConnectStatus', '⚠️ Trust Wallet injection not detected yet. Starting WalletConnect automatically…', 'warning');
+                    await connectWalletConnect();
+                    return;
+                }
                 showWalletStatus('walletConnectStatus', 'No injected wallet found. Use WalletConnect QR or manual wallet guidance.', 'error');
                 return;
             }
