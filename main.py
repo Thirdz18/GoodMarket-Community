@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, render_template, session, redirect
 from blockchain import has_recent_ubi_claim, is_identity_verified, check_ubi_entitlement
 from analytics_service import analytics
 from routes import routes
-# Removed: from hour_bonus import (...)
 from learn_and_earn import init_learn_and_earn
 from web3 import Web3
 from datetime import datetime # Import datetime for session timestamp
@@ -12,7 +11,6 @@ import subprocess
 import sys
 import json
 import base64 as _b64
-import atexit
 
 from reloadly import init_reloadly
 from savings import init_savings
@@ -169,60 +167,6 @@ def _add_cache_headers(response):
         logger.debug(f"cache header hook skipped: {_cache_hdr_err}")
     return response
 
-# Removed: Initialize Reloadly clients and services
-# reloadly_client = None
-# currency_converter = None
-# reloadly_blockchain = None
-
-# Removed: initialize_reloadly function
-# def initialize_reloadly():
-#     global reloadly_client, currency_converter, reloadly_blockchain
-#     try:
-#         # Load environment variables
-#         reloadly_client_id = os.getenv("RELOADLY_CLIENT_ID")
-#         reloadly_client_secret = os.getenv("RELOADLY_CLIENT_SECRET")
-#         gooddollar_contract_address = os.getenv("GOODDOLLAR_CONTRACT_ADDRESS")
-#         celo_rpc_url = os.getenv("CELO_RPC_URL", 'https://forno.celo.org')
-#         chain_id = int(os.getenv("CHAIN_ID", 44787)) # Default to Alfajores if not set
-#         merchant_address = os.getenv("MERCHANT_ADDRESS")
-#         refund_key = os.getenv("REFUND_KEY")
-#         gd_usd_price = float(os.getenv("GD_USD_PRICE", 0.002)) # Default to $0.002 per G$
-#         forex_rates_path = os.getenv("DEFAULT_FX_JSON_PATH", "data/forex_rates.json")
-#
-#         # Initialize Reloadly Client for production (will work even without credentials using fallback data)
-#         reloadly_client = ReloadlyClient(reloadly_client_id, reloadly_client_secret, environment="production")
-#
-#         if reloadly_client.is_initialized:
-#             logger.info("✅ Reloadly API client initialized with credentials.")
-#         else:
-#             logger.warning("⚠️ Reloadly API client initialized with fallback data (no credentials).")
-#
-#         # Initialize Currency Converter
-#         try:
-#             currency_converter = CurrencyConverter()
-#             logger.info("✅ Currency converter initialized.")
-#         except Exception as cc_error:
-#             logger.warning(f"⚠️ Currency converter failed to initialize: {cc_error}")
-#             currency_converter = None
-#
-#         # Initialize Reloadly Blockchain service (optional)
-#         try:
-#             if all([merchant_address, refund_key, gooddollar_contract_address, celo_rpc_url]):
-#                 reloadly_blockchain = ReloadlyBlockchain()
-#                 logger.info("✅ Reloadly Blockchain service initialized.")
-#             else:
-#                 logger.warning("⚠️ Reloadly Blockchain service not initialized (missing config)")
-#                 reloadly_blockchain = None
-#         except Exception as rb_error:
-#             logger.warning(f"⚠️ Reloadly Blockchain service failed to initialize: {rb_error}")
-#             reloadly_blockchain = None
-#
-#         return True
-#
-#     except Exception as e:
-#         logger.error(f"❌ Error initializing Reloadly services: {e}")
-#         return False
-
 
 
 # Blockchain configuration for wallet balance checking
@@ -295,31 +239,9 @@ def initialize_blockchain():
         logger.error(f"❌ Blockchain initialization error: {e}")
         return False
 
-# Initialize smart contract system
-def initialize_smart_contract():
-    """Initialize smart contract system"""
-    try:
-        # Contract system temporarily disabled - using direct blockchain integration
-        logger.info("⚠️ Smart contract system disabled - using direct blockchain integration")
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Smart contract initialization error: {e}")
-        return False
-
 # Initialize the blockchain connection when the app starts
 if not initialize_blockchain():
     logger.warning("Blockchain initialization failed. Wallet balance features might not work.")
-
-# Initialize smart contract system
-if not initialize_smart_contract():
-    logger.warning("Smart contract system initialization failed. Contract features might not work.")
-
-# Removed: Initialize Reloadly services
-# if not initialize_reloadly():
-#     logger.warning("Reloadly services initialization failed. Top-up features might not work.")
-
-# Blockchain service removed - will be replaced with new smart contract integration
 
 # Register the routes blueprint FIRST (contains all API routes including /api/recent-daily-tasks)
 # This must be before any catch-all routes
@@ -380,10 +302,6 @@ def inject_feature_visibility():
     except Exception:
         return {"swap_visible": True, "wallet_visible": True, "savings_visible": True,
                 "topup_visible": True, "giftcard_visible": True, "utility_visible": True}
-
-# Register GoodMarket blueprint
-# Removed: from goodmarket.routes import goodmarket_bp
-# Removed: app.register_blueprint(goodmarket_bp, url_prefix='/goodmarket')
 
 # Initialize Telegram Task
 from telegram_task import init_telegram_task
@@ -487,10 +405,6 @@ if init_learn_and_earn(app):
 else:
     logger.error("❌ Learn & Earn initialization failed")
 
-# Notification service removed - all references cleaned up
-
-
-
 
 @app.route("/health")
 def health_check():
@@ -518,7 +432,6 @@ def api_status():
         "version": "1.0.0",
         "endpoints": [
             "/api/analytics",
-            # Removed: "/api/hour-bonus/status",
             "/api/gooddollar-balance",
             "/api/forum/posts",
             "/api/p2p/history",
@@ -717,11 +630,6 @@ def api_analytics():
 
     return jsonify(analytics.get_user_analytics(wallet))
 
-# Removed: /api/hour-bonus/status route
-# Removed: /api/hour-bonus/claim route
-# Removed: /api/hour-bonus/history route
-# Removed: /api/hour-bonus/system-status route
-
 @app.route("/api/gd-price", methods=["GET"])
 def get_gd_price():
     """Fetch live GoodDollar price from CoinGecko in multiple currencies"""
@@ -815,43 +723,10 @@ def get_balance_by_wallet(wallet_address):
             'balance_formatted': 'Error loading'
         }), 500
 
-# Contract info route removed - will be replaced with new smart contract integration
-
-# Terms & Service route removed - no longer needed
-
-# Accept terms route removed - no longer needed
-
-# Decline terms route removed - no longer needed
-
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
-
-# API endpoints for dashboard functionality
-@app.route('/api/gooddollar-balance')
-def get_gooddollar_balance():
-    """Get GoodDollar balance for authenticated user"""
-    try:
-        wallet_address = session.get('wallet') or session.get('wallet_address')
-        if not wallet_address or not session.get('verified'):
-            return jsonify({'success': False, 'error': 'Not authenticated'}), 401
-
-        # Use blockchain.py get_gooddollar_balance function directly
-        from blockchain import get_gooddollar_balance as get_balance
-        balance_result = get_balance(wallet_address)
-
-        return jsonify(balance_result)
-    except Exception as e:
-        logger.error(f"Balance API error: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-# Note: /api/news-feed routes are handled by news_feed.py via init_news_feed(app)
-
-# Community Forum module removed
-
-
-
 
 @app.route('/api/twitter-task/transaction-history')
 def get_twitter_task_transaction_history():
@@ -1354,11 +1229,6 @@ def debug_session():
         logger.error(f"❌ Session debug error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-# Forum like route is handled by community forum module
-
-# Community Forum endpoints removed
-
-
 _REFERRER_AMOUNT = 1000.0
 _REFEREE_AMOUNT = 500.0
 
@@ -1729,12 +1599,6 @@ def fv_callback():
     return redirect('/?fv_failed=1&reason=' + reason)
 
 
-# Notification endpoints removed - notification service is disabled
-
-# Community Forum post creation removed
-
-# Routes for username editing are in routes.py blueprint
-
 @app.route('/api/debug/database-status')
 def debug_database_status():
     """Debug endpoint to check database connection and data fetching"""
@@ -1793,126 +1657,8 @@ def debug_database_status():
         logger.error(f"❌ Database status check error: {e}")
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/debug/task-data/<wallet_address>')
-def debug_task_data(wallet_address):
-    """Debug endpoint to check task completion data for specific user"""
-    try:
-        # Security check - only allow current session user or admins
-        session_wallet = session.get('wallet')
-        if not session_wallet or not session.get('verified'):
-            return jsonify({'error': 'Not authenticated'}), 401
-
-        if wallet_address != session_wallet:
-            return jsonify({'error': 'Unauthorized'}), 401
-
-        from supabase_client import get_supabase_client
-        supabase = get_supabase_client()
-
-        if not supabase:
-            return jsonify({'error': 'Database not available'})
-
-        # Get task completion logs
-        from task_completion.task_manager import task_manager
-        masked_wallet = task_manager._mask_wallet(wallet_address)
-
-        logger.info(f"🔍 Debug: Checking task data for {wallet_address}")
-        logger.info(f"🔍 Debug: Masked wallet: {masked_wallet}")
-
-        # Get task completions
-        completions = supabase.table('task_completion_log')\
-            .select('*')\
-            .eq('wallet_address', masked_wallet)\
-            .order('timestamp', desc=True)\
-            .execute()
-
-        # Get pending rewards
-        pending = supabase.table('task_pending_rewards')\
-            .select('*')\
-            .eq('wallet_address', wallet_address)\
-            .execute()
-
-        # Calculate total from completions
-        total_from_completions = 0
-        if completions.data:
-            total_from_completions = sum(float(c.get('reward_amount', 0)) for c in completions.data)
-
-        debug_data = {
-            'wallet_address': wallet_address,
-            'masked_wallet': masked_wallet,
-            'task_completions': {
-                'count': len(completions.data) if completions.data else 0,
-                'total_amount': total_from_completions,
-                'completions': completions.data[:10] if completions.data else []  # First 10
-            },
-            'pending_rewards': {
-                'count': len(pending.data) if pending.data else 0,
-                'data': pending.data
-            },
-            'sync_needed': total_from_completions > 0
-        }
-
-        logger.info(f"🔍 Debug results for {wallet_address[:8]}...")
-        logger.info(f"   Task completions: {debug_data['task_completions']['count']}")
-        logger.info(f"   Total from completions: {debug_data['task_completions']['total_amount']} G$")
-        logger.info(f"   Pending records: {debug_data['pending_rewards']['count']}")
-
-        return jsonify(debug_data)
-
-    except Exception as e:
-        logger.error(f"❌ Debug task data error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
-# Removed: All Reloadly Top-up Routes
-# Removed: @app.route("/topup")
-# Removed: def topup_page(): ...
-# Removed: @app.route("/treasury-deposit")
-# Removed: def treasury_deposit_page(): ...
-# Removed: @app.route("/api/operators/<country_code>")
-# Removed: def get_operators(country_code): ...
-# Removed: @app.route("/api/products/<int:operator_id>")
-# Removed: def get_products(operator_id): ...
-# Removed: @app.route("/api/merchant")
-# Removed: def get_merchant(): ...
-# Removed: @app.route("/api/quote", methods=["POST"])
-# Removed: def create_quote(): ...
-# Removed: @app.route("/purchase_topup", methods=["POST"])
-# Removed: def purchase_topup(): ...
-# Removed: @app.route("/api/payment-status/<order_id>")
-# Removed: def check_payment_status(order_id): ...
-# Removed: @app.route("/api/countries")
-# Removed: def get_countries(): ...
-# Removed: @app.route("/api/operators")
-# Removed: def get_all_operators(): ...
-# Removed: @app.route("/api/products")
-# Removed: def get_all_products(): ...
-# Removed: @app.route("/api/reloadly/test")
-# Removed: def test_reloadly_apis(): ...
-
-
-# Username functionality removed
-
-
 if __name__ == "__main__":
     logger.info("🚀 Starting GoodDollar Analytics Platform...")
-
-    # Initialize Supabase logger first
-    # analytics.supabase_logger = supabase_logger # This line might be an issue if supabase_logger is not defined
-
-    # Initialize modules with feature toggles
-    ENABLE_HEAVY_FEATURES = True  # Force enable for P2P Trading
-
-    # Removed: Hourly Bonus system initialization
-    # if ENABLE_HEAVY_FEATURES:
-    #     from hour_bonus import init_hour_bonus
-    #     if init_hour_bonus(app):
-    #         logger.info("✅ Hourly Bonus system ready")
-    #     else:
-    #         logger.error("❌ Hourly Bonus system failed to initialize")
-    # else:
-    #     logger.info("⚠️ Heavy features disabled for performance")
-
-    # Learn & Earn is now initialized at module level (above) for gunicorn compatibility
 
     port = int(os.environ.get("PORT", 5000))
     logger.info(f"🌐 Starting Flask server on http://0.0.0.0:{port}")

@@ -7,7 +7,6 @@ from web3 import Web3
 import json
 import logging
 import os
-import secrets
 import threading
 import time
 import urllib.request
@@ -520,7 +519,6 @@ def get_recent_daily_tasks():
     try:
         from datetime import datetime, timedelta
         from supabase_client import get_supabase_client
-        from flask import Response
         from cache_utils import api_cache, cached
 
         # Check cache first (2 minute TTL)
@@ -1436,23 +1434,6 @@ def verify_ubi():
                 'ubi_verified': True,
                 'redirect_to': '/wallet'
             })
-        else:
-            # Track failed verification
-            analytics.track_verification_attempt(wallet_address, False)
-
-            # Use the detailed message from blockchain.py
-            error_message = result.get("message", "You need to claim G$ once every 24 hours to access GoodMarket.\n\nClaim G$ using:\n• MiniPay app (built into Opera Mini)\n• goodwallet.xyz\n• gooddapp.org")
-
-            return jsonify({
-                "status": "error",
-                "message": error_message,
-                "reason": "no_recent_claim",
-                "help_links": {
-                    "minipay": "https://www.opera.com/products/minipay",
-                    "goodwallet": "https://goodwallet.xyz",
-                    "gooddapp": "https://gooddapp.org"
-                }
-            }), 400
 
     except Exception as e:
         logger.exception("Verification error occurred")
@@ -3995,7 +3976,6 @@ def add_module_link():
             try:
                 import requests
                 import json as json_lib
-                import re as re_lib
                 from bs4 import BeautifulSoup
 
                 scraped_html = ""
@@ -4879,13 +4859,6 @@ def admin_dashboard():
     response.headers["Expires"] = "0"
     return response
 
-
-    return render_template("forum_post_detail.html",
-                         wallet=wallet,
-                         username=username, # Pass username to template
-                         post=post,
-                         categories=community_forum_service.categories)
-
 @routes.route("/learn-earn")
 def learn_earn_page():
     if not session.get("verified") or not session.get("wallet"):
@@ -4906,9 +4879,6 @@ def learn_earn_page():
                          wallet=wallet,
                          login_method=session.get("login_method", "walletconnect"),
                          is_admin_user=is_admin_user)
-
-# Username functionality removed
-
 
 @routes.route('/api/p2p/history')
 def get_p2p_history_api():
@@ -6459,9 +6429,6 @@ def _get_fernet():
     key_bytes = hashlib.pbkdf2_hmac("sha256", secret.encode(), salt, iterations=200_000)
     fernet_key = base64.urlsafe_b64encode(key_bytes)
     return Fernet(fernet_key)
-
-
-# Legacy in-app wallet routes removed; external-wallet flow only.
 
 @routes.route("/api/walletconnect-disabled/<path:_path>", methods=["GET", "POST"])
 def walletconnect_disabled(_path):

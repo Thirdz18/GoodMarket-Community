@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 from supabase_client import get_supabase_client
-from cache_utils import supabase_cache, preload_data, get_preloaded
+from cache_utils import supabase_cache
 
 logger = logging.getLogger(__name__)
 

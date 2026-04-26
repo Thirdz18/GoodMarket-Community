@@ -79,7 +79,6 @@ def get_screenshot_url(filename: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"❌ Error getting screenshot URL: {e}")
         return None
-        return None
 
 def delete_screenshot(filename: str) -> bool:
     """Delete screenshot from Object Storage"""

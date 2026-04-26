@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify, render_template, session, redirec
 
 from .client import reloadly_client
 from .service import (
-    usd_to_gd, gd_to_usd, get_gd_usd_price,
+    usd_to_gd, get_gd_usd_price,
     auto_detect_gd_payment, verify_gd_payment, refund_gd,
     create_order_record, update_order_record,
     get_order_record, get_user_orders, sanitize_error
