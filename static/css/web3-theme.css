@@ -1,0 +1,346 @@
+/*
+ * GoodMarket — shared web3 design system.
+ *
+ * Single source of truth for the dApp aesthetic across every page:
+ * dark base, neon teal/cyan/violet accents, glassmorphism cards,
+ * gradient logo, mesh-gradient background, mono numbers.
+ *
+ * Imported from every template's <head>. Per-page CSS is preserved
+ * but is re-skinned via :root tokens + a few class overrides.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+:root {
+    /* surface */
+    --w3-bg-0: #07091A;
+    --w3-bg-1: #0B0F2A;
+    --w3-bg-2: #130D35;
+    --w3-bg-3: #1A103D;
+    --w3-surface: rgba(20, 25, 50, 0.55);
+    --w3-surface-hi: rgba(28, 33, 60, 0.7);
+    --w3-border: rgba(255, 255, 255, 0.08);
+    --w3-border-strong: rgba(255, 255, 255, 0.16);
+
+    /* text */
+    --w3-text: #E6E9F2;
+    --w3-text-muted: rgba(230, 233, 242, 0.6);
+    --w3-text-faint: rgba(230, 233, 242, 0.38);
+
+    /* accents */
+    --w3-teal: #14b8a6;
+    --w3-cyan: #22d3ee;
+    --w3-mint: #2dd4bf;
+    --w3-violet: #7c3aed;
+    --w3-violet-soft: #a78bfa;
+    --w3-pink: #ec4899;
+    --w3-amber: #f59e0b;
+    --w3-success: #10b981;
+
+    /* gradients */
+    --w3-grad-brand: linear-gradient(135deg, #22d3ee 0%, #14b8a6 45%, #7c3aed 100%);
+    --w3-grad-brand-soft: linear-gradient(135deg, rgba(34,211,238,0.18), rgba(124,58,237,0.18));
+    --w3-grad-primary: linear-gradient(135deg, #14b8a6 0%, #22d3ee 100%);
+    --w3-grad-violet: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+    --w3-grad-warn: linear-gradient(135deg, #f59e0b 0%, #ec4899 100%);
+    --w3-grad-card-border: linear-gradient(135deg, rgba(34,211,238,0.45), rgba(124,58,237,0.35));
+
+    /* glow */
+    --w3-glow-teal: 0 0 32px rgba(34, 211, 238, 0.28);
+    --w3-glow-violet: 0 0 32px rgba(124, 58, 237, 0.32);
+    --w3-shadow-card: 0 14px 38px rgba(7, 10, 26, 0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+
+    /* fonts */
+    --w3-font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+    --w3-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* radii */
+    --w3-r-sm: 10px;
+    --w3-r-md: 14px;
+    --w3-r-lg: 20px;
+    --w3-r-xl: 28px;
+}
+
+/* ---------- mesh-gradient page backdrop ---------- */
+html, body {
+    background-color: var(--w3-bg-0) !important;
+    color: var(--w3-text);
+}
+body {
+    position: relative;
+    min-height: 100vh;
+}
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(60% 60% at 8% 12%, rgba(124, 58, 237, 0.30) 0%, transparent 60%),
+        radial-gradient(50% 60% at 92% 8%, rgba(34, 211, 238, 0.22) 0%, transparent 60%),
+        radial-gradient(60% 60% at 50% 100%, rgba(20, 184, 166, 0.18) 0%, transparent 65%),
+        linear-gradient(180deg, var(--w3-bg-1) 0%, var(--w3-bg-2) 55%, var(--w3-bg-0) 100%);
+}
+body > * { position: relative; z-index: 1; }
+
+/* ---------- shared header polish (works with .header / .navbar / nav-brand) ---------- */
+.header,
+.navbar,
+nav.navbar {
+    background: rgba(11, 15, 42, 0.55) !important;
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border-bottom: 1px solid var(--w3-border) !important;
+    box-shadow: 0 1px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- gradient logo (re-skins existing solid-purple logos) ---------- */
+.logo,
+.nav-brand,
+.navbar-brand,
+.logo-link,
+.pc-brand-name,
+.top-bar-title {
+    font-family: var(--w3-font-display) !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em !important;
+    background: var(--w3-grad-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent !important;
+    text-shadow: 0 0 24px rgba(34, 211, 238, 0.18);
+}
+.logo:hover,
+.nav-brand:hover,
+.navbar-brand:hover,
+.logo-link:hover {
+    filter: brightness(1.1) saturate(1.1);
+}
+
+/* a small "● On Celo" chip rendered inline next to the logo (added by templates) */
+.w3-chain-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.6rem;
+    margin-left: 0.55rem;
+    border-radius: 999px;
+    background: rgba(16, 185, 129, 0.10);
+    border: 1px solid rgba(16, 185, 129, 0.32);
+    color: #6ee7b7;
+    font-family: var(--w3-font-display);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.w3-chain-chip::before {
+    content: '';
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 10px #34d399;
+    animation: w3-pulse 1.6s ease-in-out infinite;
+}
+@keyframes w3-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* ---------- nav links ---------- */
+.nav-links a,
+.navbar-nav .nav-link {
+    color: var(--w3-text-muted);
+    font-family: var(--w3-font-display);
+    font-weight: 500;
+    transition: color 0.2s ease, background 0.2s ease;
+}
+.nav-links a:hover,
+.navbar-nav .nav-link:hover {
+    color: #a5f3fc;
+}
+
+/* ---------- glassmorphism utility ---------- */
+.web3-glass {
+    position: relative;
+    background: var(--w3-surface);
+    border: 1px solid var(--w3-border);
+    border-radius: var(--w3-r-lg);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: var(--w3-shadow-card);
+}
+.web3-glass-bordered {
+    position: relative;
+}
+.web3-glass-bordered::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: var(--w3-grad-card-border);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    pointer-events: none;
+}
+
+/* ---------- pill / chip ---------- */
+.web3-pill {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    background: rgba(34, 211, 238, 0.08);
+    border: 1px solid rgba(34, 211, 238, 0.32);
+    color: #a5f3fc;
+    font-family: var(--w3-font-display);
+    font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+}
+.web3-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #22d3ee;
+    box-shadow: 0 0 10px #22d3ee;
+    animation: w3-pulse 1.6s ease-in-out infinite;
+}
+.web3-pill.violet { background: rgba(124,58,237,0.10); border-color: rgba(124,58,237,0.34); color: #c4b5fd; }
+.web3-pill.violet .dot { background: #a78bfa; box-shadow: 0 0 10px #a78bfa; }
+.web3-pill.success { background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.32); color: #6ee7b7; }
+.web3-pill.success .dot { background: #34d399; box-shadow: 0 0 10px #34d399; }
+
+/* ---------- buttons ---------- */
+.web3-btn,
+.web3-btn-primary,
+.web3-btn-glass {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.7rem 1.25rem;
+    border-radius: 12px;
+    font-family: var(--w3-font-display);
+    font-weight: 700; font-size: 0.95rem;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.web3-btn-primary {
+    color: #04111a;
+    background: var(--w3-grad-primary);
+    box-shadow: 0 8px 28px rgba(34, 211, 238, 0.28), inset 0 1px 0 rgba(255,255,255,0.4);
+}
+.web3-btn-primary:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 12px 36px rgba(34, 211, 238, 0.4); }
+.web3-btn-glass {
+    color: var(--w3-text);
+    background: var(--w3-surface);
+    border-color: var(--w3-border-strong);
+    backdrop-filter: blur(14px);
+}
+.web3-btn-glass:hover { background: var(--w3-surface-hi); border-color: rgba(34,211,238,0.45); }
+
+/* re-skin existing primary buttons site-wide so we don't have to touch 13 templates */
+.connect-wallet-btn,
+.btn-primary.main-menu-btn,
+.btn-primary,
+button.primary,
+.cta-primary {
+    background: var(--w3-grad-primary) !important;
+    color: #04111a !important;
+    border: 1px solid rgba(255,255,255,0.18) !important;
+    font-family: var(--w3-font-display) !important;
+    font-weight: 700 !important;
+    box-shadow: 0 8px 28px rgba(34, 211, 238, 0.22), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+}
+.connect-wallet-btn:hover,
+.btn-primary.main-menu-btn:hover,
+.btn-primary:hover,
+button.primary:hover,
+.cta-primary:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 36px rgba(34, 211, 238, 0.36), inset 0 1px 0 rgba(255,255,255,0.4) !important;
+}
+
+/* ---------- mono numerals (for big balances, addresses, tx hashes) ---------- */
+.web3-mono,
+.balance-amount,
+.amount-display,
+.stat-value,
+.ps-value {
+    font-family: var(--w3-font-mono);
+    font-feature-settings: "tnum" 1, "lnum" 1;
+    letter-spacing: -0.01em;
+}
+
+/* ---------- token / wallet pill ---------- */
+.web3-wallet-pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    background: var(--w3-surface);
+    border: 1px solid var(--w3-border-strong);
+    color: var(--w3-text);
+    font-family: var(--w3-font-mono);
+    font-size: 0.85rem;
+}
+.web3-wallet-pill .avatar {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--w3-grad-violet);
+    box-shadow: 0 0 12px rgba(124,58,237,0.5);
+}
+
+/* ---------- gradient text helper ---------- */
+.web3-gradient-text {
+    background: var(--w3-grad-brand);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+}
+
+/* ---------- section eyebrow (consistent with hero) ---------- */
+.web3-section-eyebrow {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    padding: 0.4rem 0.95rem; border-radius: 999px;
+    background: rgba(20, 184, 166, 0.08);
+    border: 1px solid rgba(20, 184, 166, 0.30);
+    color: #6ee7b7;
+    font-family: var(--w3-font-display);
+    font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase;
+    margin-bottom: 1rem;
+}
+
+/* ---------- tasteful neon focus rings ---------- */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible {
+    outline: 2px solid rgba(34, 211, 238, 0.7);
+    outline-offset: 2px;
+}
+
+/* ---------- card pattern: re-skin generic cards across pages ---------- */
+.card,
+.section-panel,
+.balance-card,
+.action-card,
+.menu-card,
+.feature-card,
+.modal-content,
+.pop-card,
+.dashboard-card {
+    background: var(--w3-surface) !important;
+    border: 1px solid var(--w3-border) !important;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--w3-shadow-card);
+}
+
+/* ---------- scrollbar (cosmetic) ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(11,15,42,0.4); }
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(124,58,237,0.5), rgba(34,211,238,0.5));
+    border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { filter: brightness(1.15); }
