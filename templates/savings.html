@@ -597,6 +597,10 @@
         );
         return (uaTrust || hasTrustInjection) && touchMobile;
     }
+    function _isLikelyMobileWalletContext() {
+        const ua = (navigator.userAgent || '').toLowerCase();
+        return /android|iphone|ipad|ipod|minipay|metamask|trust|trustwallet/.test(ua);
+    }
     function _collectSavingsProviders() {
         const out = [];
         const push = (p) => { if (p && typeof p.request === 'function' && !out.includes(p)) out.push(p); };
@@ -641,8 +645,9 @@
         return window.ethereum || providers[0];
     }
     async function _awaitEthProvider(timeoutMs) {
-        const trustBudget = _isTrustWalletMobileContext() ? 2600 : 800;
-        const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
+        const budget = typeof timeoutMs === 'number'
+            ? timeoutMs
+            : (_isTrustWalletMobileContext() ? 3200 : (_isLikelyMobileWalletContext() ? 2200 : 800));
         const start = Date.now();
         let ep = _getEthProvider();
         if (ep) return ep;

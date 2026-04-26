@@ -2214,10 +2214,17 @@
             return (uaTrust || hasTrustInjection) && touchMobile;
         }
 
+        function isLikelyMobileWalletContext() {
+            const ua = (navigator.userAgent || '').toLowerCase();
+            return /android|iphone|ipad|ipod|minipay|metamask|trust|trustwallet/.test(ua);
+        }
+
         async function awaitPreferredInjectedProvider(timeoutMs) {
-            // Keep the wider wait budget strictly for Trust Wallet mobile.
-            const trustBudget = isTrustWalletMobileContext() ? 2600 : 800;
-            const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
+            // Trust Wallet mobile can inject late; give all mobile dApp contexts
+            // a bigger budget so Trust builds with generic UA strings still pass.
+            const budget = typeof timeoutMs === 'number'
+                ? timeoutMs
+                : (isTrustWalletMobileContext() ? 3200 : (isLikelyMobileWalletContext() ? 2200 : 800));
             const stepMs = 120;
             const start = Date.now();
             let first = getPreferredInjectedProvider();
@@ -2269,7 +2276,7 @@
                 // a couple times with small backoff so a user opening the modal
                 // fast still gets Trust Wallet / MetaMask Mobile detected.
                 const depth = Number(_retryDepth || 0);
-                if (depth < 3) {
+                if (depth < 6) {
                     setTimeout(() => detectInjectedWallet(depth + 1), 350 + depth * 250);
                 }
                 return;
