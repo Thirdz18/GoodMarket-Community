@@ -5868,7 +5868,7 @@ def wallet_page():
 
 @routes.route("/swap")
 def swap_page():
-    """Swap page for G$ <-> CELO via Uniswap V3 on Celo"""
+    """Swap page for G$ <-> CELO via Uniswap V3 and GoodReserve (MentoBroker) on Celo"""
     wallet = session.get("wallet")
     if not wallet or not session.get("verified"):
         return redirect(url_for("routes.index"))

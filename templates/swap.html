@@ -642,6 +642,10 @@
             <!-- Quote Box -->
             <div class="quote-box hidden" id="quoteBox">
                 <div class="quote-row">
+                    <span>Route</span>
+                    <strong id="quoteRoute" style="color:#a78bfa;">Uniswap V3</strong>
+                </div>
+                <div class="quote-row">
                     <span>Rate</span>
                     <strong id="quoteRate">—</strong>
                 </div>
@@ -684,12 +688,22 @@
         <!-- Info -->
         <div class="info-card">
             <div class="info-card-title">How it works</div>
-            Swaps are executed on-chain via <strong style="color:#e2e8f0;">Uniswap V3</strong> on the Celo network.
+            Swaps are executed on-chain via <strong style="color:#a78bfa;">Uniswap V3</strong> or
+            <strong style="color:#4ade80;">GoodReserve</strong> on the Celo network — the best rate is selected automatically.
+            <br><br>
+            For <strong>G$ ↔ cUSD</strong> swaps, the GoodReserve (GoodDollar's native reserve AMM) is also
+            checked for better rates. Selling G$ via GoodReserve includes a <strong>3% exit contribution</strong>
+            that goes back into the reserve to support the ecosystem.
+            <br><br>
             You need a Web3 wallet (MetaMask, MiniPay, or any Celo-compatible wallet) to confirm the transaction.
             Make sure you have enough CELO for gas fees.
             <br><br>
             <a class="info-link" href="https://app.uniswap.org/#/swap?chain=celo" target="_blank" rel="noopener">
                 Also available on Uniswap ↗
+            </a>
+            &nbsp;·&nbsp;
+            <a class="info-link" href="https://docs.gooddollar.org/user-guides/buy-and-sell-gusd" target="_blank" rel="noopener">
+                GoodReserve docs ↗
             </a>
         </div>
 
@@ -1340,6 +1354,11 @@
         const UNISWAP_QUOTER   = "0x82825d0554fA07f7FC52Ab63c961F330fdEFa8E8";
         const FEE_TIERS        = [10000, 3000, 500]; // G$/CELO pool is 1% (10000), try it first
 
+        // GoodReserve (MentoBroker) on Celo — GoodDollar native reserve AMM
+        const MENTO_BROKER            = "0x88de45906D4F5a57315c133620cfa484cB297541";
+        const MENTO_EXCHANGE_PROVIDER = "0x2fFBB49055d487DdBBb0C052Cd7d2a02A7971e41";
+        const CUSD_EXCHANGE_ID        = "0xba77f5c7bb3317643c6d81d1ef3f9913561741d92095f88efa402faf2cbe9124";
+
         // Minimal ABIs
         const ERC20_ABI = [
             "function balanceOf(address owner) view returns (uint256)",
@@ -1356,6 +1375,11 @@
         const ROUTER_ABI = [
             "function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountOut)",
             "function exactInput((bytes path, address recipient, uint256 amountIn, uint256 amountOutMinimum) params) payable returns (uint256 amountOut)"
+        ];
+
+        const MENTO_BROKER_ABI = [
+            "function getAmountOut(address exchangeProvider, bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountIn) view returns (uint256 amountOut)",
+            "function swapIn(address exchangeProvider, bytes32 exchangeId, address tokenIn, address tokenOut, uint256 amountIn, uint256 amountOutMin) returns (uint256 amountOut)"
         ];
 
         // Encode a Uniswap V3 multi-hop path: [addr0, addr1, addr2, ...] with [fee01, fee12, ...]
@@ -1389,25 +1413,35 @@
         // ─── UI Helpers ───────────────────────────────────────────────────────────
         // Route tip configurations: key = "FROM_TO"
         const ROUTE_TIPS = {
+            "GD_CUSD": {
+                body: `<strong>G$ → cUSD</strong> is routed through the best available path automatically:`,
+                steps: ["G$", "→", "cUSD"],
+                note: "GoodReserve (native AMM) and Uniswap V3 are compared — best rate wins. Selling G$ via GoodReserve includes a 3% exit contribution that supports the ecosystem."
+            },
+            "CUSD_GD": {
+                body: `<strong>cUSD → G$</strong> is routed through the best available path automatically:`,
+                steps: ["cUSD", "→", "G$"],
+                note: "GoodReserve (native AMM) and Uniswap V3 are compared — best rate wins. Buying G$ via GoodReserve has no fee."
+            },
             "GD_CELO": {
                 body: `The direct <strong>G$ → CELO</strong> pool has limited liquidity on Uniswap — you'll often get a poor rate. For better value, swap in two steps:`,
                 steps: ["G$", "cUSD", "CELO"],
-                note: "Do G$ → cUSD first, then cUSD → CELO in a second swap. You get a much better rate this way."
+                note: "Do G$ → cUSD first (uses GoodReserve for best rate), then cUSD → CELO in a second swap."
             },
             "GD_USDT": {
                 body: `For better rates, avoid going directly from <strong>G$ → USDT</strong>. Swap in steps instead:`,
                 steps: ["G$", "cUSD", "USDT"],
-                note: "Swap G$ → cUSD first, then cUSD → USDT. Stablecoin pools have deeper liquidity."
+                note: "Swap G$ → cUSD first (uses GoodReserve for best rate), then cUSD → USDT."
             },
             "CELO_GD": {
                 body: `The <strong>CELO → G$</strong> direct pool has limited liquidity. Better route:`,
                 steps: ["CELO", "cUSD", "G$"],
-                note: "Swap CELO → cUSD first, then cUSD → G$ for a better rate."
+                note: "Swap CELO → cUSD first, then cUSD → G$ (uses GoodReserve for best rate)."
             },
             "USDT_GD": {
                 body: `For better rates swapping <strong>USDT → G$</strong>, use an intermediate step:`,
-                steps: ["USDT", "CELO", "G$"],
-                note: "Swap USDT → CELO first, then CELO → G$. Or try USDT → cUSD → G$."
+                steps: ["USDT", "cUSD", "G$"],
+                note: "Swap USDT → cUSD first, then cUSD → G$ (uses GoodReserve for best rate)."
             },
             "CELO_USDT": {
                 body: `<strong>CELO → USDT</strong> tip: If you see a poor rate, you can also try routing through cUSD:`,
@@ -1703,7 +1737,31 @@
             quoteTimer = setTimeout(fetchQuote, 600);
         }
 
-        // ─── Fetch Quote from Quoter V2 (single-hop + multi-hop) ─────────────────
+        // ─── Check if the pair is eligible for GoodReserve (G$ ↔ cUSD only) ─────
+        function isGoodReservePair(fromKey, toKey) {
+            return (fromKey === "GD" && toKey === "CUSD") || (fromKey === "CUSD" && toKey === "GD");
+        }
+
+        // ─── Fetch GoodReserve quote via MentoBroker ─────────────────────────────
+        async function fetchGoodReserveQuote(from, to, amountIn) {
+            try {
+                const provider = new ethers.JsonRpcProvider(CELO_RPC);
+                const broker = new ethers.Contract(MENTO_BROKER, MENTO_BROKER_ABI, provider);
+                const amountOut = await broker.getAmountOut(
+                    MENTO_EXCHANGE_PROVIDER,
+                    CUSD_EXCHANGE_ID,
+                    from.address,
+                    to.address,
+                    amountIn
+                );
+                return amountOut;
+            } catch (e) {
+                console.warn("GoodReserve quote failed:", e.message);
+                return null;
+            }
+        }
+
+        // ─── Fetch Quote from Quoter V2 (single-hop + multi-hop) + GoodReserve ──
         async function fetchQuote() {
             const raw = document.getElementById("amountIn").value.trim();
             if (!raw || parseFloat(raw) <= 0) { setSwapBtnState("enter"); return; }
@@ -1721,8 +1779,9 @@
                 let bestPath     = null;
                 let bestIsMulti  = false;
                 let bestMidToken = null;
+                let bestRoute    = "uniswap"; // "uniswap" or "goodreserve"
 
-                // ── Build all quote attempts (single-hop + multi-hop) ──────────────
+                // ── Build all Uniswap quote attempts (single-hop + multi-hop) ──────
                 const attempts = [];
 
                 // Single-hop: try every fee tier
@@ -1734,7 +1793,7 @@
                             amountIn:          amountIn,
                             fee:               fee,
                             sqrtPriceLimitX96: 0n
-                        }).then(([amountOut]) => ({ amountOut, fee, path: null, isMulti: false, midToken: null }))
+                        }).then(([amountOut]) => ({ amountOut, fee, path: null, isMulti: false, midToken: null, route: "uniswap" }))
                           .catch(() => null)
                     );
                 }
@@ -1753,11 +1812,19 @@
                             );
                             attempts.push(
                                 quoter.quoteExactInput.staticCall(path, amountIn)
-                                    .then(([amountOut]) => ({ amountOut, fee: fee1, path, isMulti: true, midToken: midKey }))
+                                    .then(([amountOut]) => ({ amountOut, fee: fee1, path, isMulti: true, midToken: midKey, route: "uniswap" }))
                                     .catch(() => null)
                             );
                         }
                     }
+                }
+
+                // ── GoodReserve quote (only for G$ ↔ cUSD pairs) ──────────────────
+                if (isGoodReservePair(fromToken, toToken)) {
+                    attempts.push(
+                        fetchGoodReserveQuote(from, to, amountIn)
+                            .then(amountOut => amountOut ? { amountOut, fee: 0, path: null, isMulti: false, midToken: null, route: "goodreserve" } : null)
+                    );
                 }
 
                 // Run all attempts in parallel for speed
@@ -1771,12 +1838,13 @@
                         bestPath     = r.path;
                         bestIsMulti  = r.isMulti;
                         bestMidToken = r.midToken;
+                        bestRoute    = r.route;
                     }
                 }
 
                 if (bestQuote === null) {
                     setSwapBtnState("no-pool");
-                    showAlert("alert-error", "❌ No liquidity pool found for this pair on Uniswap V3 (Celo). Try a different amount or check back later.");
+                    showAlert("alert-error", "❌ No liquidity found for this pair. Try a different amount or check back later.");
                     return;
                 }
 
@@ -1788,7 +1856,8 @@
                     isMulti:   bestIsMulti,
                     midToken:  bestMidToken,
                     fromToken,
-                    toToken
+                    toToken,
+                    route:     bestRoute
                 };
 
                 showQuote(currentQuote);
@@ -1828,13 +1897,26 @@
             document.getElementById("quoteMinOut").textContent =
                 `${minOutHuman.toFixed(to.displayDecimals)} ${to.symbol}`;
             document.getElementById("quotePriceImpact").textContent = "< 1%";
-            if (quote.isMulti && quote.midToken) {
+
+            // Route and fee display
+            if (quote.route === "goodreserve") {
+                const exitNote = quote.fromToken === "GD" ? " (incl. 3% exit contribution)" : "";
+                document.getElementById("quotePoolFee").textContent = `GoodReserve${exitNote}`;
+            } else if (quote.isMulti && quote.midToken) {
                 const midSym = TOKENS[quote.midToken].symbol;
                 document.getElementById("quotePoolFee").textContent =
                     `Multi-hop via ${midSym} (best route)` + (effSlip > slippage ? ` · ${effSlip}% slip applied` : '');
             } else {
                 document.getElementById("quotePoolFee").textContent = `${quote.fee / 10000}%`;
             }
+
+            // Show route indicator
+            const routeEl = document.getElementById("quoteRoute");
+            if (routeEl) {
+                routeEl.textContent = quote.route === "goodreserve" ? "GoodReserve" : "Uniswap V3";
+                routeEl.style.color = quote.route === "goodreserve" ? "#4ade80" : "#a78bfa";
+            }
+
             document.getElementById("quoteBox").classList.remove("hidden");
         }
 
@@ -1889,10 +1971,13 @@
                     step2.className = "step";
                     setSwapBtnState("loading", "Approving token...");
                     const modeLabel = 'secure server-side';
-                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approving ${from.symbol} for Uniswap (${modeLabel})…`);
+                    const isReserveSwap = currentQuote.route === "goodreserve";
+                    const spenderAddr = isReserveSwap ? MENTO_BROKER : UNISWAP_ROUTER;
+                    const routeLabel = isReserveSwap ? "GoodReserve" : "Uniswap";
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approving ${from.symbol} for ${routeLabel} (${modeLabel})…`);
 
                     const approveIface = new ethers.Interface(ERC20_ABI);
-                    const approveData = approveIface.encodeFunctionData("approve", [UNISWAP_ROUTER, amountIn * 2n]);
+                    const approveData = approveIface.encodeFunctionData("approve", [spenderAddr, amountIn * 2n]);
                     const approveRes = await fetch('/api/server/sign-tx', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ to: from.address, data: approveData, value: '0x0', chain_id: CELO_CHAIN_ID, wait_receipt: true })
@@ -1908,25 +1993,29 @@
                     step1.className = "step done";
 
                     // ── Re-fetch quote after approval to get a fresh amountOutMin ──
-                    // The approval tx takes ~3 s on Celo. Price can move during that
-                    // window; using the original quote's output as amountOutMin will
-                    // cause "Too little received" reverts if it moved even slightly.
                     let freshAmountOut = currentQuote.amountOut;
                     try {
                         const freshProvider = new ethers.JsonRpcProvider(CELO_RPC);
-                        const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, freshProvider);
-                        if (currentQuote.isMulti && currentQuote.path) {
-                            const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
-                            freshAmountOut = newOut;
+                        if (isReserveSwap) {
+                            const freshBroker = new ethers.Contract(MENTO_BROKER, MENTO_BROKER_ABI, freshProvider);
+                            freshAmountOut = await freshBroker.getAmountOut(
+                                MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                                from.address, to.address, amountIn);
                         } else {
-                            const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
-                                tokenIn: from.address,
-                                tokenOut: to.address,
-                                amountIn: amountIn,
-                                fee: currentQuote.fee,
-                                sqrtPriceLimitX96: 0n
-                            });
-                            freshAmountOut = newOut;
+                            const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, freshProvider);
+                            if (currentQuote.isMulti && currentQuote.path) {
+                                const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
+                                freshAmountOut = newOut;
+                            } else {
+                                const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
+                                    tokenIn: from.address,
+                                    tokenOut: to.address,
+                                    amountIn: amountIn,
+                                    fee: currentQuote.fee,
+                                    sqrtPriceLimitX96: 0n
+                                });
+                                freshAmountOut = newOut;
+                            }
                         }
                         console.log(`[swap] re-quote: oldOut=${currentQuote.amountOut} freshOut=${freshAmountOut}`);
                     } catch (reQuoteErr) {
@@ -1941,7 +2030,7 @@
                         "function balanceOf(address) view returns (uint256)"
                     ], diagProvider);
                     const [onChainAllowance, onChainBalance] = await Promise.all([
-                        diagToken.allowance(WALLET_ADDRESS, UNISWAP_ROUTER),
+                        diagToken.allowance(WALLET_ADDRESS, spenderAddr),
                         diagToken.balanceOf(WALLET_ADDRESS)
                     ]);
                     console.log(`[swap] wallet=${WALLET_ADDRESS} balance=${onChainBalance} allowance=${onChainAllowance} amountIn=${amountIn} amountOutMin=${amountOutMin}`);
@@ -1958,31 +2047,41 @@
                     // Step 2: Swap
                     step2.className = "step active";
                     setSwapBtnState("loading", "Executing swap...");
-                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Executing swap (${modeLabel})…`);
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Executing swap via ${routeLabel} (${modeLabel})…`);
 
-                    const routerIface = new ethers.Interface(ROUTER_ABI);
-                    let swapData;
-                    if (currentQuote.isMulti && currentQuote.path) {
-                        swapData = routerIface.encodeFunctionData("exactInput", [{
-                            path: currentQuote.path,
-                            recipient: WALLET_ADDRESS,
-                            amountIn: amountIn,
-                            amountOutMinimum: amountOutMin
-                        }]);
+                    let swapData, swapTarget;
+                    if (isReserveSwap) {
+                        const brokerIface = new ethers.Interface(MENTO_BROKER_ABI);
+                        swapData = brokerIface.encodeFunctionData("swapIn", [
+                            MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                            from.address, to.address, amountIn, amountOutMin
+                        ]);
+                        swapTarget = MENTO_BROKER;
                     } else {
-                        swapData = routerIface.encodeFunctionData("exactInputSingle", [{
-                            tokenIn: from.address,
-                            tokenOut: to.address,
-                            fee: currentQuote.fee,
-                            recipient: WALLET_ADDRESS,
-                            amountIn: amountIn,
-                            amountOutMinimum: amountOutMin,
-                            sqrtPriceLimitX96: 0n
-                        }]);
+                        const routerIface = new ethers.Interface(ROUTER_ABI);
+                        if (currentQuote.isMulti && currentQuote.path) {
+                            swapData = routerIface.encodeFunctionData("exactInput", [{
+                                path: currentQuote.path,
+                                recipient: WALLET_ADDRESS,
+                                amountIn: amountIn,
+                                amountOutMinimum: amountOutMin
+                            }]);
+                        } else {
+                            swapData = routerIface.encodeFunctionData("exactInputSingle", [{
+                                tokenIn: from.address,
+                                tokenOut: to.address,
+                                fee: currentQuote.fee,
+                                recipient: WALLET_ADDRESS,
+                                amountIn: amountIn,
+                                amountOutMinimum: amountOutMin,
+                                sqrtPriceLimitX96: 0n
+                            }]);
+                        }
+                        swapTarget = UNISWAP_ROUTER;
                     }
                     const swapRes = await fetch('/api/server/sign-tx', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ to: UNISWAP_ROUTER, data: swapData, value: '0x0', chain_id: CELO_CHAIN_ID, wait_receipt: true })
+                        body: JSON.stringify({ to: swapTarget, data: swapData, value: '0x0', chain_id: CELO_CHAIN_ID, wait_receipt: true })
                     });
                     const swapResult = await swapRes.json();
                     if (!swapResult.success) {
@@ -2035,41 +2134,51 @@
                     const effSlip     = effectiveSlippage(currentQuote);
                     const slippageBps = BigInt(Math.floor(effSlip * 100));
                     let amountIn = currentQuote.amountIn;
+                    const isReserveSwap = currentQuote.route === "goodreserve";
+                    const spenderAddr = isReserveSwap ? MENTO_BROKER : UNISWAP_ROUTER;
+                    const routeLabel = isReserveSwap ? "GoodReserve" : "Uniswap";
 
                     // Step 1: Approve
                     stepIndicators.className = "step-indicators show";
                     step1.className = "step active";
                     step2.className = "step";
                     setSwapBtnState("loading", "Approving token...");
-                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approve ${from.symbol} in MiniPay…`);
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approve ${from.symbol} for ${routeLabel} in MiniPay…`);
 
                     // Check allowance first
                     const rpcProvider = new ethers.JsonRpcProvider(CELO_RPC);
                     const tokenRead = new ethers.Contract(from.address, ERC20_ABI, rpcProvider);
-                    const allowance = await tokenRead.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
+                    const allowance = await tokenRead.allowance(WALLET_ADDRESS, spenderAddr);
                     if (allowance < amountIn) {
                         await _miniPayTx(from.address,
                             "function approve(address spender, uint256 amount) returns (bool)",
-                            [UNISWAP_ROUTER, amountIn * 2n]);
+                            [spenderAddr, amountIn * 2n]);
                     }
                     step1.className = "step done";
 
                     // Re-quote for fresh price
                     let freshAmountOut = currentQuote.amountOut;
                     try {
-                        const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, rpcProvider);
-                        if (currentQuote.isMulti && currentQuote.path) {
-                            const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
-                            freshAmountOut = newOut;
+                        if (isReserveSwap) {
+                            const freshBroker = new ethers.Contract(MENTO_BROKER, MENTO_BROKER_ABI, rpcProvider);
+                            freshAmountOut = await freshBroker.getAmountOut(
+                                MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                                from.address, to.address, amountIn);
                         } else {
-                            const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
-                                tokenIn: from.address,
-                                tokenOut: to.address,
-                                amountIn: amountIn,
-                                fee: currentQuote.fee,
-                                sqrtPriceLimitX96: 0n
-                            });
-                            freshAmountOut = newOut;
+                            const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, rpcProvider);
+                            if (currentQuote.isMulti && currentQuote.path) {
+                                const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
+                                freshAmountOut = newOut;
+                            } else {
+                                const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
+                                    tokenIn: from.address,
+                                    tokenOut: to.address,
+                                    amountIn: amountIn,
+                                    fee: currentQuote.fee,
+                                    sqrtPriceLimitX96: 0n
+                                });
+                                freshAmountOut = newOut;
+                            }
                         }
                     } catch (reQuoteErr) {
                         console.warn('[swap] MiniPay re-quote failed, using original:', reQuoteErr.message);
@@ -2079,30 +2188,40 @@
                     // Step 2: Swap via raw tx
                     step2.className = "step active";
                     setSwapBtnState("loading", "Executing swap...");
-                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm swap in MiniPay…`);
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm ${routeLabel} swap in MiniPay…`);
 
-                    const routerIface = new ethers.Interface(ROUTER_ABI);
-                    let swapData;
-                    if (currentQuote.isMulti && currentQuote.path) {
-                        swapData = routerIface.encodeFunctionData("exactInput", [{
-                            path: currentQuote.path,
-                            recipient: WALLET_ADDRESS,
-                            amountIn: amountIn,
-                            amountOutMinimum: amountOutMin
-                        }]);
+                    let swapData, swapTarget;
+                    if (isReserveSwap) {
+                        const brokerIface = new ethers.Interface(MENTO_BROKER_ABI);
+                        swapData = brokerIface.encodeFunctionData("swapIn", [
+                            MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                            from.address, to.address, amountIn, amountOutMin
+                        ]);
+                        swapTarget = MENTO_BROKER;
                     } else {
-                        swapData = routerIface.encodeFunctionData("exactInputSingle", [{
-                            tokenIn: from.address,
-                            tokenOut: to.address,
-                            fee: currentQuote.fee,
-                            recipient: WALLET_ADDRESS,
-                            amountIn: amountIn,
-                            amountOutMinimum: amountOutMin,
-                            sqrtPriceLimitX96: 0n
-                        }]);
+                        const routerIface = new ethers.Interface(ROUTER_ABI);
+                        if (currentQuote.isMulti && currentQuote.path) {
+                            swapData = routerIface.encodeFunctionData("exactInput", [{
+                                path: currentQuote.path,
+                                recipient: WALLET_ADDRESS,
+                                amountIn: amountIn,
+                                amountOutMinimum: amountOutMin
+                            }]);
+                        } else {
+                            swapData = routerIface.encodeFunctionData("exactInputSingle", [{
+                                tokenIn: from.address,
+                                tokenOut: to.address,
+                                fee: currentQuote.fee,
+                                recipient: WALLET_ADDRESS,
+                                amountIn: amountIn,
+                                amountOutMinimum: amountOutMin,
+                                sqrtPriceLimitX96: 0n
+                            }]);
+                        }
+                        swapTarget = UNISWAP_ROUTER;
                     }
 
-                    const txHash = await _miniPayRawTx(UNISWAP_ROUTER, swapData, '0x0');
+                    const txHash = await _miniPayRawTx(swapTarget, swapData, '0x0');
                     step2.className = "step done";
 
                     const outHuman = parseFloat(ethers.formatUnits(currentQuote.amountOut, to.decimals));
@@ -2144,6 +2263,9 @@
                 const effSlip = effectiveSlippage(currentQuote);
                 const slippageBps = BigInt(Math.floor(effSlip * 100));
                 let amountIn = currentQuote.amountIn;
+                const isReserveSwap = currentQuote.route === "goodreserve";
+                const spenderAddr = isReserveSwap ? MENTO_BROKER : UNISWAP_ROUTER;
+                const routeLabel = isReserveSwap ? "GoodReserve" : "Uniswap";
 
                 if (fromToken === "CELO") {
                     const GAS_BUFFER_CELO = ethers.parseUnits("0.01", 18);
@@ -2165,12 +2287,12 @@
                 step1.className = "step active";
                 step2.className = "step";
                 setSwapBtnState("loading", "Approving token...");
-                showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approving ${from.symbol} in your wallet…`);
+                showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approving ${from.symbol} for ${routeLabel} in your wallet…`);
 
                 const tokenContract = new ethers.Contract(from.address, ERC20_ABI, signer);
-                const allowance = await tokenContract.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
+                const allowance = await tokenContract.allowance(WALLET_ADDRESS, spenderAddr);
                 if (allowance < amountIn) {
-                    const approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
+                    const approveTx = await tokenContract.approve(spenderAddr, amountIn * 2n);
                     await approveTx.wait();
                 }
                 step1.className = "step done";
@@ -2178,19 +2300,26 @@
                 let freshAmountOut = currentQuote.amountOut;
                 try {
                     const freshProvider = new ethers.JsonRpcProvider(CELO_RPC);
-                    const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, freshProvider);
-                    if (currentQuote.isMulti && currentQuote.path) {
-                        const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
-                        freshAmountOut = newOut;
+                    if (isReserveSwap) {
+                        const freshBroker = new ethers.Contract(MENTO_BROKER, MENTO_BROKER_ABI, freshProvider);
+                        freshAmountOut = await freshBroker.getAmountOut(
+                            MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                            from.address, to.address, amountIn);
                     } else {
-                        const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
-                            tokenIn: from.address,
-                            tokenOut: to.address,
-                            amountIn: amountIn,
-                            fee: currentQuote.fee,
-                            sqrtPriceLimitX96: 0n
-                        });
-                        freshAmountOut = newOut;
+                        const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, freshProvider);
+                        if (currentQuote.isMulti && currentQuote.path) {
+                            const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
+                            freshAmountOut = newOut;
+                        } else {
+                            const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
+                                tokenIn: from.address,
+                                tokenOut: to.address,
+                                amountIn: amountIn,
+                                fee: currentQuote.fee,
+                                sqrtPriceLimitX96: 0n
+                            });
+                            freshAmountOut = newOut;
+                        }
                     }
                 } catch (reQuoteErr) {
                     console.warn("[swap] wallet mode re-quote failed, using original quote:", reQuoteErr.message);
@@ -2199,25 +2328,34 @@
 
                 step2.className = "step active";
                 setSwapBtnState("loading", "Executing swap...");
-                showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm swap in your wallet…`);
+                showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm ${routeLabel} swap in your wallet…`);
 
-                const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
-                const swapTx = currentQuote.isMulti && currentQuote.path
-                    ? await router.exactInput({
-                        path: currentQuote.path,
-                        recipient: WALLET_ADDRESS,
-                        amountIn: amountIn,
-                        amountOutMinimum: amountOutMin
-                    })
-                    : await router.exactInputSingle({
-                        tokenIn: from.address,
-                        tokenOut: to.address,
-                        fee: currentQuote.fee,
-                        recipient: WALLET_ADDRESS,
-                        amountIn: amountIn,
-                        amountOutMinimum: amountOutMin,
-                        sqrtPriceLimitX96: 0n
-                    });
+                let swapTx;
+                if (isReserveSwap) {
+                    const broker = new ethers.Contract(MENTO_BROKER, MENTO_BROKER_ABI, signer);
+                    swapTx = await broker.swapIn(
+                        MENTO_EXCHANGE_PROVIDER, CUSD_EXCHANGE_ID,
+                        from.address, to.address, amountIn, amountOutMin
+                    );
+                } else {
+                    const router = new ethers.Contract(UNISWAP_ROUTER, ROUTER_ABI, signer);
+                    swapTx = currentQuote.isMulti && currentQuote.path
+                        ? await router.exactInput({
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        })
+                        : await router.exactInputSingle({
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        });
+                }
                 await swapTx.wait();
                 step2.className = "step done";
 

@@ -1183,6 +1183,7 @@ def get_wallet_transfer_history(wallet_address: str, limit: int = 30) -> list:
 
 # Known contract addresses used for transaction classification
 _UNISWAP_ROUTER_CELO = "0x5615cdab10dc425a742d643d949a7f474c01abc4"
+_MENTO_BROKER_CELO = "0x88de45906d4f5a57315c133620cfa484cb297541"
 
 # Separate cache for comprehensive multi-token tx history
 _tx_history_cache: dict = {}
@@ -1322,7 +1323,7 @@ def get_comprehensive_tx_history(wallet_address: str, limit: int = 50, force: bo
             if isinstance(batch_results, list):
                 for item in batch_results:
                     tx_data = item.get("result") or {}
-                    if (tx_data.get("to") or "").lower() == _UNISWAP_ROUTER_CELO:
+                    if (tx_data.get("to") or "").lower() in (_UNISWAP_ROUTER_CELO, _MENTO_BROKER_CELO):
                         h = (tx_data.get("hash") or "").lower()
                         if h:
                             swap_hashes.add(h)
