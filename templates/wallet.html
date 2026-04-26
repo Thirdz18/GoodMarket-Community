@@ -980,6 +980,7 @@
             <a href="/overview" class="icon-btn" title="Overview" style="text-decoration:none;font-size:1rem;">🏠</a>
         </div>
     </div>
+    {% include "_security_banner.html" %}
     <div id="walletReminderBanner" class="wallet-reminder-banner hidden">
         ✅ MetaMask mobile and MetaMask desktop users can now claim both Celo G$ and XDC G$ in one unified flow. After a successful Celo claim, please wait at least 3 seconds so the Signer Network step for XDC can appear automatically.
     </div>
@@ -1403,7 +1404,9 @@
     </div>
 
     <!-- lz-string for GoodDollar FV link generation -->
-    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"
+            integrity="sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <script>
     const WALLET = "{{ wallet }}";

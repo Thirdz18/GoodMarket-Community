@@ -169,6 +169,97 @@ def _add_cache_headers(response):
 
 
 # ---------------------------------------------------------------------------
+# Security headers
+#
+# Defense in depth for a non-custodial DeFi frontend. The biggest risk to
+# users is NOT server-side custody theft (we don't hold keys) — it's that an
+# attacker who compromises any layer of the page (CDN, hosting, dependency,
+# inline script injection) can swap the smart-contract address or inject a
+# `permit/approve` call that drains user wallets the moment they sign.
+#
+# These headers don't prevent that scenario on their own, but each one
+# narrows the blast radius:
+#   - CSP restricts WHERE scripts/styles/connections can come from.
+#   - X-Frame-Options + frame-ancestors prevent click-jacking inside an iframe.
+#   - X-Content-Type-Options stops MIME sniffing tricks.
+#   - Referrer-Policy reduces leak of session URLs to third parties.
+#   - Permissions-Policy turns off browser features we never use.
+#   - Strict-Transport-Security forces HTTPS for return visits.
+#
+# CSP is intentionally permissive ('unsafe-inline' / 'unsafe-eval') because
+# the existing templates use a lot of inline scripts and ethers.js historically
+# uses Function() at runtime. Tightening should be incremental: convert inline
+# handlers to addEventListener, then drop 'unsafe-inline'; verify ethers works
+# without eval, then drop 'unsafe-eval'. Until then, the host whitelist is
+# still meaningful — an attacker who injects `<script src=//evil.tld/x.js>`
+# will be blocked by the browser even if our HTML is compromised.
+# ---------------------------------------------------------------------------
+_CSP_DIRECTIVES = (
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
+    "https://cdn.jsdelivr.net https://cdnjs.cloudflare.com "
+    "https://esm.sh "
+    "https://telegram.org https://*.telegram.org",
+    "style-src 'self' 'unsafe-inline' "
+    "https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "font-src 'self' data: "
+    "https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self' https: wss:",
+    "frame-src 'self' "
+    "https://telegram.org https://*.telegram.org "
+    "https://www.youtube.com https://www.youtube-nocookie.com "
+    "https://platform.twitter.com",
+    "media-src 'self' data: blob:",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+    "upgrade-insecure-requests",
+)
+_CSP_HEADER_VALUE = "; ".join(_CSP_DIRECTIVES)
+
+
+@app.after_request
+def _add_security_headers(response):
+    """Attach hardening headers to every HTML/JS response.
+
+    Skips static assets (immutable, already cached on CDN/clients) so we
+    don't bloat their headers — the assets themselves are versioned via
+    ASSET_VERSION cache-busting.
+    """
+    try:
+        # Don't add to opaque static binary responses; they don't render
+        # JS/HTML and CSP wouldn't apply anyway.
+        path = request.path or ""
+        if not path.startswith("/static/"):
+            response.headers.setdefault("Content-Security-Policy", _CSP_HEADER_VALUE)
+
+        # Always-on lightweight headers.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=(), payment=(), usb=(), "
+            "magnetometer=(), gyroscope=(), accelerometer=()",
+        )
+        # 1 year HSTS, only meaningful when served over HTTPS in production.
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+        # Disable legacy XSS filter (modern browsers ignore this; old ones
+        # have a buggy implementation that can introduce vulnerabilities).
+        response.headers.setdefault("X-XSS-Protection", "0")
+    except Exception as _sec_hdr_err:
+        logger.debug(f"security header hook skipped: {_sec_hdr_err}")
+    return response
+
+
+# ---------------------------------------------------------------------------
 # Scanner / vulnerability-probe hardening
 #
 # Public production sites are continuously hit by automated scanners that
