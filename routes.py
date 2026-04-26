@@ -1209,7 +1209,31 @@ def index():
     if session.get("verified") and session.get("wallet"):
         return redirect("/wallet")
     wc_project_id = os.environ.get("WALLETCONNECT_PROJECT_ID", "")
-    return render_template("homepage.html", walletconnect_project_id=wc_project_id)
+    try:
+        homepage_stats = analytics.get_homepage_public_stats()
+    except Exception as e:
+        logger.error(f"homepage stats failed: {e}")
+        homepage_stats = {
+            "total_g_disbursed_formatted": "—",
+            "total_g_disbursed_week_growth_pct": None,
+            "active_earners_formatted": "—",
+            "tasks_last_30_days_formatted": "—",
+        }
+    return render_template(
+        "homepage.html",
+        walletconnect_project_id=wc_project_id,
+        homepage_stats=homepage_stats,
+    )
+
+
+@routes.route("/api/homepage-stats")
+def api_homepage_stats():
+    """Public JSON endpoint for homepage hero stats (no auth required)."""
+    try:
+        return jsonify({"success": True, "stats": analytics.get_homepage_public_stats()})
+    except Exception as e:
+        logger.error(f"homepage stats endpoint failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @routes.route("/login")
 def login_page():
@@ -1507,7 +1531,17 @@ def dashboard():
     threading.Thread(target=analytics.track_page_view, args=(wallet, "dashboard"), daemon=True).start()
 
     import os as _os
-    return render_template("dashboard.html", wallet=wallet)
+    try:
+        homepage_stats = analytics.get_homepage_public_stats()
+    except Exception as e:
+        logger.error(f"dashboard stats failed: {e}")
+        homepage_stats = {
+            "total_g_disbursed_formatted": "—",
+            "total_g_disbursed_week_growth_pct": None,
+            "active_earners_formatted": "—",
+            "tasks_last_30_days_formatted": "—",
+        }
+    return render_template("dashboard.html", wallet=wallet, homepage_stats=homepage_stats)
 
 
 @routes.route("/api/user/username", methods=["GET"])

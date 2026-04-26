@@ -232,6 +232,69 @@
             margin-bottom: 2rem;
         }
 
+        /* Web3 platform stats strip (matches homepage hero) */
+        .platform-stats-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.85rem;
+            margin: 0.75rem 0 1.4rem;
+            position: relative;
+        }
+        .platform-stat-card {
+            background: rgba(15, 23, 42, 0.55);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            border-radius: 16px;
+            padding: 0.95rem 1.1rem;
+            box-shadow: 0 12px 28px rgba(8, 12, 32, 0.35);
+            transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+        .platform-stat-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(124, 58, 237, 0.35);
+            box-shadow: 0 18px 36px rgba(124, 58, 237, 0.18);
+        }
+        .platform-stat-card .ps-eyebrow {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: rgba(226, 232, 240, 0.6);
+            margin-bottom: 0.45rem;
+        }
+        .platform-stat-card .ps-value {
+            font-size: 1.6rem;
+            font-weight: 800;
+            line-height: 1.05;
+            letter-spacing: -0.02em;
+            color: #ffffff;
+        }
+        .platform-stat-card .ps-foot {
+            margin-top: 0.35rem;
+            font-size: 0.76rem;
+            font-weight: 600;
+            color: rgba(148, 163, 184, 0.85);
+        }
+        .platform-stat-card.stat-disbursed { border-color: rgba(34, 211, 238, 0.28); }
+        .platform-stat-card.stat-disbursed .ps-value { color: #67e8f9; }
+        .platform-stat-card.stat-disbursed .ps-foot { color: #34d399; }
+        .platform-stat-card.stat-earners { border-color: rgba(124, 58, 237, 0.32); }
+        .platform-stat-card.stat-earners .ps-value { color: #34d399; }
+        .platform-stat-card.stat-tasks { border-color: rgba(251, 191, 36, 0.28); }
+        .platform-stat-card.stat-tasks .ps-value { color: #fbbf24; }
+
+        @media (max-width: 600px) {
+            .platform-stats-strip {
+                grid-template-columns: 1fr;
+                gap: 0.6rem;
+            }
+            .platform-stat-card {
+                padding: 0.8rem 0.95rem;
+            }
+            .platform-stat-card .ps-value { font-size: 1.35rem; }
+        }
+
         .stat-card {
             background: rgba(255, 255, 255, 0.04);
             backdrop-filter: blur(8px);
@@ -1144,6 +1207,31 @@
             <button id="editUsernameBtn" class="claim-btn" style="display: none; margin-top: 1rem;" onclick="showEditUsernameModal()">
                 ✏️ Edit Username (Once per year)
             </button>
+        </div>
+
+        <!-- Platform Stats Strip (web3 style, matches homepage hero) -->
+        <div class="platform-stats-strip" aria-label="Live platform statistics">
+            <div class="platform-stat-card stat-disbursed">
+                <div class="ps-eyebrow">🌐 Total G$ Distributed</div>
+                <div class="ps-value">{{ homepage_stats.total_g_disbursed_formatted }}</div>
+                <div class="ps-foot">
+                    {% if homepage_stats.total_g_disbursed_week_growth_pct is not none %}
+                        +{{ homepage_stats.total_g_disbursed_week_growth_pct }}% this week
+                    {% else %}
+                        On-chain · Celo
+                    {% endif %}
+                </div>
+            </div>
+            <div class="platform-stat-card stat-earners">
+                <div class="ps-eyebrow">👥 Active Earners</div>
+                <div class="ps-value">{{ homepage_stats.active_earners_formatted }}</div>
+                <div class="ps-foot">Across all features</div>
+            </div>
+            <div class="platform-stat-card stat-tasks">
+                <div class="ps-eyebrow">✅ Tasks Completed This Month</div>
+                <div class="ps-value">{{ homepage_stats.tasks_last_30_days_formatted }}</div>
+                <div class="ps-foot">Last 30 days</div>
+            </div>
         </div>
 
         <div id="editUsernameModal">
