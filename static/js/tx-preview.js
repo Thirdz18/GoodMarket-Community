@@ -262,20 +262,30 @@
                 overlay.classList.remove('show');
                 document.body.style.overflow = '';
                 document.removeEventListener('keydown', onKey);
+                overlay.removeEventListener('click', onOverlayClick);
             };
             const accept = () => { cleanup(); resolve(true); };
             const reject_ = () => { cleanup(); reject(new Cancelled()); };
+            // Security-critical dialog: deliberately do NOT bind Enter to
+            // accept. A user who holds Enter to fire the upstream "Swap"
+            // button could keyrepeat into auto-confirming the preview, which
+            // is the exact blind-signing pattern this dialog is meant to
+            // prevent. Escape cancels; everything else requires an explicit
+            // mouse/touch click on the Confirm button.
             const onKey = (e) => {
                 if (e.key === 'Escape') reject_();
-                if (e.key === 'Enter') accept();
+            };
+            // Outside-click cancels. Must NOT use { once: true } — clicks
+            // bubbling up from non-button content inside the card would
+            // otherwise consume the listener without dismissing, leaving the
+            // dialog only closable via Escape/Cancel.
+            const onOverlayClick = (e) => {
+                if (e.target === overlay) reject_();
             };
             card.querySelector('#gm-txp-confirm').addEventListener('click', accept, { once: true });
             card.querySelector('#gm-txp-cancel').addEventListener('click', reject_, { once: true });
             document.addEventListener('keydown', onKey);
-            // Click outside the card cancels.
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) reject_();
-            }, { once: true });
+            overlay.addEventListener('click', onOverlayClick);
         });
     }
 
