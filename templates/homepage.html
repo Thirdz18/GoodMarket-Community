@@ -2146,14 +2146,29 @@
 
         function _isTrustWalletProvider(provider) {
             if (!provider) return false;
-            if (provider.isTrust || provider.isTrustWallet) return true;
+            if (provider.isTrust) return true;
             return _looksLikeTrustWalletInfo(_eip6963InfoForProvider(provider));
+        }
+
+        function _isCoinbaseWalletProvider(provider) {
+            return !!(provider && provider.isCoinbaseWallet);
+        }
+
+        function _isBraveWalletProvider(provider) {
+            return !!(provider && provider.isBraveWallet);
+        }
+
+        function _isOkxWalletProvider(provider) {
+            return !!(provider && provider.isOkxWallet);
         }
 
         function getInjectedProviderLabel(provider) {
             if (!provider) return null;
             if (provider.isMiniPay) return 'MiniPay';
             if (_isTrustWalletProvider(provider)) return 'Trust Wallet';
+            if (_isCoinbaseWalletProvider(provider)) return 'Coinbase Wallet';
+            if (_isBraveWalletProvider(provider)) return 'Brave Wallet';
+            if (_isOkxWalletProvider(provider)) return 'OKX Wallet';
             if (provider.isMetaMask && !provider.isBraveWallet) return 'MetaMask';
             return 'Injected Wallet';
         }
@@ -2162,6 +2177,9 @@
             if (!provider) return '👛';
             if (provider.isMiniPay) return '📱';
             if (_isTrustWalletProvider(provider)) return '🛡️';
+            if (_isCoinbaseWalletProvider(provider)) return '🟦';
+            if (_isBraveWalletProvider(provider)) return '🦁';
+            if (_isOkxWalletProvider(provider)) return '⭕';
             if (provider.isMetaMask && !provider.isBraveWallet) return '🦊';
             return '👛';
         }
@@ -2181,8 +2199,14 @@
             // Mobile dapp browsers: MiniPay > Trust Wallet > MetaMask > generic.
             const miniPayProvider = providers.find(p => p && p.isMiniPay);
             if (miniPayProvider) return miniPayProvider;
-            const trustProvider = providers.find(p => p && (p.isTrust || p.isTrustWallet));
+            const trustProvider = providers.find(p => p && p.isTrust);
             if (trustProvider) return trustProvider;
+            const coinbaseProvider = providers.find(p => _isCoinbaseWalletProvider(p));
+            if (coinbaseProvider) return coinbaseProvider;
+            const braveProvider = providers.find(p => _isBraveWalletProvider(p));
+            if (braveProvider) return braveProvider;
+            const okxProvider = providers.find(p => _isOkxWalletProvider(p));
+            if (okxProvider) return okxProvider;
             // Inside Trust Wallet's dApp browser the injected provider may not
             // self-identify via isTrust; fall back to EIP-6963's rdns match.
             if (uaIsTrust) {
