@@ -370,7 +370,7 @@ class AnalyticsService:
         if not supabase_enabled:
             return 0
 
-        cutoff = (datetime.now() - timedelta(days=30)).isoformat()
+        cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
         total = 0
         for table_name in ("twitter_task_log", "telegram_task_log"):
             try:
@@ -390,18 +390,53 @@ class AnalyticsService:
         return total
 
     def _compute_disbursement_week_growth_pct(self):
-        """Best-effort week-over-week growth for total disbursed G$."""
+        """Week-over-week growth (%) of total disbursed G$.
+
+        Compares the most recent 7 days (`weekly_breakdown`) against the
+        average prior week over the rest of the reporting period (derived from
+        `monthly_breakdown` and `monthly_date_range`). Returns None when there
+        isn't enough history to make a meaningful comparison so the UI can
+        fall back to a neutral label instead of showing fabricated growth.
+        """
         try:
-            disbursements_stats = self._get_total_disbursements_stats()
-            monthly = disbursements_stats.get("monthly_breakdown") or {}
-            if isinstance(monthly, dict) and monthly:
-                values = [float(v or 0) for v in monthly.values() if isinstance(v, (int, float, str))]
-                total_month = sum(values)
-                if total_month > 0:
-                    week_share = total_month / 4.0
-                    prior = total_month - week_share
-                    if prior > 0:
-                        return round((week_share / prior) * 100.0, 1)
+            stats = self._get_total_disbursements_stats()
+            weekly = stats.get("weekly_breakdown") or {}
+            monthly = stats.get("monthly_breakdown") or {}
+            date_range = stats.get("monthly_date_range") or {}
+
+            def _sum(d):
+                if not isinstance(d, dict):
+                    return 0.0
+                total = 0.0
+                for v in d.values():
+                    try:
+                        total += float(v or 0)
+                    except (TypeError, ValueError):
+                        continue
+                return total
+
+            this_week = _sum(weekly)
+            month_total = _sum(monthly)
+            if this_week <= 0 or month_total <= this_week:
+                return None
+
+            try:
+                start = datetime.fromisoformat(str(date_range.get("start_date", "")))
+                end = datetime.fromisoformat(str(date_range.get("end_date", "")))
+                period_days = max((end - start).days, 0)
+            except (TypeError, ValueError):
+                period_days = 0
+
+            prior_days = period_days - 7
+            if prior_days < 7:
+                return None
+
+            prior_total = month_total - this_week
+            avg_prior_week = prior_total / (prior_days / 7.0)
+            if avg_prior_week <= 0:
+                return None
+
+            return round(((this_week - avg_prior_week) / avg_prior_week) * 100.0, 1)
         except Exception as e:
             logger.debug(f"week growth pct: {e}")
         return None
