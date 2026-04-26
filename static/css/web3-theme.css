@@ -61,31 +61,34 @@
     --w3-r-xl: 28px;
 }
 
-/* ---------- mesh-gradient page backdrop ---------- */
+/* ---------- mesh-gradient page backdrop ----------
+ * Set as the body background directly (no pseudo-element) so we don't need
+ * to force `position: relative` on every body child — that would change the
+ * containing block for absolutely-positioned descendants and risk regressions
+ * in dropdowns, modals, popovers, etc.
+ */
 html, body {
-    background-color: var(--w3-bg-0) !important;
     color: var(--w3-text);
 }
 body {
-    position: relative;
     min-height: 100vh;
-}
-body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    background:
+    background-color: var(--w3-bg-0) !important;
+    background-image:
         radial-gradient(60% 60% at 8% 12%, rgba(124, 58, 237, 0.30) 0%, transparent 60%),
         radial-gradient(50% 60% at 92% 8%, rgba(34, 211, 238, 0.22) 0%, transparent 60%),
         radial-gradient(60% 60% at 50% 100%, rgba(20, 184, 166, 0.18) 0%, transparent 65%),
-        linear-gradient(180deg, var(--w3-bg-1) 0%, var(--w3-bg-2) 55%, var(--w3-bg-0) 100%);
+        linear-gradient(180deg, var(--w3-bg-1) 0%, var(--w3-bg-2) 55%, var(--w3-bg-0) 100%) !important;
+    background-attachment: fixed !important;
 }
-body > * { position: relative; z-index: 1; }
 
-/* ---------- shared header polish (works with .header / .navbar / nav-brand) ---------- */
-.header,
+/* ---------- shared header polish ----------
+ * Scoped to the HTML5 <header class="header"> navbar (homepage) and explicit
+ * .navbar selectors. We must NOT match the bare `.header` class because
+ * several pages (learn_and_earn, minigames, price_prediction, ubi_tracker)
+ * use `<div class="header">` as a plain content-section heading, where this
+ * navbar styling would look out of place.
+ */
+header.header,
 .navbar,
 nav.navbar {
     background: rgba(11, 15, 42, 0.55) !important;
@@ -238,18 +241,22 @@ nav.navbar {
 }
 .web3-btn-glass:hover { background: var(--w3-surface-hi); border-color: rgba(34,211,238,0.45); }
 
-/* re-skin existing primary buttons site-wide so we don't have to touch 13 templates */
+/* re-skin existing primary buttons site-wide.
+ * No !important so pages that need a specific brand color on a button
+ * (e.g. red destructive, yellow warning, page-specific accent) can still
+ * win via the cascade.
+ */
 .connect-wallet-btn,
 .btn-primary.main-menu-btn,
 .btn-primary,
 button.primary,
 .cta-primary {
-    background: var(--w3-grad-primary) !important;
-    color: #04111a !important;
-    border: 1px solid rgba(255,255,255,0.18) !important;
-    font-family: var(--w3-font-display) !important;
-    font-weight: 700 !important;
-    box-shadow: 0 8px 28px rgba(34, 211, 238, 0.22), inset 0 1px 0 rgba(255,255,255,0.3) !important;
+    background: var(--w3-grad-primary);
+    color: #04111a;
+    border: 1px solid rgba(255,255,255,0.18);
+    font-family: var(--w3-font-display);
+    font-weight: 700;
+    box-shadow: 0 8px 28px rgba(34, 211, 238, 0.22), inset 0 1px 0 rgba(255,255,255,0.3);
 }
 .connect-wallet-btn:hover,
 .btn-primary.main-menu-btn:hover,
@@ -258,7 +265,7 @@ button.primary:hover,
 .cta-primary:hover {
     filter: brightness(1.06);
     transform: translateY(-1px);
-    box-shadow: 0 12px 36px rgba(34, 211, 238, 0.36), inset 0 1px 0 rgba(255,255,255,0.4) !important;
+    box-shadow: 0 12px 36px rgba(34, 211, 238, 0.36), inset 0 1px 0 rgba(255,255,255,0.4);
 }
 
 /* ---------- mono numerals (for big balances, addresses, tx hashes) ---------- */
@@ -319,7 +326,12 @@ a:focus-visible {
     outline-offset: 2px;
 }
 
-/* ---------- card pattern: re-skin generic cards across pages ---------- */
+/* ---------- card pattern: re-skin generic cards across pages ----------
+ * No !important here so per-page CSS that intentionally colors a card
+ * (e.g. red error states, yellow warnings, brand-colored callouts)
+ * still wins via the cascade. Pages that just inherit defaults will
+ * pick up the new glassy look.
+ */
 .card,
 .section-panel,
 .balance-card,
@@ -329,8 +341,8 @@ a:focus-visible {
 .modal-content,
 .pop-card,
 .dashboard-card {
-    background: var(--w3-surface) !important;
-    border: 1px solid var(--w3-border) !important;
+    background: var(--w3-surface);
+    border: 1px solid var(--w3-border);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     box-shadow: var(--w3-shadow-card);
