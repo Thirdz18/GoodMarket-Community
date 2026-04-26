@@ -628,6 +628,7 @@
     </nav>
 
     <div class="container">
+        {% include "_security_banner.html" %}
 
         <!-- Header -->
         <div class="page-header">
@@ -901,7 +902,10 @@
     </div>
 
     <!-- ethers.js v6 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"
+            integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/static/js/tx-preview.js?v={{ ASSET_VERSION }}"></script>
     <script>
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
@@ -2366,6 +2370,25 @@
                 const tokenContract = new ethers.Contract(from.address, ERC20_ABI, signer);
                 const allowance = await tokenContract.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
                 if (allowance < amountIn) {
+                    try {
+                        await GMTxPreview.confirm({
+                            action: 'approve',
+                            token: from.symbol,
+                            amount: ethers.formatUnits(amountIn * 2n, from.decimals),
+                            to: UNISWAP_ROUTER,
+                            toLabel: 'Uniswap V3 Router (Celo)',
+                            network: 'Celo',
+                            note: 'Lets the Uniswap router pull this amount for the swap. Slightly higher than your input to absorb price slippage.',
+                        });
+                    } catch (err) {
+                        if (GMTxPreview.isCancelled(err)) {
+                            setSwapBtnState("idle", "Swap");
+                            stepIndicators.className = "step-indicators";
+                            showAlert("alert-info", "Swap cancelled.");
+                            return;
+                        }
+                        throw err;
+                    }
                     const approveTx = await tokenContract.approve(UNISWAP_ROUTER, amountIn * 2n);
                     await approveTx.wait();
                 }
@@ -2712,6 +2735,25 @@
                 const allowance = await tokenContract.allowance(WALLET_ADDRESS, RESERVE_BROKER);
                 if (allowance < amountIn) {
                     setReserveBtnState("loading", "Approving token…");
+                    try {
+                        await GMTxPreview.confirm({
+                            action: 'approve',
+                            token: fromSym,
+                            amount: ethers.formatUnits(amountIn, fromDecimals || 18),
+                            to: RESERVE_BROKER,
+                            toLabel: 'GoodReserve / Mento Broker',
+                            network: 'Celo',
+                            note: 'Exact-amount approval for the GoodReserve swap; nothing carries over after this transaction.',
+                        });
+                    } catch (err) {
+                        if (GMTxPreview.isCancelled(err)) {
+                            setReserveBtnState("idle", reserveDirection === "buy" ? "Buy G$" : "Sell G$");
+                            stepIndicators.className = "step-indicators";
+                            showReserveAlert("alert-info", "Swap cancelled.");
+                            return;
+                        }
+                        throw err;
+                    }
                     // Exact-amount approval (not unlimited) for safety
                     const approveTx = await tokenContract.approve(RESERVE_BROKER, amountIn);
                     await approveTx.wait();

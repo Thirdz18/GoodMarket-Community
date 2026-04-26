@@ -1,0 +1,67 @@
+{# Reusable transaction-safety reminder.
+   Include with: {% include "_security_banner.html" %}
+   Renders a small, dismissible banner that nudges users to read the
+   transaction details in their wallet before signing. Intentionally
+   brief — the goal is recognition, not reading. State is persisted in
+   localStorage so dismissed users don't see it on every page load. #}
+<style>
+    .gm-sec-banner {
+        position: relative;
+        margin: 12px auto;
+        max-width: 720px;
+        padding: 10px 36px 10px 14px;
+        background: linear-gradient(135deg, rgba(99,102,241,.12), rgba(79,70,229,.08));
+        border: 1px solid rgba(99,102,241,.25);
+        border-radius: 10px;
+        color: #1e1b4b;
+        font-size: 13px;
+        line-height: 1.45;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .gm-sec-banner strong { color: #4338ca; }
+    .gm-sec-banner-close {
+        position: absolute; top: 6px; right: 8px;
+        background: transparent; border: none;
+        font-size: 18px; line-height: 1;
+        color: rgba(30,27,75,.55); cursor: pointer;
+        padding: 4px 8px; border-radius: 6px;
+    }
+    .gm-sec-banner-close:hover { background: rgba(99,102,241,.10); color: #1e1b4b; }
+    @media (prefers-color-scheme: dark) {
+        .gm-sec-banner { color: #c7d2fe; border-color: rgba(99,102,241,.40); }
+        .gm-sec-banner strong { color: #a5b4fc; }
+        .gm-sec-banner-close { color: rgba(199,210,254,.55); }
+        .gm-sec-banner-close:hover { color: #c7d2fe; background: rgba(99,102,241,.18); }
+    }
+    .gm-sec-banner-icon {
+        display: inline-block; margin-right: 6px;
+        font-size: 14px;
+    }
+</style>
+<div class="gm-sec-banner" id="gmSecBanner" role="note" aria-label="Transaction safety reminder">
+    <button class="gm-sec-banner-close" type="button" id="gmSecBannerClose" aria-label="Dismiss">&times;</button>
+    <span class="gm-sec-banner-icon" aria-hidden="true">🛡️</span>
+    <strong>Always read the transaction in your wallet before signing.</strong>
+    GoodMarket will never ask you to approve <em>unlimited</em> spending or sign a message you don't understand.
+    If something looks off — wrong contract, unexpected token, unusual amount — <strong>cancel and ask in our community first</strong>.
+</div>
+<script>
+    (function () {
+        try {
+            var KEY = 'gm_sec_banner_dismissed_v1';
+            var el = document.getElementById('gmSecBanner');
+            if (!el) return;
+            if (localStorage.getItem(KEY) === '1') {
+                el.style.display = 'none';
+                return;
+            }
+            var btn = document.getElementById('gmSecBannerClose');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    try { localStorage.setItem(KEY, '1'); } catch (_) {}
+                    el.style.display = 'none';
+                });
+            }
+        } catch (_) { /* localStorage unavailable; banner will simply re-show */ }
+    })();
+</script>

@@ -6,7 +6,10 @@
     <title>XDC Wallet - GoodMarket</title>
     <meta name="theme-color" content="#2563eb">
     <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
-    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.2/dist/ethers.umd.min.js"
+            integrity="sha384-gpR0Q6Hx/O+uevlbpbANbS0LWjbejPV1sqD/8w422l/fW8whGY0EPmKw3uG7ACYP"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="/static/js/tx-preview.js?v={{ ASSET_VERSION }}"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
@@ -364,6 +367,7 @@
     </nav>
 
     <div class="container">
+        {% include "_security_banner.html" %}
 
         <!-- Header -->
         <div class="page-header">
@@ -1204,7 +1208,32 @@
                     const allowance = await gd.allowance(toAddr, XSWAP_V2_ROUTER);
                     if (allowance < xswapQuoteData.amountInWei) {
                         btn.innerHTML = '<span class="spinner-inline"></span> Approving G$...';
-                        const approveData = erc20Iface.encodeFunctionData('approve', [XSWAP_V2_ROUTER, ethers.MaxUint256]);
+                        // Plain-language preview before opening the wallet, so a
+                        // compromised frontend can't trick the user into signing
+                        // something they didn't expect.
+                        try {
+                            await GMTxPreview.confirm({
+                                action: 'approve',
+                                token: 'G$ (XDC)',
+                                amount: ethers.formatUnits(xswapQuoteData.amountInWei, 18),
+                                to: XSWAP_V2_ROUTER,
+                                toLabel: 'XSwap V2 Router',
+                                network: 'XDC',
+                                note: 'Lets the router pull exactly this amount from your wallet for the next swap.',
+                            });
+                        } catch (err) {
+                            if (GMTxPreview.isCancelled(err)) {
+                                btn.disabled = false;
+                                btn.innerHTML = 'Swap Now';
+                                return;
+                            }
+                            throw err;
+                        }
+                        // Exact-amount approval (not unlimited): only authorise the
+                        // router to pull what this swap actually needs. Trade-off is
+                        // the user re-approves on every swap, but a frontend or
+                        // dependency compromise can't drain a future allowance.
+                        const approveData = erc20Iface.encodeFunctionData('approve', [XSWAP_V2_ROUTER, xswapQuoteData.amountInWei]);
                         await _sendXswapTx({ to: XDC_GD_TOKEN, data: approveData });
                     }
 
@@ -1431,7 +1460,28 @@
                 const allowance = await gd.allowance(toAddr, XDC_CELO_BRIDGE);
                 if (allowance < amountWei) {
                     btn.innerHTML = '<span class="spinner-inline"></span> Approving G$...';
-                    const approveData = erc20Iface.encodeFunctionData('approve', [XDC_CELO_BRIDGE, ethers.MaxUint256]);
+                    try {
+                        await GMTxPreview.confirm({
+                            action: 'approve',
+                            token: 'G$ (XDC)',
+                            amount: ethers.formatUnits(amountWei, 18),
+                            to: XDC_CELO_BRIDGE,
+                            toLabel: 'XDC ↔ Celo Bridge',
+                            network: 'XDC',
+                            note: 'Lets the bridge contract pull exactly this amount for this transfer to Celo.',
+                        });
+                    } catch (err) {
+                        if (GMTxPreview.isCancelled(err)) {
+                            btn.disabled = false;
+                            btn.innerHTML = 'Bridge to Celo';
+                            return;
+                        }
+                        throw err;
+                    }
+                    // Exact-amount approval (not unlimited): bridge only needs the
+                    // amount being bridged right now; a reused/compromised allowance
+                    // would let the bridge contract pull more later.
+                    const approveData = erc20Iface.encodeFunctionData('approve', [XDC_CELO_BRIDGE, amountWei]);
                     const approveTx = await _sendXswapTx({
                         to: XDC_GD_TOKEN,
                         data: approveData,
