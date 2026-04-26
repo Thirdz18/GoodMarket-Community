@@ -1698,6 +1698,44 @@
         return raw;
     }
 
+    // ── MiniPay CIP-64 fee-abstracted tx helpers ──
+    function _isMiniPay() {
+        const ep = _getEthProvider();
+        if (ep && ep.isMiniPay) return true;
+        if (window.ethereum && window.ethereum.isMiniPay) return true;
+        if (window.ethereum && window.ethereum.providers
+            && window.ethereum.providers.some(p => p && p.isMiniPay)) return true;
+        if (typeof navigator !== 'undefined' && /minipay/i.test(navigator.userAgent || '')) return true;
+        return false;
+    }
+
+    const MINIPAY_FEE_CURRENCY = {
+        USDM:         '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+        USDT_ADAPTER: '0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72',
+        USDC_ADAPTER: '0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B',
+    };
+
+    async function _miniPayWaitForReceipt(ep, txHash, maxAttempts = 60) {
+        for (let i = 0; i < maxAttempts; i++) {
+            try {
+                const receipt = await ep.request({
+                    method: 'eth_getTransactionReceipt',
+                    params: [txHash],
+                });
+                if (receipt) {
+                    if (receipt.status === '0x0') {
+                        throw new Error('Transaction reverted on-chain.');
+                    }
+                    return receipt;
+                }
+            } catch (e) {
+                if (e && e.message && /reverted/i.test(e.message)) throw e;
+            }
+            await new Promise(r => setTimeout(r, 2000));
+        }
+        return null;
+    }
+
     function updateTotalBalanceInGd() {
         const totalBalanceEl = document.getElementById('totalBalanceUSD');
         if (!totalBalanceEl) return;
@@ -2220,28 +2258,35 @@
                 }
 
                 const targetChainId = Number(txData.chain_id || (isXdcToken ? 50 : 42220));
-                const targetChainHex = '0x' + targetChainId.toString(16);
-                const currentChain = await provider.request({ method: 'eth_chainId' });
-                if (_normalizeChainIdHex(currentChain) !== targetChainHex.toLowerCase()) {
-                    try {
-                        await provider.request({
-                            method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: targetChainHex }]
-                        });
-                    } catch (switchErr) {
-                        if (targetChainId === 42220) {
+                const isCeloTx = targetChainId === 42220;
+                const miniPay = _isMiniPay() && isCeloTx;
+
+                // MiniPay is always on Celo — skip wallet_switchEthereumChain
+                // which MiniPay may not support.
+                if (!miniPay) {
+                    const targetChainHex = '0x' + targetChainId.toString(16);
+                    const currentChain = await provider.request({ method: 'eth_chainId' });
+                    if (_normalizeChainIdHex(currentChain) !== targetChainHex.toLowerCase()) {
+                        try {
                             await provider.request({
-                                method: 'wallet_addEthereumChain',
-                                params: [{
-                                    chainId: '0xa4ec',
-                                    chainName: 'Celo Mainnet',
-                                    nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
-                                    rpcUrls: ['https://forno.celo.org'],
-                                    blockExplorerUrls: ['https://celoscan.io']
-                                }]
+                                method: 'wallet_switchEthereumChain',
+                                params: [{ chainId: targetChainHex }]
                             });
-                        } else {
-                            throw new Error('Please switch your wallet network before sending.');
+                        } catch (switchErr) {
+                            if (isCeloTx) {
+                                await provider.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: '0xa4ec',
+                                        chainName: 'Celo Mainnet',
+                                        nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                                        rpcUrls: ['https://forno.celo.org'],
+                                        blockExplorerUrls: ['https://celoscan.io']
+                                    }]
+                                });
+                            } else {
+                                throw new Error('Please switch your wallet network before sending.');
+                            }
                         }
                     }
                 }
@@ -2254,10 +2299,55 @@
                 };
                 if (txData.gas) txParams.gas = txData.gas;
                 if (txData.gasPrice) txParams.gasPrice = txData.gasPrice;
-                txHash = await provider.request({
-                    method: 'eth_sendTransaction',
-                    params: [txParams]
-                });
+
+                // MiniPay CIP-64: add feeCurrency and estimate gas if needed.
+                if (miniPay) {
+                    if (!txParams.gas) {
+                        try {
+                            const est = await provider.request({
+                                method: 'eth_estimateGas',
+                                params: [{ from, to: txParams.to, data: txParams.data, value: txParams.value }],
+                            });
+                            const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                            txParams.gas = '0x' + (estimated * 140n / 100n).toString(16);
+                        } catch (_) {
+                            txParams.gas = '0x7A120';
+                        }
+                    }
+
+                    const feeCurrencies = [
+                        MINIPAY_FEE_CURRENCY.USDM,
+                        MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                        MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                        null,
+                    ];
+                    let lastErr;
+                    for (const fc of feeCurrencies) {
+                        const params = { ...txParams };
+                        if (fc) params.feeCurrency = fc;
+                        try {
+                            txHash = await provider.request({
+                                method: 'eth_sendTransaction',
+                                params: [params],
+                            });
+                            await _miniPayWaitForReceipt(provider, txHash);
+                            break;
+                        } catch (err) {
+                            lastErr = err;
+                            const code = err && err.code;
+                            const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                            if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+                            if (/revert/i.test(msg)) throw err;
+                            console.warn('[MiniPay] send tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+                        }
+                    }
+                    if (!txHash) throw lastErr || new Error('MiniPay transaction failed.');
+                } else {
+                    txHash = await provider.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams]
+                    });
+                }
             } else {
                 throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
             }
@@ -2843,6 +2933,49 @@
 
             const sendClaimTransaction = async (provider, from) => {
                 setClaimGasUiState('approve_wallet');
+
+                // MiniPay CIP-64: try feeCurrency options for gas abstraction.
+                if (_isMiniPay()) {
+                    let gasHex;
+                    try {
+                        const est = await provider.request({
+                            method: 'eth_estimateGas',
+                            params: [{ from, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }],
+                        });
+                        const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                        gasHex = '0x' + (estimated * 140n / 100n).toString(16);
+                    } catch (_) {
+                        gasHex = '0x7A120';
+                    }
+
+                    const feeCurrencies = [
+                        MINIPAY_FEE_CURRENCY.USDM,
+                        MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                        MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                        null,
+                    ];
+                    let lastErr;
+                    for (const fc of feeCurrencies) {
+                        const txParams = { from, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', gas: gasHex };
+                        if (fc) txParams.feeCurrency = fc;
+                        try {
+                            const txHash = await provider.request({
+                                method: 'eth_sendTransaction',
+                                params: [txParams],
+                            });
+                            return txHash;
+                        } catch (err) {
+                            lastErr = err;
+                            const code = err && err.code;
+                            const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                            if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+                            if (/revert/i.test(msg)) throw err;
+                            console.warn('[MiniPay] claim tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+                        }
+                    }
+                    throw lastErr || new Error('MiniPay claim transaction failed.');
+                }
+
                 return provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
@@ -2859,16 +2992,22 @@
             setClaimGasUiState('checking_balance');
 
             try {
-                const gasSnap = await getProviderGasSnapshot(provider);
-                if (!gasSnap.gasReady) {
-                    setStatus('Checking wallet gas…', 'var(--text-dim)');
-                    await ensureGasReadyBeforeClaim();
+                const isMiniPayClaim = _isMiniPay();
+
+                // MiniPay pays gas with stablecoins via CIP-64, so gas top-up
+                // is not needed.
+                if (!isMiniPayClaim) {
+                    const gasSnap = await getProviderGasSnapshot(provider);
+                    if (!gasSnap.gasReady) {
+                        setStatus('Checking wallet gas…', 'var(--text-dim)');
+                        await ensureGasReadyBeforeClaim();
+                    } else {
+                        setClaimGasUiState('gas_ready');
+                    }
                 } else {
                     setClaimGasUiState('gas_ready');
                 }
 
-                // Important UX fix:
-                // faucet top-up check is completed before transaction prompt.
                 setStatus('Gas ready. Connecting to wallet…', 'var(--text-dim)');
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
@@ -2878,37 +3017,43 @@
                     throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
                 }
 
-                const currentChain = await provider.request({ method: 'eth_chainId' });
-                const celoChainHex = '0xa4ec';
-                const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
-                if (normalizedCurrentChain !== celoChainHex) {
-                    try {
-                        await provider.request({
-                            method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: celoChainHex }]
-                        });
-                    } catch (switchErr) {
-                        await provider.request({
-                            method: 'wallet_addEthereumChain',
-                            params: [{
-                                chainId: celoChainHex,
-                                chainName: 'Celo Mainnet',
-                                nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
-                                rpcUrls: ['https://forno.celo.org'],
-                                blockExplorerUrls: ['https://celoscan.io']
-                            }]
-                        });
+                // MiniPay is always on Celo — skip wallet_switchEthereumChain.
+                if (!isMiniPayClaim) {
+                    const currentChain = await provider.request({ method: 'eth_chainId' });
+                    const celoChainHex = '0xa4ec';
+                    const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
+                    if (normalizedCurrentChain !== celoChainHex) {
+                        try {
+                            await provider.request({
+                                method: 'wallet_switchEthereumChain',
+                                params: [{ chainId: celoChainHex }]
+                            });
+                        } catch (switchErr) {
+                            await provider.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: celoChainHex,
+                                    chainName: 'Celo Mainnet',
+                                    nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                                    rpcUrls: ['https://forno.celo.org'],
+                                    blockExplorerUrls: ['https://celoscan.io']
+                                }]
+                            });
+                        }
                     }
                 }
 
                 // Preflight one more time right before sending tx because gas price can spike.
-                let finalGasSnap = await getProviderGasSnapshot(provider);
-                if (!finalGasSnap.gasReady) {
-                    setStatus('Gas changed while preparing tx. Retrying faucet top-up…', 'var(--text-dim)');
-                    await ensureGasReadyBeforeClaim();
-                    finalGasSnap = await getProviderGasSnapshot(provider);
+                // MiniPay pays gas with stablecoins — no CELO gas preflight needed.
+                if (!isMiniPayClaim) {
+                    let finalGasSnap = await getProviderGasSnapshot(provider);
                     if (!finalGasSnap.gasReady) {
-                        throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
+                        setStatus('Gas changed while preparing tx. Retrying faucet top-up…', 'var(--text-dim)');
+                        await ensureGasReadyBeforeClaim();
+                        finalGasSnap = await getProviderGasSnapshot(provider);
+                        if (!finalGasSnap.gasReady) {
+                            throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
+                        }
                     }
                 }
 
@@ -2916,8 +3061,8 @@
                 try {
                     txHash = await sendClaimTransaction(provider, from);
                 } catch (sendErr) {
-                    // Automatic one-time recovery for the common -32000 insufficient funds race.
                     if (!isInsufficientFundsError(sendErr)) throw sendErr;
+                    if (isMiniPayClaim) throw sendErr;
                     setStatus('Gas became insufficient at send time. Re-running faucet fallback once…', '#facc15');
                     await ensureGasReadyBeforeClaim();
                     txHash = await sendClaimTransaction(provider, from);

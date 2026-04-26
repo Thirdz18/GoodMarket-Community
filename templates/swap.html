@@ -95,30 +95,7 @@
         .page-title { font-size: 2rem; font-weight: 800; color: #fff; letter-spacing: -1px; margin-bottom: 0.4rem; }
         .page-subtitle { color: rgba(255,255,255,0.5); font-size: 0.95rem; }
 
-        /* ── MiniPay temporary notice (only rendered for MiniPay dapp users) ── */
-        .minipay-notice {
-            display: none;
-            background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(239,68,68,0.10));
-            border: 1px solid rgba(245,158,11,0.35);
-            border-radius: 14px;
-            padding: 1rem 1.1rem;
-            margin-bottom: 1.25rem;
-            color: #fde68a;
-            font-size: 0.92rem;
-            line-height: 1.55;
-            text-align: left;
-        }
-        .minipay-notice.show { display: block; }
-        .minipay-notice-title {
-            font-weight: 700;
-            color: #fbbf24;
-            margin-bottom: 0.35rem;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.95rem;
-        }
-        .minipay-notice a { color: #fcd34d; text-decoration: underline; }
+
 
         /* ── Swap Card ── */
         .swap-card {
@@ -591,25 +568,6 @@
             <p class="page-subtitle">Swap G$, CELO, cUSD and USDT via Uniswap V3 on Celo</p>
         </div>
 
-        <!--
-            Temporary notice shown only to MiniPay dapp users. Hidden by default
-            and only un-hidden by JS when the injected provider reports
-            `isMiniPay`, so TrustWallet, MetaMask mobile, MetaMask extension and
-            WalletConnect users never see this message.
-        -->
-        <div id="miniPayNotice" class="minipay-notice" role="alert" aria-live="polite">
-            <div class="minipay-notice-title">⚠️ Temporary notice for MiniPay users</div>
-            <div>
-                Swap is currently <strong>not working inside the MiniPay dapp</strong>
-                while the MiniPay team fixes an issue on their side. This is temporary.
-                <br><br>
-                In the meantime, please use one of the following wallets to swap:
-                <strong>Trust Wallet</strong>, <strong>MetaMask mobile dapp browser</strong>,
-                or the <strong>MetaMask browser extension</strong> on desktop.
-                We'll remove this notice as soon as MiniPay resolves the issue.
-            </div>
-        </div>
-
         <!-- Swap Card -->
         <div class="swap-card">
 
@@ -898,42 +856,159 @@
             });
         }
 
-        // Show the temporary MiniPay-only notice when (and only when) the page
-        // is being viewed inside the MiniPay dapp browser. Every other wallet
-        // (Trust Wallet, MetaMask mobile, MetaMask extension, WalletConnect, no
-        // wallet) must never see this banner.
-        function _detectMiniPayForNotice() {
-            try {
-                if (window.ethereum) {
-                    if (window.ethereum.isMiniPay) return true;
-                    if (Array.isArray(window.ethereum.providers) &&
-                        window.ethereum.providers.some(p => p && p.isMiniPay)) {
-                        return true;
+        // ── MiniPay CIP-64 fee-abstracted tx helpers ──
+        function _isMiniPay() {
+            const ep = _getEthProvider();
+            if (ep && ep.isMiniPay) return true;
+            if (window.ethereum && window.ethereum.isMiniPay) return true;
+            if (window.ethereum && window.ethereum.providers
+                && window.ethereum.providers.some(p => p && p.isMiniPay)) return true;
+            if (typeof navigator !== 'undefined' && /minipay/i.test(navigator.userAgent || '')) return true;
+            return false;
+        }
+
+        const MINIPAY_FEE_CURRENCY = {
+            USDM:         '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+            USDT_ADAPTER: '0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72',
+            USDC_ADAPTER: '0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B',
+        };
+
+        async function _miniPayWaitForReceipt(ep, txHash, maxAttempts = 60) {
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    const receipt = await ep.request({
+                        method: 'eth_getTransactionReceipt',
+                        params: [txHash],
+                    });
+                    if (receipt) {
+                        if (receipt.status === '0x0') {
+                            throw new Error('Transaction reverted on-chain.');
+                        }
+                        return receipt;
                     }
+                } catch (e) {
+                    if (e && e.message && /reverted/i.test(e.message)) throw e;
                 }
-            } catch (_) { /* ignore */ }
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            return null;
+        }
+
+        async function _miniPayTx(toAddr, abiFragment, args, valueHex) {
+            const ep = _getEthProvider();
+            if (!ep) throw new Error('No injected wallet provider available.');
+
+            const accounts = await ep.request({ method: 'eth_requestAccounts' });
+            const from = (accounts && accounts[0]) || WALLET_ADDRESS;
+            if (from && WALLET_ADDRESS && from.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                throw new Error(
+                    'Wrong MiniPay account. Please switch to ' +
+                    WALLET_ADDRESS.slice(0, 6) + '…' + WALLET_ADDRESS.slice(-4) + ' and try again.'
+                );
+            }
+
+            const iface = new ethers.Interface([abiFragment]);
+            const fnName = abiFragment.match(/function (\w+)/)[1];
+            const data = iface.encodeFunctionData(fnName, args);
+            const value = valueHex || '0x0';
+
+            let gasHex;
             try {
-                // MiniPay's in-app browser advertises itself in the UA string.
-                return /minipay/i.test(navigator.userAgent || '');
+                const est = await ep.request({
+                    method: 'eth_estimateGas',
+                    params: [{ from, to: toAddr, data, value }],
+                });
+                const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                gasHex = '0x' + (estimated * 140n / 100n).toString(16);
             } catch (_) {
-                return false;
+                gasHex = '0x7A120';
             }
-        }
-        function _maybeShowMiniPayNotice() {
-            const el = document.getElementById('miniPayNotice');
-            if (!el) return;
-            if (_detectMiniPayForNotice()) {
-                el.classList.add('show');
+
+            const attempts = [
+                MINIPAY_FEE_CURRENCY.USDM,
+                MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                null,
+            ];
+
+            let lastErr;
+            for (const fc of attempts) {
+                const txParams = { from, to: toAddr, data, value, gas: gasHex };
+                if (fc) txParams.feeCurrency = fc;
+                try {
+                    const txHash = await ep.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams],
+                    });
+                    await _miniPayWaitForReceipt(ep, txHash);
+                    return txHash;
+                } catch (err) {
+                    lastErr = err;
+                    const code = err && err.code;
+                    const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                    if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+                    if (/revert/i.test(msg)) throw err;
+                    console.warn('[MiniPay] swap tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+                }
             }
+            throw lastErr || new Error('MiniPay transaction failed.');
         }
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', _maybeShowMiniPayNotice);
-        } else {
-            _maybeShowMiniPayNotice();
+
+        async function _miniPayRawTx(toAddr, data, valueHex) {
+            const ep = _getEthProvider();
+            if (!ep) throw new Error('No injected wallet provider available.');
+
+            const accounts = await ep.request({ method: 'eth_requestAccounts' });
+            const from = (accounts && accounts[0]) || WALLET_ADDRESS;
+            if (from && WALLET_ADDRESS && from.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                throw new Error(
+                    'Wrong MiniPay account. Please switch to ' +
+                    WALLET_ADDRESS.slice(0, 6) + '…' + WALLET_ADDRESS.slice(-4) + ' and try again.'
+                );
+            }
+
+            const value = valueHex || '0x0';
+            let gasHex;
+            try {
+                const est = await ep.request({
+                    method: 'eth_estimateGas',
+                    params: [{ from, to: toAddr, data, value }],
+                });
+                const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                gasHex = '0x' + (estimated * 140n / 100n).toString(16);
+            } catch (_) {
+                gasHex = '0x7A120';
+            }
+
+            const attempts = [
+                MINIPAY_FEE_CURRENCY.USDM,
+                MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                null,
+            ];
+
+            let lastErr;
+            for (const fc of attempts) {
+                const txParams = { from, to: toAddr, data, value, gas: gasHex };
+                if (fc) txParams.feeCurrency = fc;
+                try {
+                    const txHash = await ep.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams],
+                    });
+                    await _miniPayWaitForReceipt(ep, txHash);
+                    return txHash;
+                } catch (err) {
+                    lastErr = err;
+                    const code = err && err.code;
+                    const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                    if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+                    if (/revert/i.test(msg)) throw err;
+                    console.warn('[MiniPay] swap raw tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+                }
+            }
+            throw lastErr || new Error('MiniPay transaction failed.');
         }
-        // MiniPay sometimes injects its provider slightly after page load, so
-        // re-check shortly after to avoid a false negative on the first paint.
-        setTimeout(_maybeShowMiniPayNotice, 1500);
 
         function _normalizeChainIdHex(chainId) {
             if (chainId === null || chainId === undefined) return "";
@@ -1888,6 +1963,108 @@
                 } catch (err) {
                     stepIndicators.className = "step-indicators";
                     const msg = err?.message || "Unknown error";
+                    showAlert("alert-error", `❌ Swap failed: ${msg.substring(0, 150)}`);
+                    if (currentQuote) setSwapBtnState("ready");
+                    else setSwapBtnState("enter");
+                }
+                return;
+            }
+
+            // ── MiniPay CIP-64 mode: bypass ethers.js, use raw eth_sendTransaction ──
+            if (_isMiniPay()) {
+                try {
+                    const effSlip     = effectiveSlippage(currentQuote);
+                    const slippageBps = BigInt(Math.floor(effSlip * 100));
+                    let amountIn = currentQuote.amountIn;
+
+                    // Step 1: Approve
+                    stepIndicators.className = "step-indicators show";
+                    step1.className = "step active";
+                    step2.className = "step";
+                    setSwapBtnState("loading", "Approving token...");
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approve ${from.symbol} in MiniPay…`);
+
+                    // Check allowance first
+                    const rpcProvider = new ethers.JsonRpcProvider(CELO_RPC);
+                    const tokenRead = new ethers.Contract(from.address, ERC20_ABI, rpcProvider);
+                    const allowance = await tokenRead.allowance(WALLET_ADDRESS, UNISWAP_ROUTER);
+                    if (allowance < amountIn) {
+                        await _miniPayTx(from.address,
+                            "function approve(address spender, uint256 amount) returns (bool)",
+                            [UNISWAP_ROUTER, amountIn * 2n]);
+                    }
+                    step1.className = "step done";
+
+                    // Re-quote for fresh price
+                    let freshAmountOut = currentQuote.amountOut;
+                    try {
+                        const freshQuoter = new ethers.Contract(UNISWAP_QUOTER, QUOTER_ABI, rpcProvider);
+                        if (currentQuote.isMulti && currentQuote.path) {
+                            const [newOut] = await freshQuoter.quoteExactInput.staticCall(currentQuote.path, amountIn);
+                            freshAmountOut = newOut;
+                        } else {
+                            const [newOut] = await freshQuoter.quoteExactInputSingle.staticCall({
+                                tokenIn: from.address,
+                                tokenOut: to.address,
+                                amountIn: amountIn,
+                                fee: currentQuote.fee,
+                                sqrtPriceLimitX96: 0n
+                            });
+                            freshAmountOut = newOut;
+                        }
+                    } catch (reQuoteErr) {
+                        console.warn('[swap] MiniPay re-quote failed, using original:', reQuoteErr.message);
+                    }
+                    const amountOutMin = freshAmountOut * (10000n - slippageBps) / 10000n;
+
+                    // Step 2: Swap via raw tx
+                    step2.className = "step active";
+                    setSwapBtnState("loading", "Executing swap...");
+                    showAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm swap in MiniPay…`);
+
+                    const routerIface = new ethers.Interface(ROUTER_ABI);
+                    let swapData;
+                    if (currentQuote.isMulti && currentQuote.path) {
+                        swapData = routerIface.encodeFunctionData("exactInput", [{
+                            path: currentQuote.path,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin
+                        }]);
+                    } else {
+                        swapData = routerIface.encodeFunctionData("exactInputSingle", [{
+                            tokenIn: from.address,
+                            tokenOut: to.address,
+                            fee: currentQuote.fee,
+                            recipient: WALLET_ADDRESS,
+                            amountIn: amountIn,
+                            amountOutMinimum: amountOutMin,
+                            sqrtPriceLimitX96: 0n
+                        }]);
+                    }
+
+                    const txHash = await _miniPayRawTx(UNISWAP_ROUTER, swapData, '0x0');
+                    step2.className = "step done";
+
+                    const outHuman = parseFloat(ethers.formatUnits(currentQuote.amountOut, to.decimals));
+                    const inHuman  = parseFloat(ethers.formatUnits(amountIn, from.decimals));
+                    showAlert("alert-success",
+                        `✅ Swap complete! ${inHuman.toFixed(from.displayDecimals)} ${from.symbol} → ≈${outHuman.toFixed(to.displayDecimals)} ${to.symbol}. ` +
+                        `<a href="https://celoscan.io/tx/${txHash}" target="_blank" rel="noopener" style="color:#86efac;text-decoration:underline;">View on CeloScan ↗</a>`
+                    );
+                    document.getElementById("amountIn").value  = "";
+                    document.getElementById("amountOut").value = "";
+                    currentQuote = null;
+                    document.getElementById("quoteBox").classList.add("hidden");
+                    setSwapBtnState("enter");
+                    stepIndicators.className = "step-indicators";
+                    await loadBalances();
+                } catch (err) {
+                    stepIndicators.className = "step-indicators";
+                    const rawMsg = err?.shortMessage || err?.message || "Unknown error";
+                    const msg = rawMsg.toLowerCase().includes("user rejected") || rawMsg.toLowerCase().includes("denied by user")
+                        ? "Transaction cancelled in wallet."
+                        : rawMsg;
                     showAlert("alert-error", `❌ Swap failed: ${msg.substring(0, 150)}`);
                     if (currentQuote) setSwapBtnState("ready");
                     else setSwapBtnState("enter");

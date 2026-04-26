@@ -36,30 +36,7 @@
         .page-title { font-size:1.8rem; font-weight:800; color:#fff; letter-spacing:-.5px; margin-bottom:.35rem; }
         .page-subtitle { color:rgba(255,255,255,.45); font-size:.95rem; }
 
-        /* ── MiniPay temporary notice (only rendered for MiniPay dapp users) ── */
-        .minipay-notice {
-            display: none;
-            background: linear-gradient(135deg, rgba(245,158,11,0.14), rgba(239,68,68,0.10));
-            border: 1px solid rgba(245,158,11,0.35);
-            border-radius: 14px;
-            padding: 1rem 1.1rem;
-            margin-bottom: 1.25rem;
-            color: #fde68a;
-            font-size: 0.92rem;
-            line-height: 1.55;
-            text-align: left;
-        }
-        .minipay-notice.show { display: block; }
-        .minipay-notice-title {
-            font-weight: 700;
-            color: #fbbf24;
-            margin-bottom: 0.35rem;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-            font-size: 0.95rem;
-        }
-        .minipay-notice a { color: #fcd34d; text-decoration: underline; }
+
 
         /* ── Cards ── */
         .card { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:1.5rem; margin-bottom:1.25rem; }
@@ -175,25 +152,6 @@
     <div class="page-header">
         <h1 class="page-title">🏦 G$ Savings</h1>
         <p class="page-subtitle">Lock your G$ and keep it safe — earn a bonus for long-term saves</p>
-    </div>
-
-    <!--
-        Temporary notice shown only to MiniPay dapp users. Hidden by default
-        and only un-hidden by JS when the injected provider reports
-        `isMiniPay`, so TrustWallet, MetaMask mobile, MetaMask extension and
-        WalletConnect users never see this message.
-    -->
-    <div id="miniPayNotice" class="minipay-notice" role="alert" aria-live="polite">
-        <div class="minipay-notice-title">⚠️ Temporary notice for MiniPay users</div>
-        <div>
-            Savings is currently <strong>not working inside the MiniPay dapp</strong>
-            while the MiniPay team fixes an issue on their side. This is temporary.
-            <br><br>
-            In the meantime, please use one of the following wallets to save:
-            <strong>Trust Wallet</strong>, <strong>MetaMask mobile dapp browser</strong>,
-            or the <strong>MetaMask browser extension</strong> on desktop.
-            We'll remove this notice as soon as MiniPay resolves the issue.
-        </div>
     </div>
 
     <!-- Contract Stats -->
@@ -743,6 +701,20 @@
         const data = iface.encodeFunctionData(fnName, args);
         const value = valueHex || '0x0';
 
+        // Estimate gas so MiniPay doesn't have to guess (reduces failures).
+        let gasHex;
+        try {
+            const est = await ep.request({
+                method: 'eth_estimateGas',
+                params: [{ from, to: toAddr, data, value }],
+            });
+            const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+            // Add 40 % headroom — on-chain state can shift between estimate and mine.
+            gasHex = '0x' + (estimated * 140n / 100n).toString(16);
+        } catch (_) {
+            gasHex = '0x7A120'; // 500 000 — safe fallback for most contract calls
+        }
+
         const attempts = [
             MINIPAY_FEE_CURRENCY.USDM,
             MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
@@ -752,7 +724,7 @@
 
         let lastErr;
         for (const fc of attempts) {
-            const txParams = { from, to: toAddr, data, value };
+            const txParams = { from, to: toAddr, data, value, gas: gasHex };
             if (fc) txParams.feeCurrency = fc;
             try {
                 const txHash = await ep.request({
@@ -1288,42 +1260,7 @@
     loadStats();
     loadSponsorStats();
 
-    // Show the temporary MiniPay-only notice when (and only when) the page
-    // is being viewed inside the MiniPay dapp browser. Every other wallet
-    // (Trust Wallet, MetaMask mobile, MetaMask extension, WalletConnect, no
-    // wallet) must never see this banner.
-    function _detectMiniPayForNotice() {
-        try {
-            if (window.ethereum) {
-                if (window.ethereum.isMiniPay) return true;
-                if (Array.isArray(window.ethereum.providers) &&
-                    window.ethereum.providers.some(p => p && p.isMiniPay)) {
-                    return true;
-                }
-            }
-        } catch (_) { /* ignore */ }
-        try {
-            // MiniPay's in-app browser advertises itself in the UA string.
-            return /minipay/i.test(navigator.userAgent || '');
-        } catch (_) {
-            return false;
-        }
-    }
-    function _maybeShowMiniPayNotice() {
-        const el = document.getElementById('miniPayNotice');
-        if (!el) return;
-        if (_detectMiniPayForNotice()) {
-            el.classList.add('show');
-        }
-    }
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', _maybeShowMiniPayNotice);
-    } else {
-        _maybeShowMiniPayNotice();
-    }
-    // MiniPay sometimes injects its provider slightly after page load, so
-    // re-check shortly after to avoid a false negative on the first paint.
-    setTimeout(_maybeShowMiniPayNotice, 1500);
+
 </script>
 
 {% if walletconnect_project_id %}

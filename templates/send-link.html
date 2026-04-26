@@ -211,6 +211,97 @@
         const GD_ABI  = ["function balanceOf(address) view returns (uint256)", "function transferAndCall(address,uint256,bytes) returns (bool)"];
         const OTP_ABI = ["function hasPayment(address) view returns (bool)", "function cancel(address) public"];
 
+        // ── MiniPay CIP-64 helpers ──
+        function _isMiniPay() {
+            const ep = _getEthProvider();
+            if (ep && ep.isMiniPay) return true;
+            if (window.ethereum && window.ethereum.isMiniPay) return true;
+            if (window.ethereum && window.ethereum.providers
+                && window.ethereum.providers.some(p => p && p.isMiniPay)) return true;
+            if (typeof navigator !== 'undefined' && /minipay/i.test(navigator.userAgent || '')) return true;
+            return false;
+        }
+
+        const MINIPAY_FEE_CURRENCY = {
+            USDM:         '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+            USDT_ADAPTER: '0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72',
+            USDC_ADAPTER: '0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B',
+        };
+
+        async function _miniPayWaitForReceipt(ep, txHash, maxAttempts = 60) {
+            for (let i = 0; i < maxAttempts; i++) {
+                try {
+                    const receipt = await ep.request({
+                        method: 'eth_getTransactionReceipt', params: [txHash],
+                    });
+                    if (receipt) {
+                        if (receipt.status === '0x0') throw new Error('Transaction reverted on-chain.');
+                        return receipt;
+                    }
+                } catch (e) {
+                    if (e && e.message && /reverted/i.test(e.message)) throw e;
+                }
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            return null;
+        }
+
+        async function _miniPayTx(toAddr, abiFragment, args, valueHex) {
+            const ep = _getEthProvider();
+            if (!ep) throw new Error('No injected wallet provider available.');
+
+            const accounts = await ep.request({ method: 'eth_requestAccounts' });
+            const from = (accounts && accounts[0]) || WALLET_ADDRESS;
+            if (from && WALLET_ADDRESS && from.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                throw new Error('Wrong MiniPay account. Please switch to ' +
+                    WALLET_ADDRESS.slice(0, 6) + '…' + WALLET_ADDRESS.slice(-4) + ' and try again.');
+            }
+
+            const iface = new ethers.Interface([abiFragment]);
+            const fnName = abiFragment.match(/function (\w+)/)[1];
+            const data = iface.encodeFunctionData(fnName, args);
+            const value = valueHex || '0x0';
+
+            let gasHex;
+            try {
+                const est = await ep.request({
+                    method: 'eth_estimateGas',
+                    params: [{ from, to: toAddr, data, value }],
+                });
+                const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                gasHex = '0x' + (estimated * 140n / 100n).toString(16);
+            } catch (_) {
+                gasHex = '0x7A120';
+            }
+
+            const attempts = [
+                MINIPAY_FEE_CURRENCY.USDM,
+                MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                null,
+            ];
+            let lastErr;
+            for (const fc of attempts) {
+                const txParams = { from, to: toAddr, data, value, gas: gasHex };
+                if (fc) txParams.feeCurrency = fc;
+                try {
+                    const txHash = await ep.request({
+                        method: 'eth_sendTransaction', params: [txParams],
+                    });
+                    await _miniPayWaitForReceipt(ep, txHash);
+                    return txHash;
+                } catch (err) {
+                    lastErr = err;
+                    const code = err && err.code;
+                    const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                    if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+                    if (/revert/i.test(msg)) throw err;
+                    console.warn('[MiniPay] send-link tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+                }
+            }
+            throw lastErr || new Error('MiniPay transaction failed.');
+        }
+
         let gdBalanceNum = 0;
         let currentLinkUrl = "";
         let _wcSessionId = null;
@@ -517,6 +608,13 @@
                         throw new Error(signData.error || 'Server signing failed');
                     }
                     txHash = signData.tx_hash;
+                } else if (_isMiniPay()) {
+                    // MiniPay CIP-64: bypass ethers.js, use raw eth_sendTransaction
+                    setBtnState('<span class="spinner-inline"></span> Confirm in MiniPay...', true);
+                    showAlert("alert-info", '<span class="spinner-inline"></span> Confirm the transaction in MiniPay to lock G$ in escrow.');
+                    txHash = await _miniPayTx(GD_ADDRESS,
+                        "function transferAndCall(address,uint256,bytes) returns (bool)",
+                        [OTP_ADDRESS, amountWei, data]);
                 } else {
                     const ep = _getEthProvider();
                     if (!ep && !PREFER_WC_SIGNING) { showAlert("alert-error", "⚠️ No Web3 wallet detected. Open in MetaMask, MiniPay, or a Celo-compatible wallet."); return; }
@@ -688,6 +786,10 @@
                     });
                     const d = await res.json();
                     if (!d.success) throw new Error(d.error || 'Cancel failed');
+                } else if (_isMiniPay()) {
+                    await _miniPayTx(OTP_ADDRESS,
+                        "function cancel(address) public",
+                        [paymentId]);
                 } else {
                     const ep = _getEthProvider();
                     if (ep) {
