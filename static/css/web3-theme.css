@@ -79,6 +79,11 @@ body {
         radial-gradient(60% 60% at 50% 100%, rgba(20, 184, 166, 0.18) 0%, transparent 65%),
         linear-gradient(180deg, var(--w3-bg-1) 0%, var(--w3-bg-2) 55%, var(--w3-bg-0) 100%) !important;
     background-attachment: fixed !important;
+    /* Reset legacy animated-gradient props from learn_and_earn / news_feed /
+     * news_article (background-size: 400% 400% + gradientShift animation). */
+    background-size: auto !important;
+    background-position: 0 0 !important;
+    animation: none !important;
 }
 
 /* ---------- shared header polish ----------
