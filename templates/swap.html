@@ -2488,13 +2488,16 @@
 
         // Auto-switch to a specific tab if requested via ?tab=reserve or #reserve.
         // Runs once on load; ignored if the GoodReserve pane wasn't rendered (flag off).
+        // MiniPay users always start on the reserve tab regardless of URL params,
+        // since the DEX pane is hidden for them.
         (function autoSelectSwapTab() {
             try {
                 const params = new URLSearchParams(window.location.search);
                 const fromQuery = (params.get("tab") || "").toLowerCase();
                 const fromHash  = (window.location.hash || "").replace("#", "").toLowerCase();
                 const want = fromQuery || fromHash;
-                if (want !== "reserve" && want !== "goodreserve") return;
+                const forceReserve = {{ 'true' if is_minipay else 'false' }};
+                if (!forceReserve && want !== "reserve" && want !== "goodreserve") return;
                 const apply = () => {
                     const resPane = document.querySelector(".pane-reserve");
                     if (resPane && typeof setSwapTab === "function") setSwapTab("reserve");
