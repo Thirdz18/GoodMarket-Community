@@ -2560,7 +2560,20 @@
             if (!visible) hideWalletDebugInfo();
         }
 
+        // Pending retry timer for detectInjectedWallet. Stored at module
+        // scope so new detection cycles (e.g. modal re-open, refresh tap,
+        // visibilitychange re-trigger) can cancel the in-flight retry chain
+        // before starting their own — otherwise concurrent chains interleave
+        // and flicker the description text / help card at different depths.
+        let _detectWalletTimerId = null;
         function detectInjectedWallet(_retryDepth) {
+            // Cancel any pending retry from a previous chain so we never run
+            // two chains concurrently against the same DOM nodes.
+            if (_detectWalletTimerId !== null) {
+                clearTimeout(_detectWalletTimerId);
+                _detectWalletTimerId = null;
+            }
+
             // Re-dispatch EIP-6963 requestProvider on every call — wallets that
             // inject late (Trust Wallet mobile in some builds) will announce
             // themselves only after we ask, and there's no harm in asking twice.
@@ -2590,7 +2603,10 @@
                 // with a failure card the instant it appears.
                 if (depth >= 2) _setWalletDetectionHelpVisible(true);
                 if (depth < maxDepth) {
-                    setTimeout(() => detectInjectedWallet(depth + 1), 350 + depth * 250);
+                    _detectWalletTimerId = setTimeout(() => {
+                        _detectWalletTimerId = null;
+                        detectInjectedWallet(depth + 1);
+                    }, 350 + depth * 250);
                 }
                 return;
             }
@@ -2633,9 +2649,19 @@
             } else {
                 tick();
             }
-            // Also re-tick on full page load (catches wallets that inject on
-            // `load` rather than `DOMContentLoaded`).
-            window.addEventListener('load', () => setTimeout(tick, 200), { once: true });
+            // Also re-tick on full page load for wallets that inject on
+            // `load` rather than `DOMContentLoaded`, but only if the first
+            // chain has already exhausted its budget. Otherwise we would
+            // start a second tick() chain that shares the same `elapsed`
+            // counter with the still-running first chain and would
+            // double-advance it, halving the intended dispatch window.
+            // Also skip re-ticking if a provider has already been
+            // discovered — there is nothing left to announce for.
+            window.addEventListener('load', () => {
+                if (elapsed < totalDuration) return;
+                if (getPreferredInjectedProvider()) return;
+                setTimeout(tick, 200);
+            }, { once: true });
         })();
 
         // Listen for the legacy "ethereum#initialized" signal some wallets
