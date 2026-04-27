@@ -1493,7 +1493,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const code = err && err.code;
             if (code === 4001 || code === 5000) return true;
             const msg = String((err && (err.shortMessage || err.message)) || '').toLowerCase();
-            return msg.includes('user rejected') || msg.includes('rejected')
+            // Only match unambiguous user-cancellation phrases — a bare
+            // "rejected" substring also matches things like "RPC request
+            // rejected", which would abort the multi-attempt signing loop.
+            return msg.includes('user rejected') || msg.includes('user denied')
                 || msg.includes('cancelled') || msg.includes('canceled');
         }
 
