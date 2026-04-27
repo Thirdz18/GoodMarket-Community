@@ -1483,30 +1483,83 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
+        function _fvToUtf8Hex(message) {
+            return '0x' + Array.from(new TextEncoder().encode(message))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        function _fvIsUserRejected(err) {
+            const code = err && err.code;
+            if (code === 4001 || code === 5000) return true;
+            const msg = String((err && (err.shortMessage || err.message)) || '').toLowerCase();
+            // Only match unambiguous user-cancellation phrases — a bare
+            // "rejected" substring also matches things like "RPC request
+            // rejected", which would abort the multi-attempt signing loop.
+            return msg.includes('user rejected') || msg.includes('user denied')
+                || msg.includes('cancelled') || msg.includes('canceled');
+        }
+
+        // Sign FV_IDENTIFIER_MSG2 directly via provider.request, bypassing
+        // ethers.js. Some injected wallets (notably Trust Wallet's mobile dApp
+        // browser) leave personal_sign promises pending forever when given a
+        // plain-text message that contains newlines; the EIP-191 hex format is
+        // both spec-compliant and universally accepted, so we try it first and
+        // fall back to alternative param orders / eth_sign for stragglers.
+        async function _fvSignWithProvider(provider, account) {
+            const msg    = FV_IDENTIFIER_MSG2.replace('<account>', account);
+            const msgHex = _fvToUtf8Hex(msg);
+            const attempts = [
+                { method: 'personal_sign', params: [msgHex,  account], label: 'personal_sign(hex,address)' },
+                { method: 'personal_sign', params: [account, msgHex], label: 'personal_sign(address,hex)' },
+                { method: 'personal_sign', params: [msg,     account], label: 'personal_sign(text,address)' },
+                { method: 'eth_sign',      params: [account, msgHex], label: 'eth_sign(address,hex)' }
+            ];
+
+            let lastErr = null;
+            for (const attempt of attempts) {
+                try {
+                    const sig = await provider.request({
+                        method: attempt.method,
+                        params: attempt.params
+                    });
+                    if (!sig) throw new Error('Wallet did not return a signature.');
+                    console.log('✅ FV signed using', attempt.label);
+                    return sig.startsWith('0x') ? sig : '0x' + sig;
+                } catch (err) {
+                    if (_fvIsUserRejected(err)) throw err;
+                    lastErr = err;
+                }
+            }
+            const raw = String((lastErr && (lastErr.shortMessage || lastErr.message)) || '').trim();
+            throw new Error(raw || 'Wallet signing failed. Please reconnect your wallet and try again.');
+        }
+
         // Replicates ClaimSDK.generateFVLink(firstName, callbackUrl, popupMode=false, chainId)
         // The SDK: 1) signs FV_IDENTIFIER_MSG2 via signer.signMessage(), 2) lz-compresses params,
         //          3) returns https://goodid.gooddollar.org?lz=<compressed>
         async function generateFVLink(hintAccount) {
             let provider;
+            let account;
 
             if (window._wcSignClient && window._wcSession) {
-                // WalletConnect path — wrap the WC session so ethers can use it
-                const shim = new WCProviderShim(window._wcSignClient, window._wcSession, hintAccount);
-                provider = new ethers.providers.Web3Provider(shim, { name: 'celo', chainId: 42220 });
+                // WalletConnect path — wrap the WC session so we can use the same
+                // provider.request signing helper.
+                provider = new WCProviderShim(window._wcSignClient, window._wcSession, hintAccount);
+                account  = ethers.utils.getAddress(hintAccount);
             } else if (window.ethereum) {
-                // MetaMask / injected wallet path
+                // MetaMask / Trust Wallet / other injected wallet path. We still
+                // resolve the connected address through ethers so we get the
+                // checksummed form expected by GoodID's signature recovery.
                 await window.ethereum.request({ method: 'eth_requestAccounts' });
-                provider = new ethers.providers.Web3Provider(window.ethereum, { name: 'celo', chainId: 42220 });
+                provider = window.ethereum;
+                const ethersProvider = new ethers.providers.Web3Provider(window.ethereum, { name: 'celo', chainId: 42220 });
+                account = await ethersProvider.getSigner().getAddress();
             } else {
                 throw new Error('No wallet provider available');
             }
 
-            const signer  = provider.getSigner();
-            const account = await signer.getAddress();
-
-            // Exactly what ClaimSDK's getFvSig() does
-            const msg   = FV_IDENTIFIER_MSG2.replace('<account>', account);
-            const fvSig = await signer.signMessage(msg);
+            const fvSig = await _fvSignWithProvider(provider, account);
 
             const callbackUrl = window.location.origin +
                 '/fv-callback?wallet=' + encodeURIComponent(account.toLowerCase()) + '&src=goodmarket';
