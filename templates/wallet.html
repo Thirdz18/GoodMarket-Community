@@ -2560,10 +2560,19 @@
             'https://rpc.ankr.com/xdc'
         ];
 
+        // Public Celo RPCs. Same rationale as XDC — when forno.celo.org
+        // returns an HTML page (Cloudflare challenge / maintenance / rate
+        // limit), the wallet's RPC client throws "Unexpected token '<'".
+        const CELO_RPC_URLS = [
+            'https://forno.celo.org',
+            'https://rpc.ankr.com/celo',
+            'https://1rpc.io/celo'
+        ];
+
         // Detects a JSON-parse / HTML-response error bubbling up from the
-        // wallet's internal RPC client (typical when erpc.xinfin.network
-        // returns an HTML challenge or the public RPC is rate-limited).
-        function _isXdcRpcHtmlError(err) {
+        // wallet's internal RPC client (typical when a public RPC returns
+        // an HTML challenge or is rate-limited).
+        function _isRpcHtmlError(err) {
             const msg = ((err && (err.shortMessage || err.message)) || '').toLowerCase();
             if (!msg) return false;
             return (
@@ -2576,6 +2585,8 @@
                 || msg.includes('network error')
             );
         }
+        // Backward-compatible alias.
+        const _isXdcRpcHtmlError = _isRpcHtmlError;
 
         function _isUserRejectedError(err) {
             if (!err) return false;
@@ -3337,7 +3348,7 @@
                                     chainId: celoChainHex,
                                     chainName: 'Celo Mainnet',
                                     nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
-                                    rpcUrls: ['https://forno.celo.org'],
+                                    rpcUrls: CELO_RPC_URLS.slice(),
                                     blockExplorerUrls: ['https://celoscan.io']
                                 }]
                             });
@@ -3359,15 +3370,30 @@
                     }
                 }
 
+                // Wrap sendClaimTransaction with a one-shot retry on transient
+                // RPC HTML/parse errors (forno.celo.org occasionally returns a
+                // Cloudflare/maintenance HTML page, which the wallet's RPC
+                // client surfaces as "Unexpected token '<'").
+                const sendCeloClaimWithParserRetry = async () => {
+                    try {
+                        return await sendClaimTransaction(provider, from);
+                    } catch (e1) {
+                        if (_isUserRejectedError(e1)) throw e1;
+                        if (!_isRpcHtmlError(e1)) throw e1;
+                        await new Promise(r => setTimeout(r, 3500));
+                        return await sendClaimTransaction(provider, from);
+                    }
+                };
+
                 let txHash;
                 try {
-                    txHash = await sendClaimTransaction(provider, from);
+                    txHash = await sendCeloClaimWithParserRetry();
                 } catch (sendErr) {
                     if (!isInsufficientFundsError(sendErr)) throw sendErr;
                     if (isMiniPayClaim) throw sendErr;
                     setStatus('Gas became insufficient at send time. Re-running faucet fallback once…', '#facc15');
                     await ensureGasReadyBeforeClaim();
-                    txHash = await sendClaimTransaction(provider, from);
+                    txHash = await sendCeloClaimWithParserRetry();
                 }
                 label.textContent = 'Confirming…';
                 setStatus('✅ Celo claim submitted. Waiting for confirmation…', 'var(--text-dim)');
@@ -3394,7 +3420,14 @@
                 }
             } catch (err) {
                 const raw = (err && (err.shortMessage || err.message)) || 'Claim failed';
-                const msg = (raw || '').toLowerCase().includes('user rejected') ? 'Transaction cancelled.' : raw;
+                let msg;
+                if ((raw || '').toLowerCase().includes('user rejected')) {
+                    msg = 'Transaction cancelled.';
+                } else if (_isRpcHtmlError(err)) {
+                    msg = 'Celo network is temporarily busy (RPC returned a non-JSON response). Please retry your claim in 30–60 seconds.';
+                } else {
+                    msg = raw;
+                }
                 appendStatusLine('⚠️ Celo claim failed. Trying XDC claim anyway…', '#fbbf24');
                 try {
                     const accounts = await provider.request({ method: 'eth_requestAccounts' });
