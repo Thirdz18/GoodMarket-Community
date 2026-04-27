@@ -3100,7 +3100,8 @@
                     throw new Error(uriData.error || 'WalletConnect sidecar unavailable');
                 }
                 drawWalletConnectQr(uriData.uri);
-                showWalletStatus('walletConnectStatus', '📲 Awaiting wallet approval. Scan QR or open deeplink in your wallet app.', 'info');
+                _renderWalletConnectDeepLinks(uriData.uri);
+                showWalletStatus('walletConnectStatus', '📲 Awaiting wallet approval. Tap the button below to open your wallet, or scan the QR from another device.', 'info');
                 const started = Date.now();
                 while (Date.now() - started < 120000) {
                     await new Promise(r => setTimeout(r, 2200));
@@ -3134,9 +3135,34 @@
                 showWalletStatus('walletConnectStatus', '⚠️ WalletConnect relay unavailable. Trying in-browser WalletConnect fallback…', 'warning');
             }
 
+            // In-browser SignClient fallback. Before this fix this path
+            // could silently hang forever if the relay WebSocket
+            // (wss://relay.walletconnect.com) was unreachable, or if
+            // SignClient.connect() took too long to return a URI: the
+            // yellow "relay unavailable / trying fallback" message would
+            // just sit on screen with no progress, no QR, and no error.
+            // Now each stage is timeboxed with a stage-specific error so
+            // users on Vercel (where the Node sidecar is always
+            // unavailable) know what actually failed instead of staring
+            // at a stuck warning.
+            function _wcWithTimeout(promise, ms, stage) {
+                return new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        const err = new Error('WC_FALLBACK_TIMEOUT:' + stage);
+                        err._wcStage = stage;
+                        reject(err);
+                    }, ms);
+                    promise.then(
+                        v => { clearTimeout(timer); resolve(v); },
+                        e => { clearTimeout(timer); reject(e); }
+                    );
+                });
+            }
             try {
-                const client = await _wcGetClient();
-                const result = await client.connect({
+                showWalletStatus('walletConnectStatus', '📦 Loading WalletConnect SDK…', 'info');
+                const client = await _wcWithTimeout(_wcGetClient(), 20000, 'sdk_init');
+                showWalletStatus('walletConnectStatus', '🔗 Generating WalletConnect session…', 'info');
+                const result = await _wcWithTimeout(client.connect({
                     requiredNamespaces: {},
                     optionalNamespaces: {
                         eip155: {
@@ -3145,10 +3171,17 @@
                             events: ['chainChanged', 'accountsChanged']
                         }
                     }
-                });
+                }), 15000, 'connect');
                 if (result.uri) {
                     drawWalletConnectQr(result.uri);
-                    showWalletStatus('walletConnectStatus', '📲 Awaiting wallet approval (browser fallback). Scan QR in your wallet app.', 'info');
+                    // Add a one-tap deep link to the mobile wallet for users
+                    // on the same phone as the wallet (common on our
+                    // Vercel deployment where Trust Wallet / MetaMask
+                    // Mobile users open goodmarket.live inside the wallet
+                    // app's own browser — scanning their own QR is
+                    // awkward).
+                    _renderWalletConnectDeepLinks(result.uri);
+                    showWalletStatus('walletConnectStatus', '📲 Awaiting wallet approval. Tap the button below to open your wallet, or scan the QR from another device.', 'info');
                 }
                 const session = await result.approval();
                 window._wcSession = session;
@@ -3180,9 +3213,54 @@
             } catch (err) {
                 const emsg = (err && err.message) ? err.message : 'WalletConnect failed';
                 const rejected = /reject|denied|cancel/i.test(emsg);
-                const prefix = rejected ? '❌ Request rejected by wallet. ' : '❌ ';
-                showWalletStatus('walletConnectStatus', prefix + emsg + ' You can use manual wallet input for copy/paste guidance.', rejected ? 'warning' : 'error');
+                let friendly;
+                if (err && err._wcStage === 'sdk_init') {
+                    friendly = '❌ WalletConnect relay did not respond within 20s. Your network may be blocking relay.walletconnect.com (WebSocket / wss:// traffic). Try a different network (mobile data vs. Wi-Fi), or use Manual Address login for copy/paste guidance.';
+                } else if (err && err._wcStage === 'connect') {
+                    friendly = '❌ WalletConnect session could not be generated within 15s. Please try again, or use Manual Address login for copy/paste guidance.';
+                } else if (rejected) {
+                    friendly = '❌ Request rejected by wallet. ' + emsg + ' You can use manual wallet input for copy/paste guidance.';
+                } else {
+                    friendly = '❌ ' + emsg + '. You can use Manual Address login for copy/paste guidance.';
+                }
+                showWalletStatus('walletConnectStatus', friendly, rejected ? 'warning' : 'error');
             }
+        }
+
+        // Render one-tap deep links to open the WalletConnect session in
+        // the user's mobile wallet app. On Vercel the user often opens
+        // goodmarket.live inside the wallet's own in-app browser and has
+        // no way to scan a QR from the same phone, so surfacing a
+        // deep-link button for common wallets (Trust Wallet, MetaMask,
+        // plus a generic wc:// link) turns the fallback from "useless"
+        // into "tap-to-approve".
+        function _renderWalletConnectDeepLinks(uri) {
+            if (!uri) return;
+            const qrWrap = document.getElementById('wcQrWrap');
+            if (!qrWrap) return;
+            const existing = document.getElementById('wcDeepLinks');
+            if (existing) existing.remove();
+            // NOTE: WalletConnect v2 URIs are already prefixed with the
+            // `wc:` scheme (format: `wc:topicId@2?relay-protocol=irn&symKey=…`),
+            // so the generic "open in installed wallet" link must NOT
+            // re-prefix the URI — doing so produces a malformed
+            // `wc:wc:…` href that mobile wallets ignore. We `encodeURI`
+            // here only to defend against any exotic characters in the
+            // URI when writing it into an innerHTML-parsed href; the
+            // reserved WC-URI chars (`:`, `@`, `?`, `&`, `=`) are
+            // preserved by encodeURI.
+            const safeHref = encodeURI(uri);
+            const enc = encodeURIComponent(uri);
+            const box = document.createElement('div');
+            box.id = 'wcDeepLinks';
+            box.style.cssText = 'margin-top:10px;display:flex;flex-direction:column;gap:8px;max-width:260px;';
+            const btnStyle = 'display:block;text-align:center;padding:10px 14px;border-radius:10px;text-decoration:none;font-weight:600;font-size:0.9rem;color:#fff;';
+            box.innerHTML =
+                '<a href="' + safeHref + '" style="' + btnStyle + 'background:#6366f1;">🔗 Open in installed wallet</a>' +
+                '<a href="https://link.trustwallet.com/wc?uri=' + enc + '" target="_blank" rel="noopener noreferrer" style="' + btnStyle + 'background:#3375bb;">🛡 Open in Trust Wallet</a>' +
+                '<a href="https://metamask.app.link/wc?uri=' + enc + '" target="_blank" rel="noopener noreferrer" style="' + btnStyle + 'background:#f6851b;">🦊 Open in MetaMask</a>' +
+                '<div style="text-align:center;font-size:0.78rem;color:#9ca3af;margin-top:2px;">On desktop? Scan the QR above with your wallet app instead.</div>';
+            qrWrap.appendChild(box);
         }
 
 
