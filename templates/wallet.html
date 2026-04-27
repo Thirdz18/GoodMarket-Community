@@ -2549,6 +2549,41 @@
             throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
         }
 
+        // Public XDC RPCs. Wallets that respect the rpcUrls list pick the
+        // first reachable one; passing several insulates us from a single
+        // endpoint returning a Cloudflare/maintenance HTML page (which the
+        // wallet then surfaces as "Unexpected token '<'").
+        const XDC_RPC_URLS = [
+            'https://erpc.xinfin.network',
+            'https://rpc.xinfin.network',
+            'https://erpc.xdcrpc.com',
+            'https://rpc.ankr.com/xdc'
+        ];
+
+        // Detects a JSON-parse / HTML-response error bubbling up from the
+        // wallet's internal RPC client (typical when erpc.xinfin.network
+        // returns an HTML challenge or the public RPC is rate-limited).
+        function _isXdcRpcHtmlError(err) {
+            const msg = ((err && (err.shortMessage || err.message)) || '').toLowerCase();
+            if (!msg) return false;
+            return (
+                msg.includes("unexpected token '<")
+                || msg.includes('unexpected token <')
+                || msg.includes('<!doctype')
+                || msg.includes('is not valid json')
+                || msg.includes('json.parse')
+                || msg.includes('failed to fetch')
+                || msg.includes('network error')
+            );
+        }
+
+        function _isUserRejectedError(err) {
+            if (!err) return false;
+            if (err.code === 4001) return true;
+            const msg = ((err.shortMessage || err.message) || '').toLowerCase();
+            return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('cancelled');
+        }
+
         async function claimXdcInjected(provider, from) {
             const currentChain = await provider.request({ method: 'eth_chainId' });
             const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
@@ -2571,7 +2606,7 @@
                             params: [{
                                 chainId: XDC_CHAIN_ID_HEX,
                                 chainName: 'XDC Network',
-                                rpcUrls: ['https://erpc.xinfin.network'],
+                                rpcUrls: XDC_RPC_URLS.slice(),
                                 nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
                                 blockExplorerUrls: ['https://xdcscan.com']
                             }]
@@ -2584,10 +2619,26 @@
                     }
                 }
             }
-            return provider.request({
+
+            // Some wallets (notably MetaMask Mobile, Trust Wallet) reject
+            // eth_sendTransaction when a non-standard `chainId` field is
+            // present in the tx params. The chain switch above already
+            // pinned the wallet to XDC, so we omit it from params.
+            const sendXdcTx = () => provider.request({
                 method: 'eth_sendTransaction',
-                params: [{ from, to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0', chainId: XDC_CHAIN_ID_HEX }]
+                params: [{ from, to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
             });
+
+            try {
+                return await sendXdcTx();
+            } catch (sendErr) {
+                if (_isUserRejectedError(sendErr)) throw sendErr;
+                if (!_isXdcRpcHtmlError(sendErr)) throw sendErr;
+                // Transient public-RPC HTML/parse error — wait a moment and
+                // try once more before giving up.
+                await new Promise(r => setTimeout(r, 3500));
+                return await sendXdcTx();
+            }
         }
 
         function getNextResetMs() {
@@ -3331,7 +3382,14 @@
                     );
                 } catch (xdcErr) {
                     const rawXdc = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
-                    const xdcMsg = (rawXdc || '').toLowerCase().includes('user rejected') ? 'XDC transaction cancelled.' : rawXdc;
+                    let xdcMsg;
+                    if ((rawXdc || '').toLowerCase().includes('user rejected')) {
+                        xdcMsg = 'XDC transaction cancelled.';
+                    } else if (_isXdcRpcHtmlError(xdcErr)) {
+                        xdcMsg = 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.';
+                    } else {
+                        xdcMsg = rawXdc;
+                    }
                     appendStatusLine('⚠️ ' + xdcMsg, '#fbbf24');
                 }
             } catch (err) {
@@ -3352,7 +3410,10 @@
                     }
                 } catch (xdcErr) {
                     const xdcRaw = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
-                    appendStatusLine('❌ ' + xdcRaw, 'var(--red)');
+                    const xdcDisplay = _isXdcRpcHtmlError(xdcErr)
+                        ? 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.'
+                        : xdcRaw;
+                    appendStatusLine('❌ ' + xdcDisplay, 'var(--red)');
                 } finally {
                     btn.disabled = false;
                     label.textContent = 'Claim G$';
