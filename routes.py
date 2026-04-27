@@ -5935,12 +5935,19 @@ def swap_page():
                         reserve_visible = True
     except Exception:
         pass
+    # MiniPay users get GoodReserve only — force-render the reserve pane
+    # even if the admin flag is off, since Uniswap is hidden for them.
+    ua = (request.headers.get("User-Agent") or "").lower()
+    is_minipay = "minipay" in ua
+    if is_minipay:
+        reserve_visible = True
     return render_template(
         "swap.html",
         wallet=wallet,
         login_method=session.get("login_method", "walletconnect"),
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
         reserve_swap_visible=reserve_visible,
+        is_minipay=is_minipay,
     )
 
 

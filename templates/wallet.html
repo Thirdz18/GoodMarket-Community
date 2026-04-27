@@ -1037,7 +1037,7 @@
         <!-- Action Buttons -->
         <aside class="sidebar-nav">
             <div class="action-row">
-                <div class="action-item" onclick="window.location.href='/swap'">
+                <div class="action-item" id="actionUniswap" onclick="window.location.href='/swap'">
                     <div class="action-circle">⇌</div>
                     <span class="action-label">Uniswap</span>
                 </div>
@@ -1060,7 +1060,7 @@
                     </div>
                     <span class="action-label">Claim</span>
                 </div>
-                <div class="action-item" onclick="window.location.href='/savings'">
+                <div class="action-item" id="actionSavings" onclick="window.location.href='/savings'">
                     <div class="action-circle">🏦</div>
                     <span class="action-label">Savings</span>
                 </div>
@@ -3362,6 +3362,26 @@
                     if (el) el.style.display = '';
                 }
             } catch (_) { /* keep hidden on failure */ }
+        })();
+
+        // MiniPay users: keep only GoodReserve as the swap entry point.
+        (function applyMiniPayWalletNav() {
+            try {
+                const isMP = (
+                    (window.ethereum && window.ethereum.isMiniPay) ||
+                    (window.ethereum && window.ethereum.providers
+                        && window.ethereum.providers.some
+                        && window.ethereum.providers.some(p => p && p.isMiniPay)) ||
+                    /minipay/i.test(navigator.userAgent || '')
+                );
+                if (!isMP) return;
+                ['actionUniswap', 'actionSavings'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = 'none';
+                });
+                const grEl = document.getElementById('actionGoodReserve');
+                if (grEl) grEl.style.display = '';
+            } catch (_) { /* no-op */ }
         })();
     });
     </script>

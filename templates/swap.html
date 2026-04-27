@@ -616,7 +616,7 @@
                 <a href="/overview">Overview</a>
                 <a href="/dashboard">Dashboard</a>
                 {% if wallet_visible %}<a href="/wallet">Wallet</a>{% endif %}
-                {% if savings_visible %}<a href="/savings">Savings</a>{% endif %}
+                {% if savings_visible and not is_minipay %}<a href="/savings">Savings</a>{% endif %}
                 <a href="/profile">Profile</a>
                 <div class="nav-sep"></div>
                 {% if wallet and wallet != 'None' %}
@@ -636,12 +636,18 @@
             <p class="page-subtitle">Swap G$, CELO, cUSD and USDT via Uniswap V3 on Celo, or buy &amp; sell G$ at the GoodReserve protocol price</p>
         </div>
 
-        {% if reserve_swap_visible %}
+        {% if reserve_swap_visible and not is_minipay %}
         <!-- Tab Switcher (DEX vs GoodReserve) -->
         <div class="swap-tabs" role="tablist" aria-label="Swap mode">
             <button type="button" id="tabBtnDex" class="swap-tab-btn active" role="tab" aria-selected="true" onclick="setSwapTab('dex')">Uniswap V3</button>
             <button type="button" id="tabBtnReserve" class="swap-tab-btn" role="tab" aria-selected="false" onclick="setSwapTab('reserve')">GoodReserve</button>
         </div>
+        {% endif %}
+        {% if is_minipay %}
+        <style>
+            .pane-dex { display: none !important; }
+            .pane-reserve.hidden-tab { display: block !important; }
+        </style>
         {% endif %}
 
         <!-- DEX Pane -->
