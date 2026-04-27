@@ -2783,6 +2783,126 @@
             }
         }
 
+        // MiniPay's in-app mini-app WebView consistently fails the FaceTec
+        // face scan on goodid.gooddollar.org (the audit-trail image / WebRTC
+        // stack the SDK expects isn't available in Opera's restricted
+        // WebView), even though the personal_sign → FV link generation
+        // itself works. The FV link is signature-embedded (fvsig) and the
+        // resulting on-chain whitelist is keyed on wallet address, not on
+        // browser session, so the user can sign inside MiniPay, copy the
+        // generated link to their phone's native Chrome/Safari, complete
+        // the face scan there, and then return to MiniPay to claim —
+        // without re-signing or re-connecting. This helper renders that
+        // handoff UI instead of redirecting inside MiniPay's WebView.
+        let _miniPayFvForceTry = false;
+        function _showMiniPayFvHandoff(link) {
+            btn.disabled = false;
+            icon.textContent = '🪪';
+            label.textContent = 'Verify Face ID to Claim';
+            const wrap = document.getElementById('ubiClaimStatus') || document.body;
+            const existing = document.getElementById('fvMiniPayHandoff');
+            if (existing) existing.remove();
+            const card = document.createElement('div');
+            card.id = 'fvMiniPayHandoff';
+            card.style.cssText = 'margin-top:0.8rem;padding:0.95rem 1.1rem;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.45);border-radius:12px;color:#fde68a;font-size:0.86rem;line-height:1.5;text-align:left;';
+            // Truncate link for display so the card stays tidy on mobile.
+            const shortLink = link.length > 64 ? link.slice(0, 48) + '…' + link.slice(-12) : link;
+            // Note: we intentionally do NOT render an "Open in Chrome"
+            // button here. MiniPay's mini-app shell (Opera) intercepts
+            // in-page navigations — including anchors with target="_blank"
+            // and window.open() calls — and keeps the user inside its own
+            // WebView, which is exactly the environment where the FaceTec
+            // scan fails. The only reliable way to escape the mini-app is
+            // for the user to manually paste the link into their phone's
+            // native browser, so the UI funnels everyone through Copy.
+            card.innerHTML =
+                '<div style="font-weight:700;color:#fbbf24;margin-bottom:0.35rem;">⚠️ MiniPay detected</div>' +
+                '<div style="margin-bottom:0.65rem;">Face Verification often fails inside MiniPay\'s in-app browser (the face scan sometimes errors out on Opera\'s restricted WebView), so for the most reliable experience we recommend finishing it outside MiniPay. Tap <strong>Copy</strong> below, then <strong>open Chrome (or your preferred browser) outside MiniPay and paste the link there</strong> to complete verification. Your signature is already embedded in the link — you will <em>not</em> need to sign or reconnect. After verifying, return to MiniPay and reopen GoodMarket to claim your G$.</div>' +
+                '<div style="display:flex;flex-direction:column;gap:0.45rem;">' +
+                  '<div style="display:flex;gap:0.4rem;align-items:center;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.45rem 0.6rem;font-family:ui-monospace,SFMono-Regular,monospace;font-size:0.72rem;color:#fde68a;overflow:hidden;">' +
+                    '<span id="fvMiniPayLinkPreview" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + shortLink + '</span>' +
+                    '<button type="button" id="fvMiniPayCopyBtn" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);border:1px solid rgba(124,58,237,0.7);color:#fff;font-size:0.78rem;font-weight:700;padding:0.4rem 0.8rem;border-radius:8px;cursor:pointer;white-space:nowrap;">📋 Copy link</button>' +
+                  '</div>' +
+                  '<div style="font-size:0.78rem;color:#fde68a;line-height:1.45;background:rgba(0,0,0,0.18);border-radius:8px;padding:0.5rem 0.7rem;">' +
+                    '<div style="font-weight:700;color:#fbbf24;margin-bottom:0.25rem;">Next steps</div>' +
+                    '<ol style="margin:0;padding-left:1.1rem;">' +
+                      '<li>Tap <strong>Copy link</strong> above.</li>' +
+                      '<li>Leave MiniPay and open <strong>Chrome</strong> (or Safari / any browser outside MiniPay).</li>' +
+                      '<li>Paste the link into the address bar and complete Face Verification there.</li>' +
+                      '<li>Return to MiniPay, reopen GoodMarket, and claim your G$.</li>' +
+                    '</ol>' +
+                  '</div>' +
+                  '<button type="button" id="fvMiniPayForceTryBtn" style="background:transparent;border:1px solid rgba(251,191,36,0.5);color:#fde68a;font-size:0.78rem;font-weight:500;padding:0.4rem 0.9rem;border-radius:10px;cursor:pointer;">Try inside MiniPay anyway</button>' +
+                '</div>' +
+                '<div id="fvMiniPayFeedback" style="margin-top:0.55rem;font-size:0.8rem;color:#fde68a;min-height:1em;" aria-live="polite"></div>';
+            // Write the outer status BEFORE appending the card — setStatus()
+            // replaces status.innerHTML, so any later call while the card is
+            // a child of #ubiClaimStatus would destroy it. Per-copy feedback
+            // goes into #fvMiniPayFeedback (inside the card) instead.
+            setStatus('Copy the link below and open it in Chrome (outside MiniPay) to finish Face Verification.', '#fbbf24');
+            wrap.appendChild(card);
+
+            const copyBtn = card.querySelector('#fvMiniPayCopyBtn');
+            const preview = card.querySelector('#fvMiniPayLinkPreview');
+            const forceBtn = card.querySelector('#fvMiniPayForceTryBtn');
+            const feedback = card.querySelector('#fvMiniPayFeedback');
+            function _setMiniPayFeedback(text, color) {
+                if (!feedback) return;
+                feedback.textContent = text || '';
+                feedback.style.color = color || '#fde68a';
+            }
+
+            function _fallbackCopy(text) {
+                try {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    ta.setAttribute('readonly', '');
+                    ta.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    ta.setSelectionRange(0, text.length);
+                    const ok = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    return ok;
+                } catch (_) { return false; }
+            }
+            if (copyBtn) {
+                copyBtn.addEventListener('click', async () => {
+                    let ok = false;
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(link);
+                            ok = true;
+                        }
+                    } catch (_) { /* fall through to execCommand */ }
+                    if (!ok) ok = _fallbackCopy(link);
+                    if (ok) {
+                        copyBtn.textContent = '✅ Copied';
+                        // Feedback goes inside the card (setStatus would
+                        // wipe the card's innerHTML — see note above).
+                        _setMiniPayFeedback('Link copied — now leave MiniPay, open Chrome (or your preferred browser), and paste the link there to finish Face Verification.', '#86efac');
+                        setTimeout(() => { copyBtn.textContent = '📋 Copy link'; }, 2500);
+                    } else {
+                        // Last-resort: expose the raw link inline so the user
+                        // can long-press-select it manually.
+                        if (preview) {
+                            preview.style.whiteSpace = 'normal';
+                            preview.style.wordBreak = 'break-all';
+                            preview.textContent = link;
+                        }
+                        _setMiniPayFeedback('Could not copy automatically — long-press the link above to copy it manually.', '#fbbf24');
+                    }
+                });
+            }
+            if (forceBtn) {
+                forceBtn.addEventListener('click', () => {
+                    card.remove();
+                    _miniPayFvForceTry = true;
+                    window.location.href = link;
+                });
+            }
+        }
+
         function startFV() {
             if (!window._fvGenerateLink) {
                 setStatus('Wallet library loading — please wait a moment and try again.', '#fbbf24');
@@ -2836,6 +2956,16 @@
                 .then(link => {
                     _fvSettled = true;
                     clearTimeout(_fvHintTimer);
+                    // MiniPay's in-app WebView consistently fails the FaceTec
+                    // scan — redirect the user to their phone's native
+                    // browser instead (the fvsig-embedded link does not
+                    // require any further signing, so no re-connect is
+                    // needed). Escape hatch via "Try inside MiniPay anyway"
+                    // sets _miniPayFvForceTry and re-enters this path.
+                    if (!_miniPayFvForceTry && typeof _isMiniPay === 'function' && _isMiniPay()) {
+                        _showMiniPayFvHandoff(link);
+                        return;
+                    }
                     window.location.href = link;
                 })
                 .catch(err => {
