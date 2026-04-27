@@ -1550,9 +1550,16 @@ document.addEventListener('DOMContentLoaded', function() {
             } catch (_) {
                 current = null;
             }
-            const normalized = (current && typeof current === 'string')
-                ? current.toLowerCase()
-                : (typeof current === 'number' ? '0x' + current.toString(16) : '');
+            const normalized = (function (cid) {
+                if (cid === null || cid === undefined) return '';
+                if (typeof cid === 'number' && Number.isFinite(cid)) return '0x' + cid.toString(16);
+                if (typeof cid === 'bigint') return '0x' + cid.toString(16);
+                const raw = String(cid).trim().toLowerCase();
+                if (!raw) return '';
+                if (raw.startsWith('0x')) return raw;
+                if (/^\d+$/.test(raw)) return '0x' + Number(raw).toString(16);
+                return raw;
+            })(current);
             if (normalized === CELO_CHAIN_HEX) return;
             try {
                 await provider.request({
