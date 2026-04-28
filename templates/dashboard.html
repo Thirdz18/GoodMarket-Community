@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - GoodDollar Analytics</title>
     <!-- Telegram Mini App SDK -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
 
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#7c3aed">
@@ -16,8 +16,11 @@
     <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
     <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}">
 
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;800&display=swap');
 
         * {
             margin: 0;
@@ -2555,64 +2558,51 @@
 
         // Update total earned from all sources
         async function updateTotalEarned() {
+            const totalEarnedElement = document.getElementById('totalEarned');
             try {
-                console.log("📊 Fetching total earned from all sources...");
+                // Fast path: backend-aggregated total (single lightweight request)
+                const response = await fetch('/api/total-earned');
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    if (totalEarnedElement) {
+                        totalEarnedElement.textContent = data.total_earned_formatted || `${(parseFloat(data.total_earned || 0)).toFixed(2)} G$`;
+                    }
+                    return;
+                }
+                throw new Error(data.error || 'Aggregated total unavailable');
+            } catch (error) {
+                console.warn('⚠️ /api/total-earned unavailable, falling back to client aggregation:', error);
+            }
 
-                // Fetch from all earning sources in parallel
+            try {
+                // Fallback path: reduced payload sizes to avoid heavy page-load cost
                 const [learnEarnResponse, telegramTaskResponse, twitterTaskResponse] = await Promise.all([
-                    fetch('/learn-earn/quiz-history?limit=1000').catch(() => ({ ok: false, json: async () => ({success: false}) })),
-                    fetch('/api/daily-task/history?limit=1000').catch(() => ({ ok: false, json: async () => ({success: false}) })),
-                    fetch('/api/twitter-task/transaction-history?limit=1000').catch(() => ({ ok: false, json: async () => ({success: false}) }))
+                    fetch('/learn-earn/quiz-history?limit=100').catch(() => ({ ok: false, json: async () => ({ success: false }) })),
+                    fetch('/api/daily-task/history?limit=100').catch(() => ({ ok: false, json: async () => ({ success: false }) })),
+                    fetch('/api/twitter-task/transaction-history?limit=100').catch(() => ({ ok: false, json: async () => ({ success: false }) }))
                 ]);
 
-                // Handle potential non-JSON responses or errors
-                const learnEarnData = await learnEarnResponse.json();
-                const telegramTaskData = await telegramTaskResponse.json();
-                const twitterTaskData = await twitterTaskResponse.json();
-
-                console.log("Learn & Earn Data:", learnEarnData);
-                console.log("Telegram Task Data:", telegramTaskData);
-                console.log("Twitter Task Data:", twitterTaskData);
+                const [learnEarnData, telegramTaskData, twitterTaskData] = await Promise.all([
+                    learnEarnResponse.json(),
+                    telegramTaskResponse.json(),
+                    twitterTaskResponse.json()
+                ]);
 
                 let totalEarned = 0;
-
-                // Calculate Learn & Earn total
                 if (learnEarnData.success && learnEarnData.quiz_history) {
-                    const learnEarnTotal = learnEarnData.quiz_history.reduce((sum, quiz) => {
-                        return sum + parseFloat(quiz.amount_g$ || 0);
-                    }, 0);
-                    totalEarned += learnEarnTotal;
-                    console.log("Learn & Earn Total:", learnEarnTotal);
+                    totalEarned += learnEarnData.quiz_history.reduce((sum, quiz) => sum + parseFloat(quiz.amount_g$ || 0), 0);
                 }
-
-                // Calculate Telegram Task total
                 if (telegramTaskData.success && telegramTaskData.transactions) {
-                    const telegramTotal = telegramTaskData.transactions.reduce((sum, tx) => {
-                        return sum + parseFloat(tx.reward_amount || 0);
-                    }, 0);
-                    totalEarned += telegramTotal;
-                    console.log("Telegram Task Total:", telegramTotal);
+                    totalEarned += telegramTaskData.transactions.reduce((sum, tx) => sum + parseFloat(tx.reward_amount || 0), 0);
                 }
-
-                // Calculate Twitter Task total
                 if (twitterTaskData.success && twitterTaskData.transactions) {
-                    const twitterTotal = twitterTaskData.transactions.reduce((sum, tx) => {
-                        return sum + parseFloat(tx.reward_amount || 0);
-                    }, 0);
-                    totalEarned += twitterTotal;
-                    console.log("Twitter Task Total:", twitterTotal);
+                    totalEarned += twitterTaskData.transactions.reduce((sum, tx) => sum + parseFloat(tx.reward_amount || 0), 0);
                 }
 
-                console.log("✅ Total Earned Calculated:", totalEarned, "G$");
-
-                // Update the display
-                const totalEarnedElement = document.getElementById('totalEarned');
                 if (totalEarnedElement) totalEarnedElement.textContent = `${totalEarned.toFixed(2)} G$`;
-
-            } catch (error) {
-                console.error('❌ Error fetching total earned:', error);
-                const errEl = document.getElementById('totalEarned');
-                if (errEl) errEl.textContent = 'Error loading';
+            } catch (fallbackError) {
+                console.error('❌ Error fetching total earned:', fallbackError);
+                if (totalEarnedElement) totalEarnedElement.textContent = 'Error loading';
             }
         }
 
@@ -3710,23 +3700,31 @@
             if (modal && event.target === modal) closeEditUsernameModal();
         });
 
+        function runWhenIdle(task, timeoutMs = 1500) {
+            if (window.requestIdleCallback) {
+                requestIdleCallback(() => task(), { timeout: timeoutMs });
+            } else {
+                setTimeout(task, timeoutMs);
+            }
+        }
+
         // Initial load - prioritize critical data
         loadUsername();
         loadGoodDollarBalance();
         loadGdPrices();
         checkDailyTaskStatus().then(updateDailyTaskUI);
         updateTotalEarned();
-        loadTxHistory();
+        runWhenIdle(loadTxHistory, 1200);
 
-        // Delay non-critical data by 1 second to improve initial load
-        setTimeout(() => {
+        // Delay non-critical data to improve first render
+        runWhenIdle(() => {
             loadRecentDailyTasks();
             loadCommunityScreenshots();
-        }, 1000);
+        }, 1800);
 
-        // Check for admin access and notifications on load
-        checkAdminAccess();
-        checkForNotifications();
+        // Check for admin access and notifications after critical data paints
+        runWhenIdle(checkAdminAccess, 2000);
+        runWhenIdle(() => checkForNotifications().catch(() => {}), 2200);
         // Set interval to check for new notifications periodically
         var _notifPollingTimer = setInterval(function() {
             checkForNotifications().catch(function() {
