@@ -471,7 +471,17 @@ class P2PEscrowContract:
                 f"{self.MIN_PAYMENT_WINDOW_SECONDS} and "
                 f"{self.MAX_PAYMENT_WINDOW_SECONDS}"
             )
-        deadline = int(time.time()) + int(payment_window_seconds)
+        # Add a buffer to absorb the delay between tx preparation and on-chain
+        # inclusion (wallet UI render, user signing, propagation, block time).
+        # Without it, a user picking the minimum 15-minute window would revert
+        # with "P2P: window too short" because by the time the tx is mined,
+        # `deadline - block.timestamp` is already < MIN_PAYMENT_WINDOW.
+        _DEADLINE_BUFFER_SECONDS = 120
+        deadline = (
+            int(time.time())
+            + int(payment_window_seconds)
+            + _DEADLINE_BUFFER_SECONDS
+        )
         return self._wrap_tx(
             self.contract.functions.placeOrder(
                 ad_id_b,
