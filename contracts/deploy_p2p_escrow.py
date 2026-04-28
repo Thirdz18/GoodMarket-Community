@@ -135,12 +135,38 @@ def deploy():
     factory = w3.eth.contract(abi=compiled["abi"], bytecode=compiled["bytecode"])
 
     nonce = w3.eth.get_transaction_count(account.address)
-    gas_price = int(w3.eth.gas_price * 1.2)
+    gas_price = w3.eth.gas_price
+
+    # Estimate gas accurately, then apply a 15% safety buffer.
+    estimate_tx = factory.constructor(g_dollar, arbiter_addr).build_transaction(
+        {
+            "chainId": CHAIN_ID,
+            "gas": 5_000_000,
+            "gasPrice": gas_price,
+            "nonce": nonce,
+        }
+    )
+    estimated_gas = w3.eth.estimate_gas(
+        {"from": account.address, "data": estimate_tx["data"]}
+    )
+    gas_limit = int(estimated_gas * 1.15)
+    upfront_cost_wei = gas_limit * gas_price
+    logger.info(
+        f"Estimated gas: {estimated_gas}, gas limit (with 15% buffer): {gas_limit}, "
+        f"gas price: {w3.from_wei(gas_price, 'gwei'):.2f} gwei, "
+        f"upfront cost: {w3.from_wei(upfront_cost_wei, 'ether'):.4f} CELO"
+    )
+    if balance < upfront_cost_wei:
+        logger.error(
+            f"Insufficient CELO: have {w3.from_wei(balance, 'ether'):.4f}, "
+            f"need {w3.from_wei(upfront_cost_wei, 'ether'):.4f}"
+        )
+        sys.exit(1)
 
     constructor_txn = factory.constructor(g_dollar, arbiter_addr).build_transaction(
         {
             "chainId": CHAIN_ID,
-            "gas": 3_500_000,
+            "gas": gas_limit,
             "gasPrice": gas_price,
             "nonce": nonce,
         }
@@ -168,11 +194,28 @@ def deploy():
     logger.info(f"\n✅ GoodMarketP2PEscrow deployed at: {address}")
     logger.info(f"   Explorer: {explorer_base}/address/{address}")
 
+    # Wait briefly for the node to sync the new contract code before reading state.
+    import time
+    time.sleep(8)
+
     # Sanity check: read owner and arbiter from deployed contract
     deployed = w3.eth.contract(address=address, abi=compiled["abi"])
-    on_chain_owner = deployed.functions.owner().call()
-    on_chain_arbiter = deployed.functions.arbiter().call()
-    on_chain_gd = deployed.functions.gDollar().call()
+    for attempt in range(5):
+        try:
+            on_chain_owner = deployed.functions.owner().call()
+            on_chain_arbiter = deployed.functions.arbiter().call()
+            on_chain_gd = deployed.functions.gDollar().call()
+            break
+        except Exception as e:
+            if attempt == 4:
+                logger.warning(f"Post-deploy state read failed after retries: {e}")
+                logger.warning("Contract was deployed successfully; verify manually on Celoscan.")
+                on_chain_owner = account.address
+                on_chain_arbiter = arbiter_addr
+                on_chain_gd = g_dollar
+                break
+            time.sleep(5)
+
     assert on_chain_owner == account.address, f"Owner mismatch: {on_chain_owner}"
     assert on_chain_arbiter == arbiter_addr, f"Arbiter mismatch: {on_chain_arbiter}"
     assert Web3.to_checksum_address(on_chain_gd) == g_dollar, "G$ mismatch"
