@@ -214,6 +214,35 @@
     );
   }
 
+  /**
+   * Upload a binary file (image / PDF) as a payment proof.
+   * The backend stores it in a private Supabase Storage bucket and returns
+   * the new proof's metadata + view URL.
+   */
+  async function uploadProofFile(tradeId, file) {
+    if (!file) throw new Error("No file selected");
+    const form = new FormData();
+    form.append("file", file, file.name || "proof");
+    const res = await fetch(
+      "/p2p/api/trades/" + encodeURIComponent(tradeId) + "/proof-upload",
+      { method: "POST", body: form }
+    );
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok || !data.success) {
+      const err = new Error(data.error || ("HTTP " + res.status));
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  function listProofs(tradeId) {
+    return jsonGet(
+      "/p2p/api/trades/" + encodeURIComponent(tradeId) + "/proofs"
+    );
+  }
+
   async function _signTradeAction(tradeId, prepUrl) {
     const prep = await jsonPost(prepUrl);
     const txKey = Object.keys(prep.transactions || {})[0];
@@ -276,6 +305,8 @@
     closeAd,
     placeOrder,
     uploadProof,
+    uploadProofFile,
+    listProofs,
     markPaid,
     release,
     cancelOrder,

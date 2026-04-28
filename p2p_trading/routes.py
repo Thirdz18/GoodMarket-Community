@@ -31,6 +31,13 @@ from flask import (
 
 from .escrow_service import escrow_service
 from .indexer import get_indexer
+from .proofs_service import (
+    MAX_FILE_BYTES,
+    MAX_PROOFS_PER_TRADE,
+    ProofValidationError,
+    guess_mime_type,
+    proofs_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -345,6 +352,190 @@ def api_upload_proof(trade_id: str):
     proof_url = (body.get("proof_url") or "").strip()
     result = escrow_service.upload_payment_proof(wallet, trade_id, proof_url)
     return jsonify(result), (200 if result.get("success") else 400)
+
+
+# ---------------------------------------------------------------------------
+# Multi-file payment-proof attachments backed by Supabase Storage
+# ---------------------------------------------------------------------------
+
+
+def _trade_membership(wallet: str, trade_id: str) -> Dict[str, Any]:
+    """Return ``{"trade": trade, "role": "buyer"|"seller"|"arbiter"}`` if the
+    wallet is allowed to view/upload proofs for this trade, else
+    ``{"error": ..., "status": int}``."""
+    trade = escrow_service.get_trade(trade_id)
+    if not trade:
+        return {"error": "Trade not found", "status": 404}
+    wallet_lower = (wallet or "").lower()
+    buyer = (trade.get("buyer_wallet") or "").lower()
+    seller = (trade.get("seller_wallet") or "").lower()
+    if wallet_lower and wallet_lower == buyer:
+        return {"trade": trade, "role": "buyer"}
+    if wallet_lower and wallet_lower == seller:
+        return {"trade": trade, "role": "seller"}
+    if _is_admin(wallet_lower):
+        return {"trade": trade, "role": "arbiter"}
+    return {"error": "Forbidden", "status": 403}
+
+
+@p2p_bp.route("/api/trades/<trade_id>/proofs", methods=["GET"])
+@p2p_terms_required
+def api_list_proofs(trade_id: str):
+    wallet = _wallet_from_session()
+    membership = _trade_membership(wallet, trade_id)
+    if "error" in membership:
+        return jsonify(
+            {"success": False, "error": membership["error"]}
+        ), membership["status"]
+
+    proofs = proofs_service.list_for_trade(trade_id, with_signed_urls=True)
+    safe = [
+        {
+            "id": p.get("id"),
+            "trade_id": p.get("trade_id"),
+            "uploader_wallet": p.get("uploader_wallet"),
+            "mime_type": p.get("mime_type"),
+            "size_bytes": p.get("size_bytes"),
+            "original_name": p.get("original_name"),
+            "created_at": p.get("created_at"),
+            "view_url": url_for(
+                "p2p.api_view_proof",
+                trade_id=trade_id,
+                proof_id=p.get("id"),
+            ),
+            "signed_url": p.get("signed_url"),
+        }
+        for p in proofs
+    ]
+    return jsonify({"success": True, "proofs": safe, "count": len(safe)})
+
+
+@p2p_bp.route("/api/trades/<trade_id>/proof-upload", methods=["POST"])
+@p2p_terms_required
+def api_upload_proof_file(trade_id: str):
+    """Accept a multipart file upload, store it in Supabase Storage, and
+    record the metadata. Buyers / sellers / arbiters of the trade only.
+
+    Form fields:
+        file: required, the binary attachment.
+    """
+    wallet = _wallet_from_session()
+    membership = _trade_membership(wallet, trade_id)
+    if "error" in membership:
+        return jsonify(
+            {"success": False, "error": membership["error"]}
+        ), membership["status"]
+
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify(
+            {"success": False, "error": "Missing 'file' field"}
+        ), 400
+
+    file_bytes = upload.read()
+    if len(file_bytes) > MAX_FILE_BYTES:
+        return jsonify(
+            {
+                "success": False,
+                "error": f"File too large (max {MAX_FILE_BYTES} bytes)",
+            }
+        ), 413
+
+    mime_type = (upload.mimetype or "").lower() or guess_mime_type(
+        upload.filename or ""
+    )
+
+    try:
+        row = proofs_service.upload(
+            trade_id=trade_id,
+            uploader_wallet=wallet,
+            file_bytes=file_bytes,
+            mime_type=mime_type,
+            original_name=upload.filename,
+        )
+    except ProofValidationError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        logger.exception("proofs_service.upload failed")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+    # Mirror the latest proof's view URL into ``p2p_trades.payment_proof_url``
+    # so the existing "Mark paid" gate (which checks payment_proof_url is
+    # non-empty) keeps working without a DB schema change.
+    if membership.get("role") == "buyer":
+        view_url = url_for(
+            "p2p.api_view_proof",
+            trade_id=trade_id,
+            proof_id=row.get("id"),
+            _external=True,
+        )
+        try:
+            escrow_service.upload_payment_proof(wallet, trade_id, view_url)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to mirror proof view_url to p2p_trades.payment_proof_url"
+            )
+
+    return jsonify(
+        {
+            "success": True,
+            "proof": {
+                "id": row.get("id"),
+                "mime_type": row.get("mime_type"),
+                "size_bytes": row.get("size_bytes"),
+                "original_name": row.get("original_name"),
+                "created_at": row.get("created_at"),
+                "view_url": url_for(
+                    "p2p.api_view_proof",
+                    trade_id=trade_id,
+                    proof_id=row.get("id"),
+                ),
+            },
+        }
+    )
+
+
+@p2p_bp.route("/api/trades/<trade_id>/proofs/<proof_id>/view")
+@p2p_terms_required
+def api_view_proof(trade_id: str, proof_id: str):
+    """Redirect the requesting buyer/seller/arbiter to a fresh signed URL
+    for the stored proof. Re-validates membership on every request so an
+    accidentally leaked URL cannot be replayed by an outsider."""
+    wallet = _wallet_from_session()
+    membership = _trade_membership(wallet, trade_id)
+    if "error" in membership:
+        return jsonify(
+            {"success": False, "error": membership["error"]}
+        ), membership["status"]
+
+    proof = proofs_service.get_proof(proof_id)
+    if not proof or proof.get("trade_id") != trade_id:
+        return jsonify({"success": False, "error": "Proof not found"}), 404
+
+    signed = proofs_service.signed_url(proof.get("storage_path"))
+    if not signed:
+        return jsonify(
+            {"success": False, "error": "Failed to sign URL"}
+        ), 500
+    return redirect(signed, code=302)
+
+
+@p2p_bp.route("/api/proofs/limits", methods=["GET"])
+@p2p_terms_required
+def api_proof_limits():
+    return jsonify(
+        {
+            "success": True,
+            "max_file_bytes": MAX_FILE_BYTES,
+            "max_proofs_per_trade": MAX_PROOFS_PER_TRADE,
+            "allowed_mime_types": [
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+                "application/pdf",
+            ],
+        }
+    )
 
 
 @p2p_bp.route("/api/trades/<trade_id>/prepare-mark-paid", methods=["POST"])

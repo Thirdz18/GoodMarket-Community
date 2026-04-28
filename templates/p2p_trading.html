@@ -196,9 +196,20 @@
 <div class="modal-bg" id="proofModal">
   <div class="modal">
     <h2>Upload payment proof</h2>
-    <p class="small">Paste a public image URL (screenshot of bank/GCash transfer). Required before you can mark the trade as paid.</p>
-    <div class="form-row"><label>Proof URL</label><input type="url" id="proofUrl" placeholder="https://..."></div>
-    <div class="row" style="justify-content:flex-end;">
+    <p class="small">Upload a screenshot of your bank/GCash/PayMaya transfer (PNG, JPG, WebP, or PDF; max 5&nbsp;MB). Required before you can mark the trade as paid.</p>
+    <div class="form-row">
+      <label>Choose a file</label>
+      <input type="file" id="proofFile" accept="image/png,image/jpeg,image/webp,application/pdf">
+    </div>
+    <div id="proofExistingList" class="small" style="margin:0.5rem 0; max-height:160px; overflow:auto;"></div>
+    <details style="margin-top:0.5rem;">
+      <summary class="small">Or paste a public image URL instead</summary>
+      <div class="form-row" style="margin-top:0.5rem;">
+        <label>Proof URL</label>
+        <input type="url" id="proofUrl" placeholder="https://...">
+      </div>
+    </details>
+    <div class="row" style="justify-content:flex-end; margin-top:0.5rem;">
       <button class="ghost" id="proofCancel">Cancel</button>
       <button class="primary" id="proofSubmit">Save proof</button>
     </div>
@@ -364,22 +375,57 @@
   // -------- proof upload modal --------
   const proofModal = document.getElementById('proofModal');
   const proofUrl = document.getElementById('proofUrl');
+  const proofFile = document.getElementById('proofFile');
+  const proofExistingList = document.getElementById('proofExistingList');
+  const proofSubmitBtn = document.getElementById('proofSubmit');
   let _activeProofTradeId = null;
+
+  async function refreshExistingProofs(tradeId) {
+    if (!proofExistingList) return;
+    proofExistingList.innerHTML = '<div class="empty">Loading uploaded files…</div>';
+    try {
+      const data = await window.P2PEscrow.listProofs(tradeId);
+      const proofs = data.proofs || [];
+      if (!proofs.length) { proofExistingList.innerHTML = '<div class="empty">No files uploaded yet.</div>'; return; }
+      proofExistingList.innerHTML = '<div style="margin-bottom:0.25rem;">Uploaded files (' + proofs.length + '):</div>' +
+        proofs.map(p => {
+          const name = escapeHtml(p.original_name || (p.mime_type || 'file'));
+          const sizeKb = Math.max(1, Math.round((p.size_bytes || 0) / 1024));
+          return '<div>• <a href="' + escapeAttr(p.view_url) + '" target="_blank" rel="noopener noreferrer">' + name + '</a> · ' + sizeKb + ' KB</div>';
+        }).join('');
+    } catch (err) {
+      proofExistingList.innerHTML = '<div class="empty">Failed to load uploaded files</div>';
+    }
+  }
+
   function openProofModal(tradeId) {
     _activeProofTradeId = tradeId;
     proofUrl.value = '';
+    if (proofFile) proofFile.value = '';
     proofModal.classList.add('open');
+    refreshExistingProofs(tradeId);
   }
   document.getElementById('proofCancel').addEventListener('click', () => proofModal.classList.remove('open'));
-  document.getElementById('proofSubmit').addEventListener('click', async () => {
+  proofSubmitBtn.addEventListener('click', async () => {
     if (!_activeProofTradeId) return;
-    if (!proofUrl.value) return toast('Enter a URL', 'error');
+    const file = proofFile && proofFile.files && proofFile.files[0];
+    const url  = proofUrl.value.trim();
+    if (!file && !url) return toast('Pick a file or paste a URL', 'error');
+    proofSubmitBtn.disabled = true;
     try {
-      await window.P2PEscrow.uploadProof(_activeProofTradeId, proofUrl.value);
+      if (file) {
+        await window.P2PEscrow.uploadProofFile(_activeProofTradeId, file);
+      } else {
+        await window.P2PEscrow.uploadProof(_activeProofTradeId, url);
+      }
       toast('Proof saved.', 'success');
       proofModal.classList.remove('open');
       refreshMyTrades();
-    } catch (err) { toastErr(err); }
+    } catch (err) {
+      toastErr(err);
+    } finally {
+      proofSubmitBtn.disabled = false;
+    }
   });
 
   // -------- my ads --------
@@ -426,16 +472,21 @@
     const isSeller = (t.seller_wallet || '').toLowerCase() === SESSION_WALLET;
     const buttons = [];
     if (isBuyer && stat === 'payment_pending') {
-      if (!t.payment_proof_url) buttons.push(`<button class="ghost" data-proof="${t.trade_id}">Upload proof</button>`);
-      else buttons.push(`<button class="primary" data-markpaid="${t.trade_id}">Mark paid</button>`);
+      buttons.push(`<button class="ghost" data-proof="${t.trade_id}">${t.payment_proof_url ? 'Add proof' : 'Upload proof'}</button>`);
+      if (t.payment_proof_url) buttons.push(`<button class="primary" data-markpaid="${t.trade_id}">Mark paid</button>`);
       buttons.push(`<button class="danger" data-cancel="${t.trade_id}">Cancel</button>`);
     }
     if (isBuyer && stat === 'awaiting_release') {
+      buttons.push(`<button class="ghost" data-proof="${t.trade_id}">Add proof</button>`);
       buttons.push(`<button class="danger" data-dispute="${t.trade_id}">Open dispute</button>`);
     }
     if (isSeller && stat === 'awaiting_release') {
+      buttons.push(`<button class="ghost" data-proof="${t.trade_id}">View proofs</button>`);
       buttons.push(`<button class="primary" data-release="${t.trade_id}">Release G$</button>`);
       buttons.push(`<button class="danger" data-dispute="${t.trade_id}">Open dispute</button>`);
+    }
+    if (stat === 'disputed') {
+      buttons.push(`<button class="ghost" data-proof="${t.trade_id}">${isBuyer ? 'Add proof' : 'View proofs'}</button>`);
     }
     return buttons.join(' ');
   }

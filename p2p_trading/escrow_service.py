@@ -421,7 +421,7 @@ class P2PEscrowService:
                 "success": False,
                 "error": "Proof URL contains invalid characters",
             }
-        if len(proof_url) > 500:
+        if len(proof_url) > 1000:
             return {"success": False, "error": "Proof URL too long"}
         try:
             self.supabase.table("p2p_trades").update(

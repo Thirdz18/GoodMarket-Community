@@ -60,6 +60,7 @@ The app gracefully degrades when these are missing, but full functionality requi
 
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_ANON_KEY` — Supabase API key
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role key (server-side only). Required to upload P2P payment-proof attachments to the private `payment-proofs` Storage bucket.
 - `SECRET_KEY` — Flask session secret key
 - `WALLETCONNECT_PROJECT_ID` — WalletConnect project ID
 - `CELO_RPC_URL` — Celo RPC endpoint (defaults to `https://forno.celo.org`)
@@ -183,6 +184,7 @@ The WalletConnect sidecar (`wc_service.js`) is started automatically by the Flas
 | `SECRET_KEY` | Flask session secret key |
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_ANON_KEY` | Supabase anonymous/service key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (server-side only; uploads P2P payment proofs) |
 | `WALLETCONNECT_PROJECT_ID` | WalletConnect project ID |
 | `CELO_RPC_URL` | Celo RPC endpoint (default: `https://forno.celo.org`) |
 | `GOODDOLLAR_CONTRACT` | GoodDollar token contract address |

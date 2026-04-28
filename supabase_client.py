@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+from typing import Optional
 from supabase import create_client, Client
 from datetime import datetime
 import json
@@ -81,6 +82,52 @@ def get_supabase_client():
 
 # Initialize the client
 supabase = get_supabase_client()
+
+
+# ─── Service-role client (server-side only) ─────────────────────────────────
+#
+# A separate client authenticated with SUPABASE_SERVICE_ROLE_KEY. This bypasses
+# Row Level Security and is required for backend operations like uploading
+# files to a private Storage bucket on behalf of a wallet user (who is *not*
+# a Supabase Auth user).
+#
+# NEVER expose the service-role key to the frontend or commit it to git.
+
+_supabase_admin: Optional[Client] = None
+_supabase_admin_initialised = False
+
+
+def get_supabase_admin_client():
+    """Return a Supabase client authenticated with the service-role key.
+
+    Returns ``None`` if ``SUPABASE_URL`` or ``SUPABASE_SERVICE_ROLE_KEY`` is
+    not configured. Cached after the first successful creation.
+    """
+    global _supabase_admin, _supabase_admin_initialised
+
+    if _supabase_admin_initialised:
+        return _supabase_admin
+
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not SUPABASE_URL or not service_role_key:
+        logger.warning(
+            "Supabase admin (service-role) client not configured. "
+            "SUPABASE_URL exists=%s, SUPABASE_SERVICE_ROLE_KEY exists=%s",
+            bool(SUPABASE_URL), bool(service_role_key),
+        )
+        _supabase_admin_initialised = True
+        return None
+
+    try:
+        _supabase_admin = create_client(SUPABASE_URL, service_role_key)
+        logger.info("✅ Supabase admin (service-role) client initialised")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("❌ Supabase admin client init failed: %s", exc)
+        _supabase_admin = None
+    finally:
+        _supabase_admin_initialised = True
+
+    return _supabase_admin
 
 # SQL COMMANDS TO RUN IN YOUR SUPABASE SQL EDITOR:
 # Copy and run these commands one by one in your Supabase SQL Editor
