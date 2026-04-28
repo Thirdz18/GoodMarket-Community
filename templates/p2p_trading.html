@@ -319,7 +319,10 @@
   // quotes / angle brackets / whitespace, then HTML-escape what's left.
   function escapeAttr(s) {
     const raw = String(s||'').trim();
-    if (!/^(\/|https?:\/\/)/i.test(raw)) return '#';
+    // Reject protocol-relative URLs ("//evil.com") which a naive `^/`
+    // match would let through; only accept a single leading slash followed
+    // by a non-slash (or end-of-string), or an explicit http(s) scheme.
+    if (!/^(\/[^\/]|\/$|https?:\/\/)/i.test(raw)) return '#';
     if (/["'<>\s]/.test(raw)) return '#';
     return escapeHtml(raw);
   }
