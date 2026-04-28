@@ -38,6 +38,23 @@
 
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+        /* ── Compact 70% scale ──
+           Shrinks every action button and the rest of the page to 70% so
+           the whole wallet view fits in one screen on desktop, mobile, and
+           dapp browsers. Pure visual scaling — no markup or JS changed. */
+        html {
+            zoom: 0.7;
+        }
+        @supports not (zoom: 1) {
+            /* Firefox <126 fallback */
+            body {
+                transform: scale(0.7);
+                transform-origin: top center;
+                width: 142.857%;
+                margin-left: -21.4285%;
+            }
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background:
