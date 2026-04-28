@@ -338,6 +338,46 @@
             el.innerHTML = "";
         }
 
+        async function _safeFetchJson(url, opts) {
+            const res = await fetch(url, opts);
+            let body = {};
+            try { body = await res.json(); } catch (_) {}
+            if (!res.ok) {
+                throw new Error(body.error || `HTTP ${res.status}`);
+            }
+            return body;
+        }
+
+        async function ensureGasReadyForClaim(walletAddress) {
+            const correlationId = `claim-link-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+            const statusData = await _safeFetchJson("/api/faucet/status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Correlation-ID": correlationId },
+                body: JSON.stringify({ wallet: walletAddress, correlation_id: correlationId })
+            });
+            if (statusData.gas_ready) {
+                return { gasReady: true, source: "wallet_balance" };
+            }
+
+            const gasData = await _safeFetchJson("/api/faucet/gas", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Correlation-ID": correlationId },
+                body: JSON.stringify({ wallet: walletAddress, correlation_id: correlationId, force_onchain: false })
+            });
+
+            if (gasData.gas_ready) {
+                return { gasReady: true, source: gasData.topup_source || "faucet" };
+            }
+
+            const terminal = gasData.terminal_status || gasData.status;
+            if (terminal === "recent_refill") {
+                const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
+                throw new Error(`Gas refill cooldown active (${cooldown}s remaining).`);
+            }
+            throw new Error(gasData.error || gasData.reason || "Gas top-up failed.");
+        }
+
         function isServerSigningLoginMethod() {
             return false;
         }
@@ -386,6 +426,10 @@
                     signer = await provider.getSigner();
                     receiverAddr = await signer.getAddress();
                     otpCheck = new ethers.Contract(OTP_ADDRESS, OTP_ABI, provider);
+
+                    btn.innerHTML = '<span class="spinner-inline"></span> Checking gas...';
+                    showAlert("alert-info", '<span class="spinner-inline"></span> Checking CELO gas and requesting faucet top-up if needed...');
+                    await ensureGasReadyForClaim(receiverAddr);
                 }
 
                 // Check payment still exists
