@@ -651,7 +651,7 @@
 
         {% if reserve_swap_visible and not is_minipay %}
         <!-- Tab Switcher (DEX vs GoodReserve) -->
-        <div class="swap-tabs" role="tablist" aria-label="Swap mode">
+        <div id="swapTabSwitcher" class="swap-tabs" role="tablist" aria-label="Swap mode">
             <button type="button" id="tabBtnDex" class="swap-tab-btn active" role="tab" aria-selected="true" onclick="setSwapTab('dex')">Uniswap V3</button>
             <button type="button" id="tabBtnReserve" class="swap-tab-btn" role="tab" aria-selected="false" onclick="setSwapTab('reserve')">GoodReserve</button>
         </div>
@@ -664,7 +664,7 @@
         {% endif %}
 
         <!-- DEX Pane -->
-        <div class="pane pane-dex">
+        <div id="swapPaneDex" class="pane pane-dex">
 
         <!-- Swap Card -->
         <div class="swap-card">
@@ -795,7 +795,7 @@
 
         {% if reserve_swap_visible %}
         <!-- GoodReserve Pane -->
-        <div class="pane pane-reserve hidden-tab">
+        <div id="swapPaneReserve" class="pane pane-reserve hidden-tab">
             <div class="swap-card">
 
                 <div class="network-badge">
@@ -2831,5 +2831,6 @@
             }
         }
     </script>
+<script src="{{ url_for('static', filename='js/minipay-nav.js') }}"></script>
 </body>
 </html>
