@@ -289,8 +289,8 @@ contract GoodMarketP2PEscrow {
         require(amount <= ad.maxOrder,    "P2P: amount above maxOrder");
         require(amount <= ad.remainingAmount, "P2P: insufficient ad remaining");
 
-        uint256 window = uint256(deadline) - block.timestamp;
         require(deadline > block.timestamp,        "P2P: deadline in past");
+        uint256 window = uint256(deadline) - block.timestamp;
         require(window >= MIN_PAYMENT_WINDOW,      "P2P: window too short");
         require(window <= MAX_PAYMENT_WINDOW,      "P2P: window too long");
 

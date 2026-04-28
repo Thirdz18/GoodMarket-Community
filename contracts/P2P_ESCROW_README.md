@@ -99,7 +99,7 @@ two legitimate parties.
 ## Test coverage
 
 `tests/test_p2p_escrow.py` runs an in-memory PyEVM chain and exercises every
-state transition. Current status: **28 / 28 passing**.
+state transition. Current status: **29 / 29 passing**.
 
 The tests cover, among others:
 
@@ -153,3 +153,28 @@ address.
 
 After deployment the script prints the contract address and writes a full
 deployment artefact (including ABI) to `contracts/p2p_escrow_deployment.json`.
+
+## Mainnet deployment
+
+The contract is live on Celo mainnet at
+[`0x38Ba17dd68C1A0B80C5E2e767e6053F8299E9C85`](https://celoscan.io/address/0x38Ba17dd68C1A0B80C5E2e767e6053F8299E9C85)
+(deployed in tx
+[`0x9484a197...d660f4`](https://celoscan.io/tx/0x9484a197388d65291768326e17393ba3979ceff323ecea9780bc5eab58d660f4),
+block 65,443,146).
+
+**Known cosmetic issue in the deployed bytecode**
+
+The deployed bytecode contains a non-fatal ordering issue in `placeOrder`: the
+`uint256(deadline) - block.timestamp` subtraction sits before the
+`require(deadline > block.timestamp)` check. When a buyer submits a deadline in
+the past, the function still reverts (Solidity 0.8+ panics on underflow), but
+the on-chain error is `Panic(0x11)` instead of the descriptive
+`"P2P: deadline in past"` message. There is **no security impact**: bad input
+is still rejected. The fix is in the source on `main` (the require has been
+moved above the subtraction), but redeploying purely for the error-message
+improvement is not justified given the cost. The frontend should validate
+`deadline > now` client-side before signing, which makes the path unreachable
+in practice.
+
+If the contract is ever redeployed for any other reason, the new bytecode will
+include the fix automatically.

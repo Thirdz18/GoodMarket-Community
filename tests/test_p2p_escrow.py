@@ -214,6 +214,28 @@ class Fixture:
         return self.gd.functions.balanceOf(acct).call()
 
 
+def expect_revert(fn, expected_msg=""):
+    """
+    Run `fn()` and assert it reverts. If `expected_msg` is given, also assert
+    that string appears in the revert reason. Returns the caught exception.
+
+    This helper avoids the trap of a bare `try/except Exception` block where the
+    test's own `raise AssertionError("should have reverted")` would be caught by
+    the same `except` clause and silently swallowed. By keeping the
+    "did-not-revert" assertion *outside* the try/except, that path always fires.
+    """
+    try:
+        fn()
+    except Exception as e:
+        if expected_msg and expected_msg not in str(e):
+            raise AssertionError(
+                f"reverted with wrong reason: expected substring "
+                f"'{expected_msg}', got: {type(e).__name__}: {e}"
+            ) from e
+        return e
+    raise AssertionError("expected revert but tx succeeded")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Test cases
 # ═══════════════════════════════════════════════════════════════════════════
@@ -235,25 +257,23 @@ def test_open_ad_basic(f: Fixture):
 def test_open_ad_below_min_reverts(f: Fixture):
     ad_id = f.make_id("ad2")
     f.approve(f.seller, f.w(10_000))
-    try:
-        f.escrow.functions.openAd(ad_id, f.w(10_000), f.w(10_000), f.w(10_000)).transact(
-            {"from": f.seller}
-        )
-        raise AssertionError("Should have reverted (below MIN_AD_AMOUNT)")
-    except Exception as e:
-        assert "below MIN_AD_AMOUNT" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.openAd(
+            ad_id, f.w(10_000), f.w(10_000), f.w(10_000)
+        ).transact({"from": f.seller}),
+        "below MIN_AD_AMOUNT",
+    )
 
 
 def test_open_ad_max_below_min_reverts(f: Fixture):
     ad_id = f.make_id("ad3")
     f.approve(f.seller, f.w(50_000))
-    try:
-        f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(30_000), f.w(20_000)).transact(
-            {"from": f.seller}
-        )
-        raise AssertionError("Should have reverted (max < min)")
-    except Exception as e:
-        assert "maxOrder < minOrder" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.openAd(
+            ad_id, f.w(50_000), f.w(30_000), f.w(20_000)
+        ).transact({"from": f.seller}),
+        "maxOrder < minOrder",
+    )
 
 
 def test_close_ad_with_no_trades_refunds(f: Fixture):
@@ -286,11 +306,10 @@ def test_close_ad_with_active_trade_reverts(f: Fixture):
         {"from": f.buyer}
     )
 
-    try:
-        f.escrow.functions.closeAd(ad_id).transact({"from": f.seller})
-        raise AssertionError("Should have reverted (active trade)")
-    except Exception as e:
-        assert "active trades" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.closeAd(ad_id).transact({"from": f.seller}),
+        "active trades",
+    )
 
 
 def test_close_ad_only_owner(f: Fixture):
@@ -299,11 +318,10 @@ def test_close_ad_only_owner(f: Fixture):
     f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(20_000), f.w(50_000)).transact(
         {"from": f.seller}
     )
-    try:
-        f.escrow.functions.closeAd(ad_id).transact({"from": f.attacker})
-        raise AssertionError("attacker should not close ad")
-    except Exception as e:
-        assert "not your ad" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.closeAd(ad_id).transact({"from": f.attacker}),
+        "not your ad",
+    )
 
 
 def test_place_order_basic(f: Fixture):
@@ -336,13 +354,12 @@ def test_place_order_self_trade_blocked(f: Fixture):
         {"from": f.seller}
     )
     trade_id = f.make_id("self")
-    try:
-        f.escrow.functions.placeOrder(ad_id, trade_id, f.w(20_000), f.now() + 1800).transact(
-            {"from": f.seller}
-        )
-        raise AssertionError("self-trade should be blocked")
-    except Exception as e:
-        assert "trade with self" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.placeOrder(
+            ad_id, trade_id, f.w(20_000), f.now() + 1800
+        ).transact({"from": f.seller}),
+        "trade with self",
+    )
 
 
 def test_place_order_below_min_reverts(f: Fixture):
@@ -352,13 +369,12 @@ def test_place_order_below_min_reverts(f: Fixture):
         {"from": f.seller}
     )
     trade_id = f.make_id("toosmall")
-    try:
-        f.escrow.functions.placeOrder(ad_id, trade_id, f.w(10_000), f.now() + 1800).transact(
-            {"from": f.buyer}
-        )
-        raise AssertionError("should reject below min")
-    except Exception as e:
-        assert "below minOrder" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.placeOrder(
+            ad_id, trade_id, f.w(10_000), f.now() + 1800
+        ).transact({"from": f.buyer}),
+        "below minOrder",
+    )
 
 
 def test_place_order_short_window_reverts(f: Fixture):
@@ -368,13 +384,29 @@ def test_place_order_short_window_reverts(f: Fixture):
         {"from": f.seller}
     )
     trade_id = f.make_id("shortwin")
-    try:
-        f.escrow.functions.placeOrder(ad_id, trade_id, f.w(20_000), f.now() + 60).transact(
-            {"from": f.buyer}
-        )
-        raise AssertionError("should reject short window")
-    except Exception as e:
-        assert "window too short" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.placeOrder(
+            ad_id, trade_id, f.w(20_000), f.now() + 60
+        ).transact({"from": f.buyer}),
+        "window too short",
+    )
+
+
+def test_place_order_past_deadline_reverts(f: Fixture):
+    """Deadline in the past must revert with the descriptive error,
+    not a Solidity Panic(0x11) from underflow."""
+    ad_id = f.make_id("ad10b")
+    f.approve(f.seller, f.w(50_000))
+    f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(20_000), f.w(50_000)).transact(
+        {"from": f.seller}
+    )
+    trade_id = f.make_id("pastdead")
+    expect_revert(
+        lambda: f.escrow.functions.placeOrder(
+            ad_id, trade_id, f.w(20_000), f.now() - 1
+        ).transact({"from": f.buyer}),
+        "deadline in past",
+    )
 
 
 def test_cancel_order_before_payment(f: Fixture):
@@ -408,11 +440,10 @@ def test_buyer_cannot_cancel_after_paid(f: Fixture):
     )
     f.escrow.functions.markPaid(trade_id).transact({"from": f.buyer})
 
-    try:
-        f.escrow.functions.cancelOrder(trade_id).transact({"from": f.buyer})
-        raise AssertionError("should not be cancellable after markPaid")
-    except Exception as e:
-        assert "cannot cancel now" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.cancelOrder(trade_id).transact({"from": f.buyer}),
+        "cannot cancel now",
+    )
 
 
 def test_full_happy_path(f: Fixture):
@@ -453,11 +484,10 @@ def test_release_only_seller(f: Fixture):
     )
     f.escrow.functions.markPaid(trade_id).transact({"from": f.buyer})
 
-    try:
-        f.escrow.functions.release(trade_id).transact({"from": f.attacker})
-        raise AssertionError("attacker should not release")
-    except Exception as e:
-        assert "not the seller" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.release(trade_id).transact({"from": f.attacker}),
+        "not the seller",
+    )
 
 
 def test_auto_release_after_timeout(f: Fixture):
@@ -473,11 +503,12 @@ def test_auto_release_after_timeout(f: Fixture):
     f.escrow.functions.markPaid(trade_id).transact({"from": f.buyer})
 
     # Try too early — should fail
-    try:
-        f.escrow.functions.autoReleaseAfterTimeout(trade_id).transact({"from": f.keeper})
-        raise AssertionError("should not allow auto-release before timeout")
-    except Exception as e:
-        assert "auto-release not yet" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.autoReleaseAfterTimeout(trade_id).transact(
+            {"from": f.keeper}
+        ),
+        "auto-release not yet",
+    )
 
     # Warp 48 hours
     f.warp(48 * 3600 + 1)
@@ -502,11 +533,12 @@ def test_expire_pending_order(f: Fixture):
     )
 
     # Try too early
-    try:
-        f.escrow.functions.expirePendingOrder(trade_id).transact({"from": f.keeper})
-        raise AssertionError("should not expire before deadline")
-    except Exception as e:
-        assert "deadline not reached" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.expirePendingOrder(trade_id).transact(
+            {"from": f.keeper}
+        ),
+        "deadline not reached",
+    )
 
     # Warp past deadline
     f.warp(31 * 60)
@@ -579,11 +611,12 @@ def test_only_arbiter_can_resolve(f: Fixture):
     f.escrow.functions.markPaid(trade_id).transact({"from": f.buyer})
     f.escrow.functions.disputeAsBuyer(trade_id).transact({"from": f.buyer})
 
-    try:
-        f.escrow.functions.resolveDispute(trade_id, True).transact({"from": f.attacker})
-        raise AssertionError("attacker should not resolve")
-    except Exception as e:
-        assert "not arbiter" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.resolveDispute(trade_id, True).transact(
+            {"from": f.attacker}
+        ),
+        "not arbiter",
+    )
 
 
 def test_pause_blocks_new_ads_and_orders(f: Fixture):
@@ -591,13 +624,12 @@ def test_pause_blocks_new_ads_and_orders(f: Fixture):
 
     ad_id = f.make_id("paused")
     f.approve(f.seller, f.w(50_000))
-    try:
-        f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(20_000), f.w(50_000)).transact(
-            {"from": f.seller}
-        )
-        raise AssertionError("openAd should be blocked when paused")
-    except Exception as e:
-        assert "paused" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.openAd(
+            ad_id, f.w(50_000), f.w(20_000), f.w(50_000)
+        ).transact({"from": f.seller}),
+        "paused",
+    )
 
     f.escrow.functions.unpause().transact({"from": f.deployer})
 
@@ -607,11 +639,10 @@ def test_pause_blocks_new_ads_and_orders(f: Fixture):
 
 
 def test_only_owner_can_pause(f: Fixture):
-    try:
-        f.escrow.functions.pause().transact({"from": f.attacker})
-        raise AssertionError("attacker should not pause")
-    except Exception as e:
-        assert "not owner" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.pause().transact({"from": f.attacker}),
+        "not owner",
+    )
 
 
 def test_set_arbiter(f: Fixture):
@@ -637,11 +668,10 @@ def test_disputed_trade_cannot_be_released_by_seller(f: Fixture):
     f.escrow.functions.markPaid(trade_id).transact({"from": f.buyer})
     f.escrow.functions.disputeAsSeller(trade_id).transact({"from": f.seller})
 
-    try:
-        f.escrow.functions.release(trade_id).transact({"from": f.seller})
-        raise AssertionError("seller should not release a disputed trade")
-    except Exception as e:
-        assert "not awaiting release" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.release(trade_id).transact({"from": f.seller}),
+        "not awaiting release",
+    )
 
 
 def test_disputed_trade_cannot_auto_release(f: Fixture):
@@ -658,11 +688,12 @@ def test_disputed_trade_cannot_auto_release(f: Fixture):
     f.escrow.functions.disputeAsSeller(trade_id).transact({"from": f.seller})
 
     f.warp(48 * 3600 + 1)
-    try:
-        f.escrow.functions.autoReleaseAfterTimeout(trade_id).transact({"from": f.keeper})
-        raise AssertionError("auto-release should not work on disputed trade")
-    except Exception as e:
-        assert "not awaiting release" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.autoReleaseAfterTimeout(trade_id).transact(
+            {"from": f.keeper}
+        ),
+        "not awaiting release",
+    )
 
 
 def test_multiple_concurrent_buyers(f: Fixture):
@@ -689,13 +720,12 @@ def test_multiple_concurrent_buyers(f: Fixture):
 
     # Third buyer tries — should fail (insufficient remaining)
     t3 = f.make_id("t3")
-    try:
-        f.escrow.functions.placeOrder(ad_id, t3, f.w(20_000), f.now() + 1800).transact(
-            {"from": f.attacker}
-        )
-        raise AssertionError("third buyer should fail")
-    except Exception as e:
-        assert "insufficient ad remaining" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.placeOrder(
+            ad_id, t3, f.w(20_000), f.now() + 1800
+        ).transact({"from": f.attacker}),
+        "insufficient ad remaining",
+    )
 
 
 def test_double_open_ad_fails(f: Fixture):
@@ -704,13 +734,12 @@ def test_double_open_ad_fails(f: Fixture):
     f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(20_000), f.w(50_000)).transact(
         {"from": f.seller}
     )
-    try:
-        f.escrow.functions.openAd(ad_id, f.w(50_000), f.w(20_000), f.w(50_000)).transact(
-            {"from": f.seller}
-        )
-        raise AssertionError("duplicate adId should fail")
-    except Exception as e:
-        assert "already exists" in str(e) or "revert" in str(e).lower()
+    expect_revert(
+        lambda: f.escrow.functions.openAd(
+            ad_id, f.w(50_000), f.w(20_000), f.w(50_000)
+        ).transact({"from": f.seller}),
+        "already exists",
+    )
 
 
 def test_release_partial_then_close(f: Fixture):
@@ -747,6 +776,7 @@ ALL_TESTS = [
     ("placeOrder blocks self-trade", test_place_order_self_trade_blocked),
     ("placeOrder reverts below minOrder", test_place_order_below_min_reverts),
     ("placeOrder reverts on short payment window", test_place_order_short_window_reverts),
+    ("placeOrder reverts on past deadline (no underflow)", test_place_order_past_deadline_reverts),
     ("cancelOrder works before markPaid", test_cancel_order_before_payment),
     ("cancelOrder BLOCKED after markPaid [CRITICAL]", test_buyer_cannot_cancel_after_paid),
     ("Full happy path: open → place → markPaid → release", test_full_happy_path),
