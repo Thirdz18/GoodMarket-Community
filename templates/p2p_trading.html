@@ -313,11 +313,13 @@
   }
 
   function escapeHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  // For URLs interpolated into href="..." attributes: only allow http(s),
-  // strip quotes/angle brackets/whitespace, then HTML-escape what's left.
+  // For URLs interpolated into href="..." attributes: only allow http(s)
+  // or root-relative paths (we mint our own /p2p/api/... view URLs server-
+  // side via Flask url_for(), so those are trusted). Reject anything with
+  // quotes / angle brackets / whitespace, then HTML-escape what's left.
   function escapeAttr(s) {
     const raw = String(s||'').trim();
-    if (!/^https?:\/\//i.test(raw)) return '#';
+    if (!/^(\/|https?:\/\/)/i.test(raw)) return '#';
     if (/["'<>\s]/.test(raw)) return '#';
     return escapeHtml(raw);
   }
@@ -647,7 +649,7 @@
       'released', 'cancelled', 'refunded',
     ]);
     if (chatStates.has(stat)) {
-      buttons.push(`<button class="ghost" data-chat="${t.trade_id}" data-counter="${escapeAttr(counter)}">Chat</button>`);
+      buttons.push(`<button class="ghost" data-chat="${t.trade_id}" data-counter="${escapeHtml(counter)}">Chat</button>`);
     }
     if (isBuyer && stat === 'payment_pending') {
       buttons.push(`<button class="ghost" data-proof="${t.trade_id}">${t.payment_proof_url ? 'Add proof' : 'Upload proof'}</button>`);
