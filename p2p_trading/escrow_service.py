@@ -377,6 +377,20 @@ class P2PEscrowService:
             return {"success": False, "error": "Trade not found"}
         if (trade.get("buyer_wallet") or "").lower() != buyer_wallet.lower():
             return {"success": False, "error": "Not your trade"}
+        # Don't let the buyer swap the proof on a disputed/completed trade.
+        # During an active dispute the arbiter's UI reads this URL directly,
+        # so allowing late edits would let the buyer hot-swap evidence.
+        if (trade.get("onchain_status") or "") not in (
+            "payment_pending",
+            "awaiting_release",
+        ):
+            return {
+                "success": False,
+                "error": (
+                    "Proof can only be uploaded while the trade is "
+                    "payment_pending or awaiting_release"
+                ),
+            }
         if not proof_url:
             return {"success": False, "error": "Missing proof URL"}
         # Reject anything that isn't a plain http(s) URL: the value is later
@@ -718,6 +732,17 @@ class P2PEscrowService:
             return {
                 "success": False,
                 "error": "Trade has no on-chain id",
+            }
+        # Bail out before signing/broadcasting if the trade isn't actually
+        # disputed: the contract would revert and we'd just burn ADMIN_KEY's
+        # CELO on gas. Mirrors the state guards on the buyer/seller paths.
+        if (trade.get("onchain_status") or "") != "disputed":
+            return {
+                "success": False,
+                "error": (
+                    "Trade is not in disputed state; current state="
+                    f"{trade.get('onchain_status')}"
+                ),
             }
         result = self.contract.send_resolve_dispute(
             trade["trade_id_onchain"], buyer_wins
