@@ -3289,7 +3289,7 @@
             return {
                 gasReady: false,
                 stopPolling: true,
-                error: 'Gas did not arrive after extended checks (~3 minutes). Please contact support with your wallet address and faucet debug details.'
+                error: 'Gas top-up is still processing after extended checks (~3 minutes). You can safely click Claim again in 30–60 seconds. If this repeats, contact support with your wallet address and faucet debug details.'
             };
         }
 
@@ -3341,7 +3341,7 @@
             if (terminal === 'recent_refill' && !gasData.gas_ready) {
                 const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
                 throw new Error(
-                    `Gas refill cooldown active (${cooldown}s remaining). Please wait and retry. If this keeps happening, contact support.`
+                    `Faucet cooldown active (${cooldown}s remaining). Please wait, then click Claim again. If this keeps happening, contact support.`
                 );
             }
 
@@ -3350,7 +3350,7 @@
                 !gasData.gas_ready
             ) {
                 throw new Error(
-                    `${gasData.error || gasData.reason || 'Gas top-up failed.'} Please retry shortly or contact support with your wallet and faucet debug values.`
+                    `${gasData.error || gasData.reason || 'Gas top-up request failed right now.'} Please click Claim again in a moment. If it still fails, contact support with your wallet and faucet debug values.`
                 );
             }
 
@@ -3359,7 +3359,7 @@
                 setClaimGasUiState('gas_ready');
                 return { gasReady: true, toppedUp: true, source: gasData.topup_source || 'faucet' };
             }
-            throw new Error((postFaucet && postFaucet.error) || 'Gas top-up did not arrive in time. Please retry in a few minutes.');
+            throw new Error((postFaucet && postFaucet.error) || 'Gas top-up did not arrive in time. You can click Claim again in 30–60 seconds.');
         }
 
         async function ensureInjectedWalletClaim() {
