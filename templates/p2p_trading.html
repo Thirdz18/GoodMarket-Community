@@ -17,9 +17,31 @@
   .nav .meta { color:var(--muted); font-size:.8rem; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
   .nav .meta span.dot { display:inline-block; width:.55rem; height:.55rem; border-radius:50%; background:var(--good); margin-right:.4rem; vertical-align:middle; }
   .wrap { max-width:1100px; margin:0 auto; padding:1.25rem 1rem 4rem; }
-  .tabs { display:flex; gap:.25rem; border-bottom:1px solid var(--line); margin-bottom:1.25rem; flex-wrap:wrap; }
+  .tabs { display:flex; gap:.25rem; border-bottom:1px solid var(--line); margin-bottom:1.25rem; flex-wrap:wrap; align-items:center; }
   .tab { padding:.55rem .85rem; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; font-weight:500; font-size:.92rem; }
   .tab.active { color:var(--ink); border-color:var(--accent); }
+  .tabs .help-btn { margin-left:auto; padding:.4rem .8rem; border-radius:8px; background:rgba(167,139,250,.14); color:var(--accent); border:1px solid rgba(167,139,250,.3); font-weight:600; font-size:.85rem; cursor:pointer; }
+  .tabs .help-btn:hover { background:rgba(167,139,250,.22); }
+  /* How-it-works modal */
+  .help-modal { max-width:780px !important; width:96% !important; }
+  .help-modal h3 { margin:1.25rem 0 .4rem; font-size:1rem; color:var(--ink); }
+  .help-modal h3:first-of-type { margin-top:.5rem; }
+  .help-modal p, .help-modal li { font-size:.92rem; color:var(--ink); }
+  .help-modal .muted { color:var(--muted); font-size:.85rem; }
+  .help-modal table { width:100%; border-collapse:collapse; margin:.4rem 0 .6rem; font-size:.88rem; }
+  .help-modal th, .help-modal td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  .help-modal th { color:var(--muted); font-weight:600; }
+  .help-modal code { background:rgba(0,0,0,.35); padding:.05rem .35rem; border-radius:4px; font-size:.85em; }
+  .help-modal details { background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:8px; padding:.55rem .75rem; margin-bottom:.45rem; }
+  .help-modal details[open] { background:rgba(0,0,0,.3); }
+  .help-modal summary { cursor:pointer; font-weight:600; font-size:.92rem; color:var(--ink); list-style:none; }
+  .help-modal summary::-webkit-details-marker { display:none; }
+  .help-modal summary::before { content:"▸ "; color:var(--accent); display:inline-block; transition:transform .15s; }
+  .help-modal details[open] summary::before { content:"▾ "; }
+  .help-modal .flow { display:grid; grid-template-columns:auto 1fr; gap:.45rem .75rem; margin:.4rem 0; }
+  .help-modal .flow .step-num { background:var(--accent); color:#1a1230; width:1.6rem; height:1.6rem; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:.8rem; flex-shrink:0; }
+  .help-modal .callout { background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.3); border-radius:8px; padding:.55rem .75rem; margin:.5rem 0; font-size:.88rem; }
+  .help-modal .callout.good { background:rgba(52,211,153,.1); border-color:rgba(52,211,153,.3); }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:1.25rem; margin-bottom:1rem; }
   h2 { margin:0 0 .65rem; font-size:1.1rem; color:var(--ink); }
   .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:1rem; }
@@ -78,6 +100,7 @@
     <div class="tab" data-tab="myAds">My Ads</div>
     <div class="tab" data-tab="myTrades">My Trades</div>
     {% if is_admin %}<div class="tab" data-tab="disputes">Disputes</div>{% endif %}
+    <button type="button" class="help-btn" id="howItWorksBtn" title="How P2P trading works">? How it works</button>
   </div>
 
   <!-- Browse -->
@@ -244,11 +267,282 @@
   </div>
 </div>
 
+<!-- How-it-works modal -->
+<div class="modal-bg" id="howModal">
+  <div class="modal help-modal">
+    <div class="row between" style="align-items:center;">
+      <h2 style="margin:0;">How P2P trading works</h2>
+      <button class="ghost" id="howCloseBtn" type="button">Close</button>
+    </div>
+    <p class="muted" style="margin:.35rem 0 0;">
+      Quick reference para sa flow, fields, at common questions.
+      Buksan mo ito anytime para malaman kung ano ang next step at saan napupunta yung G$ mo.
+    </p>
+
+    <h3>1. Quick start: 4-step trade flow</h3>
+    <div class="flow">
+      <div class="step-num">1</div>
+      <div><strong>Seller publishes ad</strong> — chooses how much G$ to lock, the fiat price, currency, and
+        accepted payment method. The G$ is escrowed on-chain at this point.</div>
+      <div class="step-num">2</div>
+      <div><strong>Buyer places order</strong> from <em>Browse</em> — picks an amount within Min–Max,
+        signs a transaction, and gets a payment-pending trade with a deadline (15 min – 6 h).</div>
+      <div class="step-num">3</div>
+      <div><strong>Buyer pays fiat off-platform</strong> (e.g. GCash, bank transfer) using the seller's
+        published payment details, uploads a proof, and clicks <em>Mark paid</em>.</div>
+      <div class="step-num">4</div>
+      <div><strong>Seller confirms receipt</strong> in their bank/wallet and clicks <em>Release</em>.
+        The escrowed G$ moves to the buyer. Done.</div>
+    </div>
+    <p class="muted">If anything goes wrong, either side can open a <strong>Dispute</strong>;
+      an arbiter reviews the chat + proofs and decides who gets the G$.</p>
+
+    <h3>2. The form fields when you sell G$</h3>
+    <table>
+      <thead><tr><th>Field</th><th>What it means</th></tr></thead>
+      <tbody>
+      <tr>
+        <td><strong>Total G$ to lock</strong></td>
+        <td>Total amount you're putting up for sale. Locked in escrow until traded or you close the ad.
+          <strong>Minimum 20,000 G$</strong> (contract constant <code>MIN_AD_AMOUNT</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Min per trade</strong></td>
+        <td>Smallest order a single buyer can place. Also has the same 20,000 G$ floor on-chain.</td>
+      </tr>
+      <tr>
+        <td><strong>Max per trade</strong></td>
+        <td>Largest single order. Must be ≥ Min and ≤ Total. Allows partial fills
+          (e.g. 100,000 Total split across multiple buyers).</td>
+      </tr>
+      <tr>
+        <td><strong>Total fiat asking price</strong></td>
+        <td>How much fiat you want for the <em>full</em> Total G$ amount. The number is in <strong>whatever
+          currency you pick in the Currency dropdown</strong> — it is <em>not</em> auto-converted.
+          E.g. <code>5000</code> + <code>PHP</code> = ₱5,000. <code>5000</code> + <code>USD</code> = $5,000.</td>
+      </tr>
+      <tr>
+        <td><strong>Currency</strong></td>
+        <td>Defines what currency the fiat amount is in. Supported: PHP, USD, EUR, GBP, CAD, AUD, SGD.</td>
+      </tr>
+      <tr>
+        <td><strong>Payment method</strong></td>
+        <td>How buyers will pay you (GCash, bank transfer, etc.).</td>
+      </tr>
+      <tr>
+        <td><strong>Payment details</strong></td>
+        <td>The actual account info buyers see when they place an order
+          (e.g. <code>GCash 09171234567 — Juan Dela Cruz</code>).
+          Only revealed to buyers who place a trade, not to random browsers.</td>
+      </tr>
+      <tr>
+        <td><strong>Description / instructions</strong></td>
+        <td>Free-form notes for buyers — payment window expectations, reference numbers, etc.</td>
+      </tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      ⚠️ <strong>Double-check the currency before publishing.</strong>
+      <code>5000 PHP</code> and <code>5000 USD</code> mean very different things — there's no FX
+      auto-conversion. The wrong currency = your ad looks wildly mispriced and won't get takers.
+    </div>
+
+    <h3>3. Where does the locked G$ actually go?</h3>
+    <p>The G$ never disappears — there's always a path back to someone:</p>
+    <table>
+      <thead><tr><th>Scenario</th><th>Where the G$ ends up</th></tr></thead>
+      <tbody>
+      <tr><td>No buyer / you cancel the ad (<code>closeAd</code>)</td>
+        <td><strong>Back to seller's wallet</strong> (full <code>remainingAmount</code>).
+          Requires zero active trades.</td></tr>
+      <tr><td>Buyer placed an order but never paid → expired</td>
+        <td>That portion goes back into the ad pool (<code>remainingAmount</code>).
+          Seller can <code>closeAd</code> after to withdraw, or wait for the next buyer.</td></tr>
+      <tr><td>Buyer paid fiat → seller releases (or 48 h auto-release)</td>
+        <td><strong>To buyer.</strong> This is the only normal "outflow" of the seller's G$.</td></tr>
+      <tr><td>Disputed → seller wins</td>
+        <td><strong>Back to seller</strong> (status = <code>Refunded</code>).</td></tr>
+      <tr><td>Disputed → buyer wins</td>
+        <td><strong>To buyer</strong> (status = <code>Released</code>).</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      ⏱️ <strong>The 48-hour auto-release rule.</strong>
+      Once a buyer hits <em>Mark paid</em>, the seller has 48 hours to either release or open a
+      dispute. After that anyone can trigger an automatic release to the buyer.
+      <strong>If the fiat never actually arrived in your account, open a dispute before the 48 h
+      window closes</strong> — otherwise the contract assumes the trade went through.
+    </div>
+
+    <h3>4. Trade lifecycle (statuses you'll see)</h3>
+    <table>
+      <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+      <tbody>
+      <tr><td><span class="badge pending">payment_pending</span></td>
+        <td>Buyer placed the order. Buyer must pay fiat and mark paid before the deadline.</td></tr>
+      <tr><td><span class="badge open">awaiting_release</span></td>
+        <td>Buyer marked paid. Seller checks fiat, then releases (or disputes).
+          48 h auto-release timer running.</td></tr>
+      <tr><td><span class="badge disputed">disputed</span></td>
+        <td>Either side opened a dispute. Arbiter takes over.</td></tr>
+      <tr><td><span class="badge completed">released</span></td>
+        <td>Done. G$ went to buyer. History is read-only.</td></tr>
+      <tr><td><span class="badge cancelled">cancelled</span></td>
+        <td>Trade cancelled before payment. G$ went back to ad pool.</td></tr>
+      <tr><td><span class="badge expired">expired</span></td>
+        <td>Deadline passed without payment. G$ went back to ad pool.</td></tr>
+      <tr><td><span class="badge refunded">refunded</span></td>
+        <td>Arbiter ruled in seller's favor. G$ returned to seller.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5. Payment proofs</h3>
+    <p>From a trade card, both buyer and seller can <strong>upload proof images / PDFs</strong>
+      of the fiat payment (e.g. GCash receipt screenshots).</p>
+    <ul style="margin:.2rem 0 .6rem 1rem; padding:0;">
+      <li>Up to <strong>10 attachments</strong> per trade.</li>
+      <li><strong>5 MB</strong> max each.</li>
+      <li>Allowed types: <code>png</code>, <code>jpeg</code>, <code>webp</code>, <code>pdf</code>.</li>
+      <li>Stored in a <em>private</em> Supabase bucket. Viewers get a fresh signed URL each time
+        (1 h expiry) so links can't be re-shared with outsiders.</li>
+      <li>Visibility is locked to the buyer, the seller, and (during disputes) the arbiter.</li>
+    </ul>
+
+    <h3>6. Trade chat</h3>
+    <p>Once a trade exists (<code>payment_pending</code> onward), a <strong>Chat</strong> button
+      appears on the trade card. Use it to coordinate with the counterparty
+      ("send to GCash 0917…", "here's the receipt", etc.).</p>
+    <ul style="margin:.2rem 0 .6rem 1rem; padding:0;">
+      <li>Text up to <strong>500 chars</strong> per message + optional <strong>image attachment</strong>
+        (PNG/JPG/WebP, 5 MB).</li>
+      <li>New messages appear within ~3 seconds (polling, no manual refresh needed).</li>
+      <li>Only the buyer, the seller, and the arbiter can read or post.</li>
+      <li>After <code>released</code> / <code>cancelled</code> / <code>refunded</code>, history stays
+        readable but no new messages can be sent.</li>
+    </ul>
+    <div class="callout">
+      ℹ️ Chat messages are stored as plaintext on our servers (auth-gated, but readable by the
+      platform). <strong>Don't paste real passwords, OTPs, or private keys.</strong> If you need
+      end-to-end privacy, keep that conversation off-platform.
+    </div>
+
+    <h3>7. Disputes</h3>
+    <p>Either side can open a dispute from a payment-pending or awaiting-release trade. The
+      <strong>arbiter</strong> (a platform-designated wallet) reviews:</p>
+    <ul style="margin:.2rem 0 .6rem 1rem; padding:0;">
+      <li>Chat history between buyer and seller</li>
+      <li>Uploaded proof images / PDFs</li>
+      <li>The amount, currency, and payment method recorded on the ad</li>
+    </ul>
+    <p>The arbiter then decides:
+      <strong>Release</strong> (G$ to buyer, status = <code>Released</code>) or
+      <strong>Refund</strong> (G$ back to seller, status = <code>Refunded</code>). Their decision
+      is on-chain and final.</p>
+
+    <h3>8. FAQ</h3>
+
+    <details>
+      <summary>Bakit 20,000 G$ ang minimum? Pwede bang gawing mas maliit?</summary>
+      <p>Hardcoded constant ito sa smart contract (<code>MIN_AD_AMOUNT = 20_000 ether</code>),
+      so kahit yung Min per trade kailangan ≥ 20,000 G$. To allow smaller trades, kailangan
+      i-deploy ulit yung contract with a lower constant — hindi ito changeable on-the-fly.</p>
+    </details>
+
+    <details>
+      <summary>Yung "Total fiat asking price" — USD ba o local currency?</summary>
+      <p>Whatever currency mong i-select sa Currency dropdown sa tabi. Kung PHP, ₱-denominated
+      yung number; kung USD, $-denominated. Walang auto-conversion — ikaw mismo ang nag-de-decide
+      ng exchange rate.</p>
+    </details>
+
+    <details>
+      <summary>Pwede bang ma-lose yung locked G$ ng seller?</summary>
+      <p>Hindi nawawala by accident — laging may path pabalik (close ad, expire, dispute). Yung
+      <em>only</em> way mawalan ka ng G$ na walang katapat na fiat ay kapag (a) nag-release ka
+      kahit hindi ka pa binabayaran, o (b) hindi ka nag-act sa loob ng 48 h after buyer mark-paid
+      kaya nag-trigger yung auto-release. Kapag ghinost ka ng buyer / hindi ka talaga binayaran,
+      <strong>mag-dispute kaagad</strong> bago mag-48 h.</p>
+    </details>
+
+    <details>
+      <summary>Kailan nag-uumpisa yung chat?</summary>
+      <p>Pagka-may trade na (after buyer signed in <code>payment_pending</code>). Walang chat sa
+      pre-order phase para hindi spam — gamitin yung ad description / payment details for that.</p>
+    </details>
+
+    <details>
+      <summary>Nababasa ba ng admin yung mga chats namin?</summary>
+      <p>Technically yes — naka-store as plaintext sa Supabase. Yung auth gate ay sa API layer
+      lang. Kung gusto mo ng totoo-totoong privacy from the platform, kailangan ng client-side
+      end-to-end encryption (separate work, hindi pa naka-implement).</p>
+    </details>
+
+    <details>
+      <summary>Anong nangyayari sa G$ ko kapag walang bumili?</summary>
+      <p>Nakatigil lang siya sa escrow contract (locked sa ad) hangga't hindi ka nag-<code>closeAd</code>.
+      Pagka-cinose mo yung ad, agad bumabalik buong unsold portion sa wallet mo. Walang time
+      decay — pwede mong iwanan as long as you want hangga't walang active trades, pero
+      tumatakbo lang yung yield/staking benefits sa main wallet, hindi habang naka-lock.</p>
+    </details>
+
+    <details>
+      <summary>Pwede bang pagsabay-sabayin yung Total ko sa multiple buyers?</summary>
+      <p>Yes. Kung Total = 100,000 G$ at Min/Max = 20,000 / 50,000, pwedeng kumuha si Buyer A
+      ng 30,000 at si Buyer B ng 20,000 sabay (partial fills). Yung remainingAmount ng ad
+      mababawas sa bawat order na nag-succeed.</p>
+    </details>
+
+    <details>
+      <summary>Bakit may 48-hour auto-release?</summary>
+      <p>Para hindi ma-stuck yung G$ kapag biglang nag-disappear si seller after marked-paid
+      yung buyer. Pero ito din yung pinaka-importante mong bantayan as seller — kapag may
+      buyer na nag-mark paid pero wala kang natanggap, mag-<em>dispute</em> agad. Kapag
+      lumagpas yung 48 h walang dispute, pumupunta na sa buyer yung G$.</p>
+    </details>
+
+    <details>
+      <summary>Pwede ba akong mag-upload ng PDF sa chat?</summary>
+      <p>PDF allowed lang sa <em>payment proofs</em> upload, hindi sa chat. Sa chat, image-only
+      muna (PNG/JPG/WebP). Kung kailangan mo mag-share ng PDF, gamitin mo yung proof upload
+      (papasa sa parehong auth check).</p>
+    </details>
+
+    <details>
+      <summary>Sino nag-aappoint ng arbiter?</summary>
+      <p>Yung contract owner (admin) ang nagde-designate ng arbiter wallets. Sa app side,
+      kapag yung naka-login na wallet ay isa sa arbiter list, lumalabas yung
+      <em>Disputes</em> tab.</p>
+    </details>
+
+    <p class="muted" style="margin-top:1.25rem;">
+      May tanong na hindi nasagot dito? Open a GitHub issue at idadagdag ko sa list.
+    </p>
+  </div>
+</div>
+
 <div class="toast-host" id="toastHost"></div>
 
 <script src="/static/js/p2p_escrow.js"></script>
 <script>
 (function () {
+  // -------- how-it-works modal --------
+  const howModal = document.getElementById('howModal');
+  const howBtn = document.getElementById('howItWorksBtn');
+  const howCloseBtn = document.getElementById('howCloseBtn');
+  if (howBtn && howModal) {
+    howBtn.addEventListener('click', () => howModal.classList.add('open'));
+    howCloseBtn.addEventListener('click', () => howModal.classList.remove('open'));
+    // click on the dark backdrop (but not the modal body) closes
+    howModal.addEventListener('click', (e) => {
+      if (e.target === howModal) howModal.classList.remove('open');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && howModal.classList.contains('open')) {
+        howModal.classList.remove('open');
+      }
+    });
+  }
+
   // -------- toast helpers --------
   const toastHost = document.getElementById('toastHost');
   function toast(message, kind) {
