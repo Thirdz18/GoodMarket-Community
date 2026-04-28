@@ -25,6 +25,19 @@
             box-sizing: border-box;
         }
 
+        /* Compact mode: render dashboard at ~70% visual scale (CSS-only). */
+        html {
+            zoom: 0.7;
+        }
+        @supports not (zoom: 1) {
+            body {
+                transform: scale(0.7);
+                transform-origin: top center;
+                width: 142.857%;
+                margin-left: -21.4285%;
+            }
+        }
+
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: linear-gradient(135deg, #0B0F2A 0%, #130D35 50%, #1A103D 100%);
