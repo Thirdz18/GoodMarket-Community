@@ -12,6 +12,19 @@
             box-sizing: border-box;
         }
 
+        html {
+            zoom: 0.7;
+        }
+
+        @supports not (zoom: 1) {
+            body {
+                transform: scale(0.7);
+                transform-origin: top center;
+                width: 142.857%;
+                margin-left: -21.4285%;
+            }
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg,
@@ -25,7 +38,6 @@
             animation: gradientBackground 10s ease infinite;
             min-height: 100vh;
             color: white;
-            zoom: 0.90;
         }
 
         @keyframes gradientBackground {
@@ -384,10 +396,6 @@
 
 
         @media (max-width: 768px) {
-            body {
-                zoom: 0.95;
-            }
-
             .navbar {
                 padding: 1rem;
                 flex-direction: column;
