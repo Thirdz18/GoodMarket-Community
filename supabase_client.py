@@ -250,6 +250,34 @@ CREATE TABLE IF NOT EXISTS news_articles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 1.2 Create Daily Check-in tables
+CREATE TABLE IF NOT EXISTS daily_checkin_state (
+    id SERIAL PRIMARY KEY,
+    wallet_address VARCHAR(42) UNIQUE NOT NULL,
+    current_streak INTEGER DEFAULT 0,
+    last_checkin_date_utc DATE,
+    total_daily_rewards NUMERIC DEFAULT 0,
+    total_weekly_bonus_sent NUMERIC DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_daily_checkin_state_wallet ON daily_checkin_state(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_daily_checkin_state_last_checkin ON daily_checkin_state(last_checkin_date_utc);
+
+CREATE TABLE IF NOT EXISTS daily_checkin_history (
+    id SERIAL PRIMARY KEY,
+    wallet_address VARCHAR(42) NOT NULL,
+    event_type VARCHAR(64) NOT NULL, -- daily_checkin | weekly_bonus_auto_sent | weekly_bonus_failed
+    amount_celo NUMERIC NOT NULL DEFAULT 0,
+    streak_before INTEGER DEFAULT 0,
+    streak_after INTEGER DEFAULT 0,
+    tx_hash VARCHAR(66),
+    status VARCHAR(20) DEFAULT 'success',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_daily_checkin_history_wallet ON daily_checkin_history(wallet_address);
+CREATE INDEX IF NOT EXISTS idx_daily_checkin_history_created_at ON daily_checkin_history(created_at DESC);
+
 -- 2. Create user_sessions table for all activities and session tracking
 CREATE TABLE IF NOT EXISTS user_sessions (
     id SERIAL PRIMARY KEY,
