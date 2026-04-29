@@ -2987,6 +2987,7 @@
                         icon.textContent = '✅';
                         btn.disabled = true;
                         setStatus('Success! G$ sent to your wallet.', 'var(--green)');
+                        logGoodMarketClaim(txHash, 'celo', 'confirmed');
                         startCountdown();
                         setTimeout(() => loadBalances(), 4000);
                     } else {
@@ -2995,6 +2996,24 @@
                     }
                 }).catch(() => pollReceipt(txHash, attempts - 1));
             }, 3000);
+        }
+
+        async function logGoodMarketClaim(txHash, network, status) {
+            try {
+                if (!txHash) return;
+                await fetch('/api/claims/v2/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tx_hash: txHash,
+                        network: network || 'celo',
+                        status: status || 'confirmed',
+                        correlation_id: window.__claimFaucetCorrelationId || null
+                    })
+                });
+            } catch (e) {
+                console.warn('[claim-log] failed to record claim metric:', e);
+            }
         }
 
         function _showTrustWalletFvBlocker() {
@@ -3595,6 +3614,7 @@
                 appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
                 try {
                     const xdcTxHash = await claimXdcInjected(provider, from);
+                    logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
                     appendStatusLine(
                         `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
                         '#86efac'
@@ -3629,6 +3649,7 @@
                         const from = accounts[0];
                         if (from.toLowerCase() === WALLET.toLowerCase()) {
                             const xdcTxHash = await claimXdcInjected(provider, from);
+                            logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
                             appendStatusLine(
                                 `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
                                 '#86efac'
