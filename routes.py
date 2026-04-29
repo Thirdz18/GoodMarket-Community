@@ -7702,12 +7702,7 @@ def faucet_gas():
             "api_tx_hash": api_tx_hash,
             "api_error": api_error,
             "onchain_result": onchain_result,
-            "status": (
-                "gas_ready" if status_after["gas_ready"] else
-                ("onchain_sent" if topped_up else (
-                    "api_failed" if onchain_fallback_reason == "api_failed" else "onchain_failed"
-                ))
-            ),
+            "status": terminal_status,
             "diagnostics": {
                 **diagnostics,
                 "fallback_reason": onchain_fallback_reason,
