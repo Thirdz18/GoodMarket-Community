@@ -17,7 +17,7 @@ class TwitterTaskService:
 
         logger.info("🐦 Twitter Task Service initialized")
         logger.info(f"⏰ Cooldown: {self.cooldown_hours} hours")
-        logger.info(f"💬 Custom Messages: {len(self.custom_messages)} unique variations (5 sentences each with goodmarket.live, wallet-based rotation ensures unique messages per user)")
+        logger.info(f"💬 Custom Messages: {len(self.custom_messages)} unique variations (covers daily tasks, CELO check-in rewards, daily G$ claims — wallet-based rotation ensures unique messages per user)")
         logger.info(f"💰 Rewards: Dynamic (loaded from admin configuration)")
     
     def get_task_reward(self) -> float:
@@ -39,7 +39,19 @@ class TwitterTaskService:
             "Where education meets rewards in the thriving GoodDollar ecosystem.!",
             "Ready to earn G$?.",
             "Discover new opportunities.",
-            "Join thousands earning G$ daily."
+            "Join thousands earning G$ daily.",
+            # Daily check-in & CELO rewards
+            "Did you know you can earn CELO just by checking in daily on GoodMarket?",
+            "Daily check-ins on GoodMarket now reward you with CELO.",
+            "Show up every day and get rewarded with CELO on GoodMarket.",
+            "Consistent daily check-ins on GoodMarket = CELO rewards in your wallet.",
+            "Your daily routine just got more rewarding — check in on GoodMarket and earn CELO.",
+            # Claim daily G$
+            "Claim your daily G$ and keep your streak alive on GoodMarket.",
+            "Your daily G$ is waiting — claim it now on GoodMarket.",
+            "Don't miss your daily G$ claim on GoodMarket.",
+            "Every day you claim G$ on GoodMarket you help grow the GoodDollar ecosystem.",
+            "Claim daily G$ on GoodMarket and build real crypto savings over time.",
         ]
 
         middle_phrases = [
@@ -52,7 +64,19 @@ class TwitterTaskService:
             "Visit goodmarket.live & find out how easy it is to earn G$ while learning.",
             "Explore goodmarket.live today and join the movement for a more equitable future.",
             "Start your earning routine at goodmarket.live with fun educational tasks.",
-            "Navigate to goodmarket.live & unlock multiple pathways to earn G$ rewards."
+            "Navigate to goodmarket.live & unlock multiple pathways to earn G$ rewards.",
+            # Daily check-in & CELO rewards
+            "Go to goodmarket.live, do your daily check-in, and earn CELO rewards straight to your wallet.",
+            "Check in daily at goodmarket.live to collect CELO and support the GoodDollar community.",
+            "Visit goodmarket.live every day for your CELO check-in reward — it only takes seconds.",
+            "Daily check-ins at goodmarket.live are your easiest path to earning CELO in the GoodDollar ecosystem.",
+            "Head to goodmarket.live to complete your daily check-in and receive CELO as a reward.",
+            # Claim daily G$
+            "Claim your free daily G$ at goodmarket.live — a small action that compounds into real crypto income.",
+            "Your daily G$ claim at goodmarket.live takes under a minute and grows your GoodDollar balance.",
+            "Visit goodmarket.live to claim your daily G$ and stay active in the GoodDollar community.",
+            "Claim daily G$ at goodmarket.live and combine it with tasks, quizzes, and check-in rewards.",
+            "Go to goodmarket.live now, claim your daily G$, and see how fast your balance grows.",
         ]
 
         closing_phrases = [
@@ -66,6 +90,18 @@ class TwitterTaskService:
             "Empower your future! Visit: https://goodmarket.live",
             "Joining is fast & simple: https://goodmarket.live",
             "Be part of our community: https://goodmarket.live",
+            # Daily check-in & CELO rewards
+            "Check in daily & earn CELO: https://goodmarket.live",
+            "Your CELO check-in reward awaits: https://goodmarket.live",
+            "Earn CELO every day — start here: https://goodmarket.live",
+            "Daily CELO rewards on GoodMarket: https://goodmarket.live",
+            "Check in now, earn CELO today: https://goodmarket.live",
+            # Claim daily G$
+            "Claim your daily G$ here: https://goodmarket.live",
+            "Your daily G$ is waiting for you: https://goodmarket.live",
+            "Claim G$ every day — visit: https://goodmarket.live",
+            "Don't miss today's G$ claim: https://goodmarket.live",
+            "Free daily G$ — claim yours now: https://goodmarket.live",
         ]
 
         templates = []
