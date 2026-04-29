@@ -886,6 +886,32 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        .nav-feedback-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(3,6,18,0.55);
+            backdrop-filter: blur(2px);
+            z-index: 9999;
+            pointer-events: all;
+        }
+        .nav-feedback-overlay.show { display: flex; }
+        .nav-feedback-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.75rem 0.95rem;
+            border-radius: 12px;
+            border: 1px solid rgba(127,140,255,0.45);
+            background: rgba(12,18,40,0.92);
+            color: #dbe4ff;
+            font-size: 0.86rem;
+            font-weight: 600;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -989,6 +1015,12 @@
     </style>
 </head>
 <body>
+    <div id="navFeedbackOverlay" class="nav-feedback-overlay" aria-live="polite" aria-atomic="true">
+        <div class="nav-feedback-box">
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="navFeedbackText">Processing, please wait…</span>
+        </div>
+    </div>
 
     <!-- Top Bar -->
     <div class="top-bar">
@@ -999,7 +1031,7 @@
         </div>
         <div style="display:flex;gap:0.3rem;align-items:center;">
             <a href="/dashboard" class="icon-btn" title="Dashboard" style="text-decoration:none;font-size:1rem;" onclick="return handleDashboardFromWallet(event)">📊</a>
-            <a href="/overview" class="icon-btn" title="Overview" style="text-decoration:none;font-size:1rem;">🏠</a>
+            <a href="/overview" class="icon-btn" title="Overview" style="text-decoration:none;font-size:1rem;" onclick="return navigateWithFeedback('/overview', 'Opening Overview…')">🏠</a>
         </div>
     </div>
     {% include "_security_banner.html" %}
@@ -1059,15 +1091,15 @@
         <!-- Action Buttons -->
         <aside class="sidebar-nav">
             <div class="action-row">
-                <div class="action-item" id="actionUniswap" onclick="window.location.href='/swap'">
+                <div class="action-item" id="actionUniswap" onclick="return navigateWithFeedback('/swap', 'Opening Uniswap…')">
                     <div class="action-circle">⇌</div>
                     <span class="action-label">Uniswap</span>
                 </div>
-                <div class="action-item" id="actionGoodReserve" style="display:none;" onclick="window.location.href='/swap?tab=reserve'">
+                <div class="action-item" id="actionGoodReserve" style="display:none;" onclick="return navigateWithFeedback('/swap?tab=reserve', 'Opening GoodReserve…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#f59e0b);color:#fff;">🪙</div>
                     <span class="action-label">GoodReserve</span>
                 </div>
-                <div class="action-item" onclick="window.location.href='/xdc-wallet'">
+                <div class="action-item" onclick="return navigateWithFeedback('/xdc-wallet', 'Opening X Swap…')">
                     <div class="action-circle">💠</div>
                     <span class="action-label">X Swap</span>
                 </div>
@@ -1082,11 +1114,11 @@
                     </div>
                     <span class="action-label">Claim</span>
                 </div>
-                <div class="action-item" id="actionSavings" onclick="window.location.href='/savings'">
+                <div class="action-item" id="actionSavings" onclick="return navigateWithFeedback('/savings', 'Opening Savings…')">
                     <div class="action-circle">🏦</div>
                     <span class="action-label">Savings</span>
                 </div>
-                <div class="action-item" id="actionP2P" onclick="window.location.href='/p2p/'">
+                <div class="action-item" id="actionP2P" onclick="return navigateWithFeedback('/p2p/', 'Opening P2P Trade…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;">🤝</div>
                     <span class="action-label">P2P Trade</span>
                 </div>
@@ -1098,7 +1130,7 @@
                     <div class="action-circle">📊</div>
                     <span class="action-label action-label--earn">More Ways to Earn G$</span>
                 </div>
-                <div class="action-item" onclick="window.location.href='/overview'">
+                <div class="action-item" onclick="return navigateWithFeedback('/overview', 'Opening Overview…')">
                     <div class="action-circle">🏠</div>
                     <span class="action-label">Overview</span>
                 </div>
@@ -1804,7 +1836,7 @@
         } catch (_) {
             // If the visibility check fails, keep existing behavior and allow navigation.
         }
-        window.location.href = '/reloadly/#virtualcard';
+        navigateWithFeedback('/reloadly/#virtualcard', 'Opening Virtual Card…');
     }
 
     // ── Modal ────────────────────────────────────────────────
@@ -2221,6 +2253,25 @@
         el.className = `alert ${cls} show`;
         el.innerHTML = html;
     }
+    let _navFeedbackLock = false;
+    function showNavFeedback(message = 'Processing, please wait…') {
+        const overlay = document.getElementById('navFeedbackOverlay');
+        const text = document.getElementById('navFeedbackText');
+        if (text) text.textContent = message;
+        if (overlay) overlay.classList.add('show');
+        _navFeedbackLock = true;
+        setTimeout(() => {
+            _navFeedbackLock = false;
+        }, 10000);
+    }
+
+    function navigateWithFeedback(url, message = 'Opening page…') {
+        if (_navFeedbackLock) return false;
+        showNavFeedback(message);
+        window.location.href = url;
+        return false;
+    }
+
     function handleDashboardFromWallet(event) {
         if (window._walletNeedsFV) {
             if (event) event.preventDefault();
@@ -2231,8 +2282,7 @@
             }
             return false;
         }
-        window.location.href = '/dashboard';
-        return false;
+        return navigateWithFeedback('/dashboard', 'Opening More Ways to Earn…');
     }
     function clearAlert(id) {
         const el = document.getElementById(id);
