@@ -464,6 +464,11 @@
             color: var(--text-dim);
             white-space: nowrap;
         }
+        .action-label--earn {
+            font-size: 0.72rem;
+            line-height: 1.2;
+            white-space: normal;
+        }
         .wallet-layout {
             display: grid;
             grid-template-columns: minmax(140px, 38%) minmax(0, 1fr);
@@ -1091,7 +1096,7 @@
                 </div>
                 <div class="action-item" onclick="handleDashboardFromWallet(event)">
                     <div class="action-circle">📊</div>
-                    <span class="action-label">Dashboard</span>
+                    <span class="action-label action-label--earn">More Ways to Earn G$</span>
                 </div>
                 <div class="action-item" onclick="window.location.href='/overview'">
                     <div class="action-circle">🏠</div>
