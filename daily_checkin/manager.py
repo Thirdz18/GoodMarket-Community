@@ -47,6 +47,7 @@ class DailyCheckinManager:
             return {"success": False, "error": "Already checked in today (UTC)"}
 
         streak = int(state.get("current_streak") or 0)
+        streak_before = streak
         if last_raw:
             last_date = datetime.fromisoformat(last_raw).date()
             streak = streak + 1 if (today - last_date).days == 1 else 1
@@ -64,6 +65,7 @@ class DailyCheckinManager:
             "wallet_address": wallet,
             "event_type": "daily_checkin",
             "amount_celo": DAILY_REWARD,
+            "streak_before": streak_before,
             "streak_after": streak,
             "status": "success",
         }).execute()
@@ -89,7 +91,11 @@ class DailyCheckinManager:
             }).eq("wallet_address", wallet).execute()
             bonus = payout
 
-        return {"success": True, "current_streak": 0 if streak >= 7 else streak, "weekly_bonus_result": bonus}
+        return {
+            "success": True,
+            "current_streak": 0 if streak >= 7 else streak,
+            "weekly_bonus_result": bonus,
+        }
 
     def history(self, wallet, limit=20):
         res = self.supabase.table("daily_checkin_history").select("*").eq("wallet_address", wallet).order("created_at", desc=True).limit(limit).execute()
