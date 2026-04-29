@@ -1231,6 +1231,28 @@ class SupabaseLogger:
                 f"{goodmarket_verified_users} via GoodMarket"
             )
 
+            # GoodMarket claim attribution metrics (Version B table).
+            # Safe fallback: if table doesn't exist yet, keep metrics at zero.
+            gm_total_claims = 0
+            gm_unique_claimers = 0
+            try:
+                total_claims_resp = self.client.table("goodmarket_claim_facts")\
+                    .select("tx_hash", count="exact")\
+                    .eq("status", "confirmed")\
+                    .eq("source", "goodmarket_wallet_ui")\
+                    .execute()
+                gm_total_claims = total_claims_resp.count if hasattr(total_claims_resp, 'count') else 0
+
+                unique_claimers_resp = self.client.table("goodmarket_claim_facts")\
+                    .select("wallet_address")\
+                    .eq("status", "confirmed")\
+                    .eq("source", "goodmarket_wallet_ui")\
+                    .execute()
+                if unique_claimers_resp.data:
+                    gm_unique_claimers = len({(r.get("wallet_address") or "").lower() for r in unique_claimers_resp.data if r.get("wallet_address")})
+            except Exception as gm_err:
+                logger.warning(f"⚠️ GoodMarket claim metrics unavailable: {gm_err}")
+
             return {
                 "total_users": total_users_adjusted,
                 "verified_users": verified_users,
@@ -1239,7 +1261,9 @@ class SupabaseLogger:
                 "verification_rate": verification_rate,
                 "goodmarket_verified_users": goodmarket_verified_users,
                 "pending_verification_users": pending_verification_users,
-                "goodmarket_conversion_rate": goodmarket_conversion_rate
+                "goodmarket_conversion_rate": goodmarket_conversion_rate,
+                "goodmarket_total_claims": gm_total_claims,
+                "goodmarket_unique_claimers": gm_unique_claimers
             }
         except Exception as e:
             logger.error(f"❌ Error getting analytics summary: {e}")
@@ -1250,7 +1274,9 @@ class SupabaseLogger:
                 "verification_rate": "0%",
                 "goodmarket_verified_users": 0,
                 "pending_verification_users": 0,
-                "goodmarket_conversion_rate": "0%"
+                "goodmarket_conversion_rate": "0%",
+                "goodmarket_total_claims": 0,
+                "goodmarket_unique_claimers": 0
             }
 
     def get_ubi_statistics(self):

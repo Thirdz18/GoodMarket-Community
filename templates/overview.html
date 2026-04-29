@@ -795,6 +795,40 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
 
+                <!-- Submenu: GoodMarket Claim Users -->
+                <div class="submenu-item">
+                    <div class="submenu-header" onclick="toggleSubmenu('gm-claims')">
+                        <div class="submenu-title">
+                            <span>🪙</span><span>GoodMarket Claim Users</span>
+                        </div>
+                        <svg class="submenu-chevron" id="chevron-gm-claims" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                    <div class="submenu-content" id="content-gm-claims">
+                        <div class="submenu-body">
+                            <div style="background: rgba(124,58,237,0.11); border: 1px solid rgba(124,58,237,0.32); border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 1rem; font-size: 0.8rem; color: rgba(255,255,255,0.62); line-height: 1.5;">
+                                Total claim metrics below are counted from <strong style="color:#d8b4fe;">GoodMarket app flow only</strong> (not all global GoodDollar claims).
+                            </div>
+                            <div class="stat-row">
+                                <div class="stat-label">👥 Unique Claim Users (GoodMarket)</div>
+                                <div class="stat-value" style="color: #c4b5fd; font-size: 1.35rem;">
+                                    {{ data.platform_stats.metrics.goodmarket_unique_claimers | default(0) }}
+                                </div>
+                            </div>
+                            <div class="stat-row">
+                                <div class="stat-label">🧾 Total Confirmed Claims</div>
+                                <div class="stat-value" style="color: #22c55e; font-size: 1.35rem;">
+                                    {{ data.platform_stats.metrics.goodmarket_total_claims | default(0) }}
+                                </div>
+                            </div>
+                            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255,255,255,0.07); font-size: 0.75rem; color: rgba(255,255,255,0.35); text-align: center;">
+                                Source: <code style="color:#e9d5ff;">goodmarket_claim_facts</code> with status = confirmed
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Submenu: Total G$ Disbursements Breakdown -->
                 <div class="submenu-item">
                     <div class="submenu-header" onclick="toggleSubmenu('total-disbursements')">

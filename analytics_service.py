@@ -120,6 +120,8 @@ class AnalyticsService:
         goodmarket_verified_users = supabase_stats.get("goodmarket_verified_users", 0)
         pending_verification_users = supabase_stats.get("pending_verification_users", 0)
         goodmarket_conversion_rate = supabase_stats.get("goodmarket_conversion_rate", "0%")
+        goodmarket_total_claims = supabase_stats.get("goodmarket_total_claims", 0)
+        goodmarket_unique_claimers = supabase_stats.get("goodmarket_unique_claimers", 0)
 
         # Get telegram task stats
         telegram_task_stats = self._get_telegram_task_stats()
@@ -135,7 +137,9 @@ class AnalyticsService:
                 "telegram_task_users": telegram_task_stats.get("total_claimers", 0),
                 "goodmarket_verified_users": goodmarket_verified_users,
                 "pending_verification_users": pending_verification_users,
-                "goodmarket_conversion_rate": goodmarket_conversion_rate
+                "goodmarket_conversion_rate": goodmarket_conversion_rate,
+                "goodmarket_total_claims": goodmarket_total_claims,
+                "goodmarket_unique_claimers": goodmarket_unique_claimers
             },
             "user_activity": {
                 "active_users_count": total_users,

@@ -95,6 +95,87 @@ def _coerce_bool(value) -> bool:
     return False
 
 
+@routes.route("/api/claims/v2/confirm", methods=["POST"])
+@auth_required
+def confirm_goodmarket_claim():
+    """Record GoodMarket-attributed claim transaction in Supabase facts/events tables."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        wallet = (session.get("wallet") or "").strip().lower()
+        if not wallet:
+            return jsonify({"success": False, "error": "Authentication required"}), 401
+
+        tx_hash = str(payload.get("tx_hash") or "").strip().lower()
+        network = str(payload.get("network") or "celo").strip().lower()
+        status = str(payload.get("status") or "confirmed").strip().lower()
+        correlation_id = str(payload.get("correlation_id") or "").strip() or None
+        claim_attempt_id = str(payload.get("claim_attempt_id") or "").strip() or str(uuid.uuid4())
+
+        if not tx_hash.startswith("0x") or len(tx_hash) < 10:
+            return jsonify({"success": False, "error": "Invalid tx_hash"}), 400
+        if network not in ("celo", "xdc"):
+            return jsonify({"success": False, "error": "Invalid network"}), 400
+        if status not in ("submitted", "confirmed", "failed", "rejected", "unknown"):
+            return jsonify({"success": False, "error": "Invalid status"}), 400
+
+        sb = get_supabase_client()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        existing_resp = sb.table("goodmarket_claim_facts")\
+            .select("id, status, submitted_at, confirmed_at")\
+            .eq("tx_hash", tx_hash)\
+            .limit(1)\
+            .execute()
+        existing = existing_resp.data[0] if existing_resp.data else None
+
+        row = {
+            "wallet_address": wallet,
+            "network": network,
+            "tx_hash": tx_hash,
+            "source": "goodmarket_wallet_ui",
+            "claim_attempt_id": claim_attempt_id,
+            "correlation_id": correlation_id,
+            "status": status,
+            "verification_state": "pending" if status == "submitted" else "verified",
+            "updated_at": now_iso,
+        }
+        if status in ("submitted", "confirmed"):
+            row["submitted_at"] = existing.get("submitted_at") if existing and existing.get("submitted_at") else now_iso
+        if status == "confirmed":
+            row["confirmed_at"] = now_iso
+
+        if existing:
+            sb.table("goodmarket_claim_facts").update(row).eq("id", existing["id"]).execute()
+        else:
+            row["created_at"] = now_iso
+            sb.table("goodmarket_claim_facts").insert(row).execute()
+
+        # Best-effort event log
+        try:
+            event_type = "claim_tx_confirmed" if status == "confirmed" else "claim_tx_submitted"
+            if status == "failed":
+                event_type = "claim_tx_failed"
+            elif status == "rejected":
+                event_type = "claim_tx_rejected"
+            sb.table("goodmarket_claim_events").insert({
+                "claim_attempt_id": claim_attempt_id,
+                "wallet_address": wallet,
+                "network": network,
+                "tx_hash": tx_hash,
+                "event_type": event_type,
+                "source": "goodmarket_wallet_ui",
+                "correlation_id": correlation_id,
+                "created_at": now_iso,
+            }).execute()
+        except Exception as e_evt:
+            logger.warning(f"claim event insert skipped: {e_evt}")
+
+        return jsonify({"success": True, "tx_hash": tx_hash, "status": status})
+    except Exception as e:
+        logger.error(f"confirm_goodmarket_claim error: {e}")
+        return jsonify({"success": False, "error": "Could not record claim"}), 500
+
+
 def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transaction reverted on XDC.") -> dict:
     """Normalize XDC revert outputs into user-facing and technical fields."""
     raw_msg = str(raw_message or "").strip()
