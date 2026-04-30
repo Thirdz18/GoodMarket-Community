@@ -3017,6 +3017,8 @@
             return window._wcSdkLoading;
         }
 
+        const _wcSidecarEnabled = {{ 'true' if walletconnect_sidecar_enabled else 'false' }};
+
         function _wcGetClient() {
             if (window._wcSignClient) return Promise.resolve(window._wcSignClient);
             const projectId = '{{ walletconnect_project_id or "" }}';
@@ -3083,8 +3085,9 @@
             const qrWrap = document.getElementById('wcQrWrap');
             if (qrWrap) qrWrap.style.display = 'none';
             showWalletStatus('walletConnectStatus', '⏳ Starting WalletConnect...', 'info');
-            try {
-                const sidecarCtrl = new AbortController();
+            if (_wcSidecarEnabled) {
+                try {
+                    const sidecarCtrl = new AbortController();
                 const sidecarTimeout = setTimeout(() => sidecarCtrl.abort(), 7000);
                 let uriResp = null;
                 try {
@@ -3129,10 +3132,13 @@
                     }
                     if (stData.status === 'rejected') throw new Error('WalletConnect request rejected by wallet.');
                 }
-                throw new Error('WalletConnect session timed out. Please try again or use manual wallet guidance.');
-            } catch (serverErr) {
-                console.warn('Sidecar WalletConnect unavailable, using browser fallback:', serverErr);
-                showWalletStatus('walletConnectStatus', '⚠️ WalletConnect relay unavailable. Trying in-browser WalletConnect fallback…', 'warning');
+                    throw new Error('WalletConnect session timed out. Please try again or use manual wallet guidance.');
+                } catch (serverErr) {
+                    console.warn('Sidecar WalletConnect unavailable, using browser fallback:', serverErr);
+                    showWalletStatus('walletConnectStatus', '⚠️ WalletConnect relay unavailable. Trying in-browser WalletConnect fallback…', 'warning');
+                }
+            } else {
+                showWalletStatus('walletConnectStatus', 'ℹ️ Serverless mode detected. Using in-browser WalletConnect directly…', 'info');
             }
 
             // In-browser SignClient fallback. Before this fix this path

@@ -1413,6 +1413,7 @@ def index():
     return render_template(
         "homepage.html",
         walletconnect_project_id=wc_project_id,
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         homepage_stats=homepage_stats,
     )
 
@@ -5871,10 +5872,15 @@ def _wc_service_url():
     return f"http://127.0.0.1:{os.getenv('WC_SERVICE_PORT', '3001')}"
 
 
-def _wc_proxy(method: str, path: str, body: dict = None, timeout: int = 30):
+
+
+def _is_walletconnect_sidecar_enabled() -> bool:
     has_explicit_sidecar = bool(os.getenv("WC_SERVICE_URL"))
     is_serverless_runtime = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
-    if is_serverless_runtime and not has_explicit_sidecar:
+    return has_explicit_sidecar or not is_serverless_runtime
+
+def _wc_proxy(method: str, path: str, body: dict = None, timeout: int = 30):
+    if not _is_walletconnect_sidecar_enabled():
         return None, 503, "WalletConnect sidecar unavailable in serverless runtime"
 
     url = f"{_wc_service_url()}{path}"
