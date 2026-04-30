@@ -3135,6 +3135,10 @@
                     throw new Error('WalletConnect session timed out. Please try again or use manual wallet guidance.');
                 } catch (serverErr) {
                     console.warn('Sidecar WalletConnect unavailable, using browser fallback:', serverErr);
+                    _logWalletConnectFrontend('sidecar_unavailable', {
+                        stage: 'sidecar',
+                        message: (serverErr && serverErr.message) ? serverErr.message : String(serverErr || '')
+                    });
                     showWalletStatus('walletConnectStatus', '⚠️ WalletConnect relay unavailable. Trying in-browser WalletConnect fallback…', 'warning');
                 }
             } else {
@@ -3219,6 +3223,10 @@
             } catch (err) {
                 const emsg = (err && err.message) ? err.message : 'WalletConnect failed';
                 const rejected = /reject|denied|cancel/i.test(emsg);
+                _logWalletConnectFrontend('walletconnect_error', {
+                    stage: (err && err._wcStage) ? err._wcStage : 'unknown',
+                    message: emsg
+                });
                 let friendly;
                 if (err && err._wcStage === 'sdk_init') {
                     friendly = '❌ WalletConnect relay did not respond within 20s. Your network may be blocking relay.walletconnect.com (WebSocket / wss:// traffic). Try a different network (mobile data vs. Wi-Fi), or use Manual Address login for copy/paste guidance.';
@@ -3267,6 +3275,22 @@
                 '<a href="https://metamask.app.link/wc?uri=' + enc + '" target="_blank" rel="noopener noreferrer" style="' + btnStyle + 'background:#f6851b;">🦊 Open in MetaMask</a>' +
                 '<div style="text-align:center;font-size:0.78rem;color:#9ca3af;margin-top:2px;">On desktop? Scan the QR above with your wallet app instead.</div>';
             qrWrap.appendChild(box);
+        }
+
+        async function _logWalletConnectFrontend(event, details = {}) {
+            try {
+                await fetch('/api/walletconnect/frontend-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        event,
+                        ...details,
+                        user_agent: navigator.userAgent || '',
+                        href: window.location.href || '',
+                        relay_host: 'relay.walletconnect.com'
+                    })
+                });
+            } catch (_) {}
         }
 
 

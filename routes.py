@@ -6861,6 +6861,36 @@ def xdc_bridge_debug_log():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/walletconnect/frontend-log", methods=["POST"])
+def walletconnect_frontend_log():
+    """Lightweight diagnostics endpoint for homepage WalletConnect failures."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return jsonify({"success": False, "error": "Invalid payload"}), 400
+
+        event = str(payload.get("event", "unknown"))[:64]
+        stage = str(payload.get("stage", "n/a"))[:64]
+        message = str(payload.get("message", ""))[:500]
+        user_agent = str(payload.get("user_agent", ""))[:300]
+        href = str(payload.get("href", ""))[:300]
+        relay_host = str(payload.get("relay_host", ""))[:120]
+
+        logger.warning(
+            "walletconnect_frontend_log event=%s stage=%s message=%s relay_host=%s href=%s ua=%s",
+            event,
+            stage,
+            message,
+            relay_host,
+            href,
+            user_agent,
+        )
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"walletconnect_frontend_log error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 
 def _get_fernet():
     """Return a Fernet instance keyed from SESSION_SECRET using PBKDF2 (stronger than SHA-256)."""
