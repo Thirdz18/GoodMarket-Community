@@ -142,71 +142,10 @@ class TwitterTaskBlockchain:
                 logger.error(f"❌ Failed to check contract balance: {balance_error}")
                 return {"success": False, "error": "Failed to check contract balance"}
 
-            # ----------------------------------------------------------
-            # Gas configuration.
-            #
-            # The previous version hardcoded `gas: 600000`, which made
-            # the L2 sequencer reserve gas_limit × gas_price upfront
-            # from the task wallet even though disburseReward() really
-            # only burns ~120k. With sequencer spikes of ~200 gwei that
-            # meant ~0.15 CELO had to be sitting in the wallet before
-            # any tx could go out, producing the misleading
-            # "error_forwarding_sequencer: insufficient funds" error.
-            #
-            # 250_000 is a comfortable fixed limit (>2× the real ~120k
-            # cost) that keeps the upfront reserve at ~0.025 CELO at
-            # 100 gwei — well within a normally-funded TASK_KEY wallet.
-            # We also cap the gas price at 200 gwei (defensive against
-            # runaway sequencer pricing) and verify the wallet can
-            # actually cover the tx before broadcasting, so a depleted
-            # task wallet returns a clear top-up message instead of an
-            # opaque RPC error.
-            # ----------------------------------------------------------
-            GAS_LIMIT = 250_000
-            MAX_GAS_PRICE_WEI = 200 * 10**9  # 200 gwei
             try:
                 nonce = self.w3.eth.get_transaction_count(task_account.address)
-
                 gas_price = int(self.w3.eth.gas_price * 1.2)
-                if gas_price > MAX_GAS_PRICE_WEI:
-                    logger.warning(
-                        f"⚠️ Sequencer gas price {gas_price/10**9:.1f} gwei exceeds "
-                        f"safety cap {MAX_GAS_PRICE_WEI/10**9:.0f} gwei — clamping."
-                    )
-                    gas_price = MAX_GAS_PRICE_WEI
-
-                gas_limit = GAS_LIMIT
-                logger.info(
-                    f"⛽ Gas limit: {gas_limit} | price: {gas_price/10**9:.2f} gwei "
-                    f"| upfront reserve: {(gas_limit * gas_price)/10**18:.6f} CELO"
-                )
-
-                # Wallet balance preflight — fail clearly with topup amount
-                # before broadcasting so admins see actionable text instead
-                # of decoding raw sequencer error JSON.
-                wallet_balance = self.w3.eth.get_balance(task_account.address)
-                tx_cost = gas_limit * gas_price
-                if wallet_balance < tx_cost:
-                    needed_eth = (tx_cost - wallet_balance) / 10**18
-                    have_eth = wallet_balance / 10**18
-                    cost_eth = tx_cost / 10**18
-                    logger.error(
-                        f"❌ Task wallet underfunded: have {have_eth:.6f} CELO, "
-                        f"need {cost_eth:.6f} CELO (top up ~{needed_eth:.6f} CELO)"
-                    )
-                    return {
-                        "success": False,
-                        "error": (
-                            f"Task wallet has {have_eth:.6f} CELO but this disbursement "
-                            f"needs {cost_eth:.6f} CELO for gas. Top up ~{needed_eth:.6f} "
-                            f"CELO to {task_account.address} and retry."
-                        ),
-                        "error_type": "task_wallet_underfunded",
-                        "task_wallet": task_account.address,
-                        "balance_celo": have_eth,
-                        "required_celo": cost_eth,
-                        "topup_celo": needed_eth,
-                    }
+                logger.info(f"⛽ Gas price: {gas_price} wei")
             except Exception as network_error:
                 logger.error(f"❌ Failed to get network info: {network_error}")
                 return {"success": False, "error": "Network error"}
@@ -218,7 +157,7 @@ class TwitterTaskBlockchain:
                     "twitter"
                 ).build_transaction({
                     'chainId': self.chain_id,
-                    'gas': gas_limit,
+                    'gas': 600000,
                     'gasPrice': gas_price,
                     'nonce': nonce,
                     'from': task_account.address
@@ -241,50 +180,8 @@ class TwitterTaskBlockchain:
                     tx_hash_hex = '0x' + tx_hash_hex
                 logger.info(f"📤 Transaction sent: {tx_hash_hex}")
             except Exception as send_error:
-                send_error_str = str(send_error)
-                error_lower = send_error_str.lower()
-
-                # Sequencer/mempool price race: retry once with fresh nonce
-                # and a bumped gas price to avoid "transaction underpriced".
-                if any(msg in error_lower for msg in [
-                    "underpriced",
-                    "replacement transaction underpriced",
-                    "error_forwarding_sequencer",
-                    "already known",
-                    "nonce too low"
-                ]):
-                    try:
-                        logger.warning(f"⚠️ Initial send failed ({send_error_str}). Retrying with bumped gas price...")
-                        retry_nonce = self.w3.eth.get_transaction_count(task_account.address, 'pending')
-                        bumped_gas_price = min(int(gas_price * 1.25), MAX_GAS_PRICE_WEI)
-
-                        retry_txn = contract.functions.disburseReward(
-                            Web3.to_checksum_address(wallet_address),
-                            str(task_id),
-                            "twitter"
-                        ).build_transaction({
-                            'chainId': self.chain_id,
-                            'gas': gas_limit,
-                            'gasPrice': bumped_gas_price,
-                            'nonce': retry_nonce,
-                            'from': task_account.address
-                        })
-
-                        retry_signed = self.w3.eth.account.sign_transaction(retry_txn, task_key)
-                        tx_hash = self.w3.eth.send_raw_transaction(retry_signed.raw_transaction)
-                        tx_hash_hex = tx_hash.hex()
-                        if not tx_hash_hex.startswith('0x'):
-                            tx_hash_hex = '0x' + tx_hash_hex
-                        logger.info(
-                            f"📤 Retry transaction sent: {tx_hash_hex} "
-                            f"(nonce={retry_nonce}, gasPrice={bumped_gas_price/10**9:.2f} gwei)"
-                        )
-                    except Exception as retry_error:
-                        logger.error(f"❌ Retry send failed: {retry_error}")
-                        return {"success": False, "error": f"Failed to send transaction: {str(retry_error)}"}
-                else:
-                    logger.error(f"❌ Failed to send transaction: {send_error}")
-                    return {"success": False, "error": f"Failed to send transaction: {send_error_str}"}
+                logger.error(f"❌ Failed to send transaction: {send_error}")
+                return {"success": False, "error": f"Failed to send transaction: {str(send_error)}"}
 
             try:
                 receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
@@ -308,7 +205,7 @@ class TwitterTaskBlockchain:
                             "twitter"
                         ).build_transaction({
                             'chainId': self.chain_id,
-                            'gas': gas_limit,
+                            'gas': 600000,
                             'gasPrice': gas_price,
                             'nonce': nonce,
                             'from': task_account.address
