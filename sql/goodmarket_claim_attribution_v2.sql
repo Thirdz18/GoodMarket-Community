@@ -6,7 +6,7 @@
 -- Source of truth for the schema: docs/goodmarket-claim-attribution-v2.md
 --
 -- Run this in the Supabase SQL Editor against the project database.
--- It is idempotent — safe to re-run.
+-- It is idempotent — safe to re-run any time.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── Events: append-only audit trail of every step in the claim flow ─────────
@@ -23,8 +23,10 @@ create table if not exists public.goodmarket_claim_events (
         'claim_tx_failed',
         'claim_tx_rejected'
     )),
+    -- Loose CHECK so future surfaces (mobile shell, MiniPay, partner widgets)
+    -- can record claims without us needing a schema migration each time.
     source              text not null default 'goodmarket_wallet_ui'
-                              check (source in ('goodmarket_wallet_ui')),
+                              check (length(source) between 1 and 64),
     correlation_id      text,
     session_fingerprint text,
     user_agent_hash     text,
@@ -65,7 +67,7 @@ create table if not exists public.goodmarket_claim_facts (
         'submitted','confirmed','failed','rejected','unknown'
     )),
     source             text not null default 'goodmarket_wallet_ui'
-                              check (source in ('goodmarket_wallet_ui')),
+                              check (length(source) between 1 and 64),
     claim_attempt_id   uuid,
     correlation_id     text,
     block_number       bigint,
@@ -88,17 +90,34 @@ create index if not exists idx_gm_claim_facts_status_confirmed
 
 
 -- ── Row Level Security ──────────────────────────────────────────────────────
--- The /api/claims/v2/confirm endpoint runs server-side using the
--- SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS regardless of the
--- policies below. We still enable RLS so that the anon key (exposed to
--- the browser) cannot read or write these tables directly.
+-- Writes are SERVER-ONLY (service-role bypasses RLS regardless of policies).
+-- Reads are allowed to the anon role so the analytics dashboard
+-- (`goodmarket_unique_claimers`, `goodmarket_total_claims`) keeps working
+-- even when SUPABASE_SERVICE_ROLE_KEY isn't configured. The data here is
+-- non-sensitive: tx_hash and wallet_address are already public on-chain.
 alter table public.goodmarket_claim_events enable row level security;
 alter table public.goodmarket_claim_facts  enable row level security;
 
--- No policies are defined → only the service-role key can access these
--- tables. If you ever need to expose aggregated metrics over the anon
--- key, do it through a SECURITY DEFINER view, not a permissive RLS
--- policy on the raw rows.
+-- Drop any older variants so this migration is safely re-runnable.
+drop policy if exists "gm_claim_events_anon_read" on public.goodmarket_claim_events;
+drop policy if exists "gm_claim_facts_anon_read"  on public.goodmarket_claim_facts;
+drop policy if exists "gm_claim_events_auth_read" on public.goodmarket_claim_events;
+drop policy if exists "gm_claim_facts_auth_read"  on public.goodmarket_claim_facts;
+
+-- SELECT for anon + authenticated. NO insert/update/delete policies →
+-- only the service-role key can write.
+create policy "gm_claim_events_anon_read"
+    on public.goodmarket_claim_events
+    for select
+    to anon, authenticated
+    using (true);
+
+create policy "gm_claim_facts_anon_read"
+    on public.goodmarket_claim_facts
+    for select
+    to anon, authenticated
+    using (true);
+
 
 -- ── Optional convenience view for KPI queries ───────────────────────────────
 create or replace view public.v_goodmarket_claim_kpi_daily as

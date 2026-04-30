@@ -1232,21 +1232,22 @@ class SupabaseLogger:
             )
 
             # GoodMarket claim attribution metrics (Version B table).
+            # Prefer the service-role client when available so the read works
+            # even under strict RLS where the anon role has no SELECT policy.
             # Safe fallback: if table doesn't exist yet, keep metrics at zero.
             gm_total_claims = 0
             gm_unique_claimers = 0
             try:
-                total_claims_resp = self.client.table("goodmarket_claim_facts")\
+                gm_client = get_supabase_admin_client() or self.client
+                total_claims_resp = gm_client.table("goodmarket_claim_facts")\
                     .select("tx_hash", count="exact")\
                     .eq("status", "confirmed")\
-                    .eq("source", "goodmarket_wallet_ui")\
                     .execute()
                 gm_total_claims = total_claims_resp.count if hasattr(total_claims_resp, 'count') else 0
 
-                unique_claimers_resp = self.client.table("goodmarket_claim_facts")\
+                unique_claimers_resp = gm_client.table("goodmarket_claim_facts")\
                     .select("wallet_address")\
                     .eq("status", "confirmed")\
-                    .eq("source", "goodmarket_wallet_ui")\
                     .execute()
                 if unique_claimers_resp.data:
                     gm_unique_claimers = len({(r.get("wallet_address") or "").lower() for r in unique_claimers_resp.data if r.get("wallet_address")})

@@ -115,7 +115,20 @@ def confirm_goodmarket_claim():
     network = str(payload.get("network") or "celo").strip().lower()
     status = str(payload.get("status") or "confirmed").strip().lower()
     correlation_id = str(payload.get("correlation_id") or "").strip() or None
-    claim_attempt_id = str(payload.get("claim_attempt_id") or "").strip() or str(uuid.uuid4())
+
+    # claim_attempt_id is stored as Postgres `uuid`. The frontend may fall
+    # back to a non-UUID string (e.g. "attempt-…") on older in-app wallet
+    # browsers without crypto.randomUUID. Validate strictly and regenerate
+    # if invalid so the insert doesn't blow up on type cast.
+    raw_attempt_id = str(payload.get("claim_attempt_id") or "").strip()
+    try:
+        claim_attempt_id = str(uuid.UUID(raw_attempt_id)) if raw_attempt_id else str(uuid.uuid4())
+    except (ValueError, TypeError):
+        logger.info(
+            f"[gm-claim-confirm] invalid claim_attempt_id from client "
+            f"({raw_attempt_id!r}) — regenerating server-side"
+        )
+        claim_attempt_id = str(uuid.uuid4())
 
     if not tx_hash.startswith("0x") or len(tx_hash) < 10:
         return jsonify({"success": False, "error": "Invalid tx_hash"}), 400
@@ -223,6 +236,54 @@ def confirm_goodmarket_claim():
         "status": status,
         "claim_attempt_id": claim_attempt_id,
     })
+
+
+@routes.route("/api/claims/v2/health", methods=["GET"])
+@auth_required
+def goodmarket_claim_health():
+    """Quick diagnostic for the GoodMarket claim attribution stack.
+
+    Returns whether the service-role client is wired up and whether the
+    facts/events tables are reachable. Use this from the browser console
+    (or curl with a session cookie) when claims look like they aren't
+    being recorded:
+
+        await fetch('/api/claims/v2/health').then(r => r.json())
+    """
+    admin_sb = get_supabase_admin_client()
+    anon_sb = get_supabase_client()
+    out = {
+        "service_role_configured": admin_sb is not None,
+        "anon_client_configured": anon_sb is not None,
+        "facts_table": {"reachable": False, "error": None, "client": None},
+        "events_table": {"reachable": False, "error": None, "client": None},
+    }
+
+    sb = admin_sb or anon_sb
+    client_kind = "service_role" if admin_sb is not None else ("anon" if anon_sb is not None else None)
+    if sb is None:
+        return jsonify(out), 200
+
+    for table_key, table_name in (("facts_table", "goodmarket_claim_facts"),
+                                  ("events_table", "goodmarket_claim_events")):
+        try:
+            sb.table(table_name).select("id", count="exact").limit(1).execute()
+            out[table_key]["reachable"] = True
+            out[table_key]["client"] = client_kind
+        except Exception as e:
+            msg = str(e)
+            out[table_key]["error"] = msg[:240]
+            out[table_key]["client"] = client_kind
+            if "does not exist" in msg.lower() or "relation" in msg.lower():
+                out[table_key]["hint"] = (
+                    "Run sql/goodmarket_claim_attribution_v2.sql in the Supabase SQL editor."
+                )
+            elif "row-level security" in msg.lower() or "rls" in msg.lower():
+                out[table_key]["hint"] = (
+                    "Set SUPABASE_SERVICE_ROLE_KEY in the Vercel project so writes can bypass RLS."
+                )
+
+    return jsonify(out), 200
 
 
 def _parse_xdc_revert_message(raw_message: str, fallback_reason: str = "Transaction reverted on XDC.") -> dict:
@@ -2244,7 +2305,7 @@ def get_quiz_questions():
             "data_source": "supabase_quiz_questions_table"
         })
     except Exception as e:
-        logger.error(f"❌ Get quiz questions error: {e}")
+        logger.error(f"��� Get quiz questions error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @routes.route("/api/admin/quiz-questions", methods=["POST"])

@@ -3007,9 +3007,33 @@
                 window.__claimAttemptIds = window.__claimAttemptIds || {};
                 let attemptId = window.__claimAttemptIds[txHash];
                 if (!attemptId) {
-                    attemptId = (window.crypto && crypto.randomUUID)
-                        ? crypto.randomUUID()
-                        : ('attempt-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
+                    // The server stores claim_attempt_id as Postgres uuid, so
+                    // the fallback for in-app wallet browsers that don't
+                    // expose crypto.randomUUID must still produce a valid
+                    // RFC4122 v4 UUID — otherwise the insert blows up on
+                    // type cast. Build one from crypto.getRandomValues when
+                    // available, else from Math.random as last resort.
+                    if (window.crypto && crypto.randomUUID) {
+                        attemptId = crypto.randomUUID();
+                    } else {
+                        const buf = new Uint8Array(16);
+                        if (window.crypto && crypto.getRandomValues) {
+                            crypto.getRandomValues(buf);
+                        } else {
+                            for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
+                        }
+                        // Per RFC4122 §4.4: set version (4) and variant (10).
+                        buf[6] = (buf[6] & 0x0f) | 0x40;
+                        buf[8] = (buf[8] & 0x3f) | 0x80;
+                        const hex = Array.from(buf, b => b.toString(16).padStart(2, '0')).join('');
+                        attemptId = (
+                            hex.slice(0, 8) + '-' +
+                            hex.slice(8, 12) + '-' +
+                            hex.slice(12, 16) + '-' +
+                            hex.slice(16, 20) + '-' +
+                            hex.slice(20, 32)
+                        );
+                    }
                     window.__claimAttemptIds[txHash] = attemptId;
                 }
 
