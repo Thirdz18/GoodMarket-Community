@@ -254,31 +254,53 @@ class TwitterTaskBlockchain:
                     "nonce too low"
                 ]):
                     try:
-                        logger.warning(f"⚠️ Initial send failed ({send_error_str}). Retrying with bumped gas price...")
-                        retry_nonce = self.w3.eth.get_transaction_count(task_account.address, 'pending')
-                        bumped_gas_price = min(int(gas_price * 1.25), MAX_GAS_PRICE_WEI)
+                        logger.warning(f"⚠️ Initial send failed ({send_error_str}). Retrying with higher gas price...")
+                        tx_hash = None
+                        tx_hash_hex = None
 
-                        retry_txn = contract.functions.disburseReward(
-                            Web3.to_checksum_address(wallet_address),
-                            str(task_id),
-                            "twitter"
-                        ).build_transaction({
-                            'chainId': self.chain_id,
-                            'gas': gas_limit,
-                            'gasPrice': bumped_gas_price,
-                            'nonce': retry_nonce,
-                            'from': task_account.address
-                        })
+                        for attempt in range(1, 4):
+                            retry_nonce = self.w3.eth.get_transaction_count(task_account.address, 'pending')
+                            bumped_gas_price = min(int(gas_price * (1.2 + 0.2 * attempt)), MAX_GAS_PRICE_WEI)
 
-                        retry_signed = self.w3.eth.account.sign_transaction(retry_txn, task_key)
-                        tx_hash = self.w3.eth.send_raw_transaction(retry_signed.raw_transaction)
-                        tx_hash_hex = tx_hash.hex()
-                        if not tx_hash_hex.startswith('0x'):
-                            tx_hash_hex = '0x' + tx_hash_hex
-                        logger.info(
-                            f"📤 Retry transaction sent: {tx_hash_hex} "
-                            f"(nonce={retry_nonce}, gasPrice={bumped_gas_price/10**9:.2f} gwei)"
-                        )
+                            retry_txn = contract.functions.disburseReward(
+                                Web3.to_checksum_address(wallet_address),
+                                str(task_id),
+                                "twitter"
+                            ).build_transaction({
+                                'chainId': self.chain_id,
+                                'gas': gas_limit,
+                                'gasPrice': bumped_gas_price,
+                                'nonce': retry_nonce,
+                                'from': task_account.address
+                            })
+
+                            retry_signed = self.w3.eth.account.sign_transaction(retry_txn, task_key)
+                            try:
+                                tx_hash = self.w3.eth.send_raw_transaction(retry_signed.raw_transaction)
+                                tx_hash_hex = tx_hash.hex()
+                                if not tx_hash_hex.startswith('0x'):
+                                    tx_hash_hex = '0x' + tx_hash_hex
+                                logger.info(
+                                    f"📤 Retry transaction sent: {tx_hash_hex} "
+                                    f"(attempt={attempt}, nonce={retry_nonce}, gasPrice={bumped_gas_price/10**9:.2f} gwei)"
+                                )
+                                break
+                            except Exception as retry_send_error:
+                                retry_send_str = str(retry_send_error).lower()
+                                if attempt == 3 or not any(msg in retry_send_str for msg in [
+                                    "underpriced",
+                                    "replacement transaction underpriced",
+                                    "error_forwarding_sequencer",
+                                    "already known",
+                                    "nonce too low"
+                                ]):
+                                    raise
+                                logger.warning(
+                                    f"⚠️ Retry attempt {attempt} failed ({retry_send_error}); escalating gas and retrying..."
+                                )
+
+                        if not tx_hash:
+                            raise RuntimeError("Retry did not return a transaction hash")
                     except Exception as retry_error:
                         logger.error(f"❌ Retry send failed: {retry_error}")
                         return {"success": False, "error": f"Failed to send transaction: {str(retry_error)}"}
