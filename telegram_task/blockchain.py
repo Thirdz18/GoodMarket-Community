@@ -154,28 +154,31 @@ class TelegramTaskBlockchain:
                 return {"success": False, "error": "Failed to check contract balance"}
 
             # ----------------------------------------------------------
-            # Gas + balance preflight.
+            # Gas configuration.
             #
-            # The previous version hardcoded `gas: 600000`, so the L2
-            # sequencer reserved gas_limit × gas_price upfront from the
-            # task wallet even though disburseReward() really only burns
-            # ~120k. With sequencer spikes of ~200 gwei that meant
-            # ~0.15 CELO had to be sitting in the wallet before *any*
-            # tx could go out, producing the misleading
+            # The previous version hardcoded `gas: 600000`, which made
+            # the L2 sequencer reserve gas_limit × gas_price upfront
+            # from the task wallet even though disburseReward() really
+            # only burns ~120k. With sequencer spikes of ~200 gwei that
+            # meant ~0.15 CELO had to be sitting in the wallet before
+            # any tx could go out, producing the misleading
             # "error_forwarding_sequencer: insufficient funds" error.
             #
-            # Now: estimate real gas via eth_estimateGas, add a 20%
-            # safety buffer (capped at 500k as a sanity ceiling), cap
-            # gas price at 200 gwei, and verify the wallet can actually
-            # cover gas_limit × gas_price before broadcasting — surfacing
-            # a clear top-up message if not.
+            # 250_000 is a comfortable fixed limit (>2× the real ~120k
+            # cost) that keeps the upfront reserve at ~0.025 CELO at
+            # 100 gwei — well within a normally-funded TASK_KEY wallet.
+            # We also cap the gas price at 200 gwei (defensive against
+            # runaway sequencer pricing) and verify the wallet can
+            # actually cover the tx before broadcasting, so a depleted
+            # task wallet returns a clear top-up message instead of an
+            # opaque RPC error.
             # ----------------------------------------------------------
+            GAS_LIMIT = 250_000
+            MAX_GAS_PRICE_WEI = 200 * 10**9  # 200 gwei
             try:
                 nonce = self.w3.eth.get_transaction_count(task_account.address)
 
-                raw_gas_price = self.w3.eth.gas_price
-                gas_price = int(raw_gas_price * 1.2)
-                MAX_GAS_PRICE_WEI = 200 * 10**9
+                gas_price = int(self.w3.eth.gas_price * 1.2)
                 if gas_price > MAX_GAS_PRICE_WEI:
                     logger.warning(
                         f"⚠️ Sequencer gas price {gas_price/10**9:.1f} gwei exceeds "
@@ -183,44 +186,11 @@ class TelegramTaskBlockchain:
                     )
                     gas_price = MAX_GAS_PRICE_WEI
 
-                try:
-                    estimated_gas = contract.functions.disburseReward(
-                        Web3.to_checksum_address(wallet_address),
-                        str(task_id),
-                        "telegram"
-                    ).estimate_gas({'from': task_account.address})
-                    gas_limit = min(int(estimated_gas * 1.2), 500_000)
-                    logger.info(
-                        f"⛽ Estimated gas: {estimated_gas} | limit (×1.2): {gas_limit} | "
-                        f"price: {gas_price/10**9:.2f} gwei"
-                    )
-                except Exception as est_err:
-                    err_str = str(est_err)
-                    revert_reason = err_str
-                    if hasattr(est_err, 'data') and est_err.data:
-                        raw = est_err.data
-                        if isinstance(raw, str):
-                            try:
-                                raw = bytes.fromhex(raw.replace('0x', ''))
-                                revert_reason = _decode_revert_reason(raw)
-                            except Exception:
-                                pass
-                    reason_lower = revert_reason.lower()
-                    if any(k in reason_lower for k in ['already', 'duplicate', 'rewarded', 'claimed']):
-                        error_type = "already_rewarded"
-                    elif any(k in reason_lower for k in ['balance', 'insufficient', 'funds']):
-                        error_type = "insufficient_balance"
-                    elif any(k in reason_lower for k in ['access', 'owner', 'authorized', 'permission']):
-                        error_type = "access_denied"
-                    else:
-                        error_type = "contract_revert"
-                    logger.error(f"❌ estimate_gas reverted [{error_type}]: {revert_reason}")
-                    return {
-                        "success": False,
-                        "error": f"Pre-flight check failed: {revert_reason}",
-                        "error_type": error_type,
-                        "revert_reason": revert_reason,
-                    }
+                gas_limit = GAS_LIMIT
+                logger.info(
+                    f"⛽ Gas limit: {gas_limit} | price: {gas_price/10**9:.2f} gwei "
+                    f"| upfront reserve: {(gas_limit * gas_price)/10**18:.6f} CELO"
+                )
 
                 wallet_balance = self.w3.eth.get_balance(task_account.address)
                 tx_cost = gas_limit * gas_price
