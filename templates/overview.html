@@ -1163,11 +1163,12 @@ document.addEventListener('DOMContentLoaded', function() {
         })();
 
         /* ── Collapsible Menu Logic ── */
-        let mainMenuOpen = false;
+        let mainMenuOpen = true;
         let activeSubmenu = null;
 
         function toggleMainMenu() {
-            mainMenuOpen = !mainMenuOpen;
+            // Keep the main overview menu always open on this page
+            mainMenuOpen = true;
             const header    = document.getElementById('mainMenuHeader');
             const list      = document.getElementById('submenuList');
             const chevron   = document.getElementById('mainChevron');
@@ -1176,11 +1177,13 @@ document.addEventListener('DOMContentLoaded', function() {
             list.classList.toggle('open', mainMenuOpen);
             chevron.classList.toggle('rotated', mainMenuOpen);
 
-            if (!mainMenuOpen && activeSubmenu) {
-                closeSubmenu(activeSubmenu);
-                activeSubmenu = null;
-            }
         }
+
+
+        // Ensure menu is open on initial render
+        document.addEventListener('DOMContentLoaded', () => {
+            toggleMainMenu();
+        });
 
         function toggleSubmenu(id) {
             if (activeSubmenu === id) {
