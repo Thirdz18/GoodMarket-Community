@@ -35,7 +35,6 @@ def reloadly_home():
         "reloadly.html",
         wallet=wallet,
         gd_price=gd_price,
-        airtime_only=(request.args.get("mode", "").lower() == "airtime"),
         is_sandbox=reloadly_client.is_sandbox,
         merchant_address=os.getenv("MERCHANT_ADDRESS", ""),
         gd_contract=os.getenv("GOODDOLLAR_CONTRACT", "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"),
