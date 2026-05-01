@@ -209,6 +209,7 @@
     <div class="gd-rate">1 G$ ≈ <span id="liveGdRate">${{ "%.6f"|format(gd_price) }}</span> <span style="font-size:9px;color:#69f0ae;opacity:0.7" id="rateSource">CoinGecko</span></div>
 </div>
 
+{% if not airtime_only %}
 <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('topup', this)"><i class="fas fa-mobile-alt"></i> Mobile Top-Up</button>
     <button class="tab-btn" onclick="switchTab('virtualcard', this)"><i class="fas fa-credit-card"></i> Virtual Card</button>
@@ -216,6 +217,7 @@
     <button class="tab-btn" onclick="switchTab('utility', this)"><i class="fas fa-bolt"></i> Utility</button>
     <button class="tab-btn" onclick="switchTab('orders', this)"><i class="fas fa-receipt"></i> My Orders</button>
 </div>
+{% endif %}
 
 <!-- TOP-UP TAB -->
 <div id="tab-topup" class="tab-content active">
@@ -443,6 +445,7 @@
 </div>
 
 <script>
+const AIRTIME_ONLY = {{ 'true' if airtime_only else 'false' }};
 let GD_PRICE = {{ gd_price }};
 const MERCHANT_ADDRESS = "{{ merchant_address }}";
 const GD_CONTRACT = "{{ gd_contract }}";
@@ -498,10 +501,11 @@ async function apiFetch(url, opts = {}) {
 }
 
 function switchTab(name, btn) {
+    if (AIRTIME_ONLY && name !== 'topup') return;
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
-    btn.classList.add('active');
+    if (btn) btn.classList.add('active');
     if (name === 'orders') loadOrders();
 }
 
@@ -1720,6 +1724,7 @@ async function loadOrders() {
 
 // ─── STORE VISIBILITY ─────────────────────────────────────────────────────────
 async function applyStoreVisibility() {
+    if (AIRTIME_ONLY) return;
     try {
         const data = await apiFetch('/api/feature-visibility');
         const giftcardVisible = data.giftcard_visible !== false;
@@ -1759,6 +1764,7 @@ async function applyStoreVisibility() {
 }
 
 function handleTabHash() {
+    if (AIRTIME_ONLY) return;
     // Deep-link support: /reloadly/#virtualcard opens the Virtual Card tab.
     const hash = (window.location.hash || '').replace('#', '').trim().toLowerCase();
     if (!hash) return;
@@ -1775,11 +1781,17 @@ function handleTabHash() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    applyStoreVisibility();
-    loadOrders();
-    handleTabHash();
+    if (AIRTIME_ONLY) {
+        switchTab('topup');
+    } else {
+        applyStoreVisibility();
+        loadOrders();
+        handleTabHash();
+    }
 });
-window.addEventListener('hashchange', handleTabHash);
+if (!AIRTIME_ONLY) {
+    window.addEventListener('hashchange', handleTabHash);
+}
 </script>
 </body>
 </html>
