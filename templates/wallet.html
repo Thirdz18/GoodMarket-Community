@@ -1888,7 +1888,7 @@
         const shouldOpen = forceOpen === null ? !isOpen : !!forceOpen;
 
         if (shouldOpen) {
-            if (!frame.src) frame.src = '/reloadly/?mode=airtime#topup';
+            if (!frame.src) frame.src = '/reloadly/#topup';
             panel.style.display = 'block';
             panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         } else {
