@@ -3576,6 +3576,138 @@
             throw new Error((postFaucet && postFaucet.error) || 'Gas top-up did not arrive in time. Please retry in a few minutes.');
         }
 
+        // ---------------------------------------------------------------
+        // XDC gas top-up helpers — XDC equivalents of the working Celo
+        // helpers above. The unified claim flow now calls these before
+        // claimXdcInjected() so users no longer have to detour through the
+        // standalone xdc_wallet.html page just to top up XDC gas.
+        //
+        // We deliberately reuse the SAME UI state machine (setClaimGasUiState),
+        // status panel (appendStatusLine), and HTML-error sniffers
+        // (_isXdcRpcHtmlError) to keep UX consistent with the Celo path.
+        //
+        // Note: there is no /api/xdc/faucet/status endpoint, so we re-poll
+        // /api/xdc/faucet/gas with force_onchain:false instead — the backend
+        // short-circuits when gas is already credited so this is cheap.
+        // ---------------------------------------------------------------
+        async function pollForXdcGasArrival(maxDurationMs = 150000) {
+            const correlationId = window.__claimXdcFaucetCorrelationId || `xdcclaim-${Date.now().toString(36)}`;
+            const startedAt = Date.now();
+            const backoffSchedule = [3000, 5000, 7000, 9000, 11000, 13000, 15000];
+            let attempt = 0;
+
+            while ((Date.now() - startedAt) < maxDurationMs) {
+                const delay = backoffSchedule[Math.min(attempt, backoffSchedule.length - 1)];
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt += 1;
+
+                let statusData;
+                try {
+                    statusData = await _safeFetchJson('/api/xdc/faucet/gas', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                        body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: false })
+                    });
+                } catch (fetchErr) {
+                    if (_isXdcRpcHtmlError(fetchErr)) {
+                        setClaimGasUiState('waiting_credit');
+                        continue;
+                    }
+                    throw fetchErr;
+                }
+                if (statusData.success && statusData.gas_ready) {
+                    return { gasReady: true, statusData };
+                }
+                if (statusData.success && statusData.status === 'recent_refill' && !statusData.gas_ready) {
+                    const cooldown = Number(statusData.recent_refill_cooldown_seconds || 0);
+                    return {
+                        gasReady: false,
+                        stopPolling: true,
+                        error: `XDC gas refill cooldown active (${cooldown}s remaining). Please wait and retry.`
+                    };
+                }
+                setClaimGasUiState('waiting_credit');
+            }
+            return {
+                gasReady: false,
+                stopPolling: true,
+                error: 'XDC gas did not arrive after extended checks. Please retry in a minute.'
+            };
+        }
+
+        async function ensureXdcGasReadyBeforeClaim(options = {}) {
+            const forceOnchain = !!options.forceOnchain;
+            const correlationId = `xdcclaim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            window.__claimXdcFaucetCorrelationId = correlationId;
+            setClaimGasUiState('checking_balance');
+
+            // /api/xdc/faucet/gas is a single endpoint that performs both
+            // check + top-up (it short-circuits when gas is already ready),
+            // so we don't need a separate /status pre-flight like Celo.
+            const requestXdcFaucetGas = async (forceFlag) => {
+                const gasData = await _safeFetchJson('/api/xdc/faucet/gas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                    body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: !!forceFlag })
+                });
+                return {
+                    gasData,
+                    terminal: gasData.terminal_status || gasData.status
+                };
+            };
+
+            setClaimGasUiState('requesting_faucet');
+            let { gasData, terminal } = await requestXdcFaucetGas(forceOnchain);
+
+            // Gas already credited (either before our call or after API top-up
+            // inside the same request). Mirror of Celo behavior.
+            if (gasData.gas_ready) {
+                setClaimGasUiState('gas_ready');
+                return {
+                    gasReady: true,
+                    toppedUp: !!gasData.topped_up,
+                    source: gasData.topup_source || 'wallet_balance'
+                };
+            }
+
+            // Match Celo policy: if blocked by recent-refill cooldown on the
+            // first API-first attempt, retry once with force_onchain=true as
+            // an explicit fallback path.
+            if (!forceOnchain && terminal === 'recent_refill' && !gasData.gas_ready) {
+                ({ gasData, terminal } = await requestXdcFaucetGas(true));
+            }
+
+            if (!gasData.success && !gasData.gas_ready) {
+                throw new Error(gasData.error || gasData.reason || 'XDC faucet unavailable.');
+            }
+
+            if (terminal === 'recent_refill' && !gasData.gas_ready) {
+                const cooldown = Number(gasData.recent_refill_cooldown_seconds || 0);
+                throw new Error(
+                    `XDC gas refill cooldown active (${cooldown}s remaining). Please wait and retry.`
+                );
+            }
+
+            if (
+                (terminal === 'onchain_failed' || terminal === 'not_configured' || terminal === 'api_failed') &&
+                !gasData.gas_ready
+            ) {
+                throw new Error(
+                    `${gasData.error || gasData.reason || 'XDC gas top-up failed.'} Please retry shortly.`
+                );
+            }
+
+            // Backend acknowledged the top-up but the wallet's balance has not
+            // yet caught up on-chain (api_accepted_pending or topped_up:true
+            // without gas_ready). Poll the gas endpoint until it confirms.
+            const postFaucet = await pollForXdcGasArrival(150000);
+            if (postFaucet && postFaucet.gasReady) {
+                setClaimGasUiState('gas_ready');
+                return { gasReady: true, toppedUp: true, source: gasData.topup_source || 'faucet' };
+            }
+            throw new Error((postFaucet && postFaucet.error) || 'XDC gas top-up did not arrive in time. Please retry shortly.');
+        }
+
         async function ensureInjectedWalletClaim() {
             const isInsufficientFundsError = (err) => {
                 const raw = String(
@@ -3788,6 +3920,15 @@
 
                 appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
                 try {
+                    // Mirror of the Celo gas pre-flight: top up XDC gas via
+                    // the server-side faucet BEFORE asking the wallet to
+                    // sign/send the XDC claim tx. Without this, users with
+                    // 0 XDC silently failed here and had to detour through
+                    // the standalone "Claim G$ on XDC Network →" page just
+                    // to top up gas.
+                    appendStatusLine('⛽ Checking XDC gas…', 'var(--text-dim)');
+                    await ensureXdcGasReadyBeforeClaim();
+
                     const xdcTxHash = await claimXdcInjected(provider, from);
                     logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
                     appendStatusLine(
@@ -3845,6 +3986,14 @@
                         if (accounts && accounts.length) {
                             const from = accounts[0];
                             if (from.toLowerCase() === WALLET.toLowerCase()) {
+                                // Same XDC gas pre-flight as the success path
+                                // above. Without this, the XDC fallback after
+                                // a Celo failure also silently fails when the
+                                // user has 0 XDC, forcing them to the
+                                // standalone XDC page.
+                                appendStatusLine('⛽ Checking XDC gas…', 'var(--text-dim)');
+                                await ensureXdcGasReadyBeforeClaim();
+
                                 const xdcTxHash = await claimXdcInjected(provider, from);
                                 logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
                                 appendStatusLine(

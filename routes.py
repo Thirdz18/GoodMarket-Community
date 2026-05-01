@@ -8180,13 +8180,17 @@ def xdc_faucet_gas():
             except Exception as e:
                 api_error = str(e)
 
+        # Mirror of Celo's API-first success path: accept either
+        # status_after_api["gas_ready"] OR balance_increased so we don't
+        # false-fail when the API ack'd but the wallet's RPC view of the
+        # balance is still lagging.
         if api_ok and not force_onchain:
             _set_api_pending(checksum_wallet, api_tx_hash, pre_balance_wei)
-            post_balance_wei, _ = _poll_balance_increase(
+            post_balance_wei, increased = _poll_balance_increase(
                 w3, checksum_wallet, pre_balance_wei, FAUCET_API_GRACE_SECONDS
             )
             status_after_api = _get_xdc_gas_status(w3, checksum_wallet)
-            if status_after_api["gas_ready"]:
+            if status_after_api["gas_ready"] or increased:
                 _clear_api_pending(checksum_wallet)
                 _record_recent_refill(
                     checksum_wallet,
@@ -8196,13 +8200,13 @@ def xdc_faucet_gas():
                 )
                 return jsonify({
                     "success": True,
-                    "status": "gas_ready",
-                    "gas_ready": True,
+                    "status": "gas_ready" if status_after_api["gas_ready"] else "api_accepted_pending",
+                    "gas_ready": status_after_api["gas_ready"],
                     "topped_up": True,
                     "topup_source": "api",
                     "api_tx_hash": api_tx_hash,
                     "api_error": api_error,
-                    "terminal_status": "gas_ready",
+                    "terminal_status": "gas_ready" if status_after_api["gas_ready"] else "api_accepted_pending",
                     "correlation_id": correlation_id,
                     "wallet": checksum_wallet.lower(),
                     "debug": {
@@ -8214,24 +8218,51 @@ def xdc_faucet_gas():
                     **status_after_api,
                 })
 
-        onchain_result = _execute_onchain_xdc_faucet_topup(w3, checksum_wallet, correlation_id=correlation_id)
+        # Mirror of Celo on-chain fallback: retry up to FAUCET_ONCHAIN_MAX_ATTEMPTS
+        # times when force_onchain is set, otherwise just one shot. Aborts early
+        # on signer_insufficient_funds since retrying won't help.
+        onchain_attempts = FAUCET_ONCHAIN_MAX_ATTEMPTS if force_onchain else 1
+        onchain_attempt_history = []
+        onchain_result = {}
+        for attempt in range(onchain_attempts):
+            onchain_result = _execute_onchain_xdc_faucet_topup(
+                w3, checksum_wallet, correlation_id=correlation_id
+            )
+            onchain_attempt_history.append({
+                "attempt": attempt + 1,
+                "success": bool((onchain_result or {}).get("success")),
+                "status": (onchain_result or {}).get("status"),
+                "reason": (onchain_result or {}).get("reason"),
+                "tx_hash": (onchain_result or {}).get("tx_hash"),
+            })
+            if onchain_result.get("success"):
+                break
+            if (onchain_result or {}).get("reason") == "signer_insufficient_funds":
+                break
+
         status_after = _get_xdc_gas_status(w3, checksum_wallet)
         topped_up = bool(onchain_result.get("success"))
 
         terminal_status = (
             "gas_ready" if status_after["gas_ready"] else
-            ("not_configured" if onchain_result.get("reason") == "not_configured" else "onchain_failed")
+            ("onchain_sent" if topped_up else (
+                "not_configured" if (onchain_result or {}).get("reason") == "not_configured" else "onchain_failed"
+            ))
         )
 
         return jsonify({
             "success": bool(status_after["gas_ready"] or topped_up),
-            "status": "gas_ready" if status_after["gas_ready"] else "onchain_failed",
+            "status": "gas_ready" if status_after["gas_ready"] else (
+                "onchain_sent" if topped_up else "onchain_failed"
+            ),
             "gas_ready": status_after["gas_ready"],
             "topped_up": topped_up,
             "topup_source": "onchain" if topped_up else None,
             "api_tx_hash": api_tx_hash,
             "api_error": api_error,
             "onchain_result": onchain_result,
+            "onchain_attempts": len(onchain_attempt_history),
+            "onchain_attempt_history": onchain_attempt_history,
             "terminal_status": terminal_status,
             "recent_refill_cooldown_seconds": seconds_remaining if recent_refill else 0,
             "correlation_id": correlation_id,
