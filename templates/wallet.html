@@ -3374,25 +3374,38 @@
             setStatus(state.status, state.color);
         }
 
+        // Fixed CELO gas threshold — must stay in sync with backend
+        // FAUCET_MIN_CELO (default 0.005 CELO). Any wallet with balance
+        // >= this amount is considered gas-ready and the unified flow
+        // proceeds straight to the claim transaction. Below this, the
+        // backend faucet (GoodDollar API → GAMES_KEY on-chain fallback)
+        // is invoked via ensureGasReadyBeforeClaim().
+        const CELO_GAS_THRESHOLD_WEI = 5000000000000000n; // 0.005 CELO
+
         async function getProviderGasSnapshot(provider) {
-            // The injected wallet routes these calls through whatever Celo
-            // RPC it has configured (typically forno.celo.org). When that
-            // endpoint is rate-limited / behind Cloudflare it can return an
-            // HTML page, which the wallet's RPC client surfaces as
-            // "Unexpected token '<'". Retry once on transient parser errors
-            // before bubbling up.
+            // Authoritative check: native CELO balance vs fixed threshold.
+            // We deliberately skip eth_estimateGas here because that call
+            // can throw or return inflated values when the contract reverts
+            // on non-gas conditions (e.g., already claimed today), which
+            // used to mark gas_ready=false even when the wallet had plenty
+            // of CELO. Aligned with backend _get_gas_status().
+            //
+            // The injected wallet routes eth_getBalance through whatever
+            // Celo RPC it has configured (typically forno.celo.org). When
+            // rate-limited / behind Cloudflare it can return HTML, which
+            // surfaces as "Unexpected token '<'". Retry once on transient
+            // parser errors before bubbling up.
             const snapshot = async () => {
-                const gasLimitHex = await provider.request({
-                    method: 'eth_estimateGas',
-                    params: [{ from: WALLET, to: UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
+                const balanceHex = await provider.request({
+                    method: 'eth_getBalance',
+                    params: [WALLET, 'latest']
                 });
-                const gasPriceHex = await provider.request({ method: 'eth_gasPrice' });
-                const balanceHex = await provider.request({ method: 'eth_getBalance', params: [WALLET, 'latest'] });
-                const gasLimit = BigInt(gasLimitHex);
-                const gasPrice = BigInt(gasPriceHex);
                 const balance = BigInt(balanceHex);
-                const required = (gasLimit * gasPrice * 135n) / 100n;
-                return { gasLimit, gasPrice, balance, required, gasReady: balance >= required };
+                return {
+                    balance,
+                    required: CELO_GAS_THRESHOLD_WEI,
+                    gasReady: balance >= CELO_GAS_THRESHOLD_WEI,
+                };
             };
             try {
                 return await snapshot();
@@ -3688,39 +3701,65 @@
             } catch (err) {
                 console.warn('[claim] Celo claim error:', err);
                 const raw = (err && (err.shortMessage || err.message)) || 'Claim failed';
+                const userRejected = _isUserRejectedError(err) || (raw || '').toLowerCase().includes('user rejected');
+                const wrongWallet = (raw || '').toLowerCase().includes('wrong wallet');
                 let msg;
-                if (_isUserRejectedError(err) || (raw || '').toLowerCase().includes('user rejected')) {
+                if (userRejected) {
                     msg = 'Transaction cancelled.';
                 } else if (_isRpcHtmlError(err)) {
                     msg = 'Celo network is temporarily busy (RPC returned a non-JSON response). Please retry your claim in 30–60 seconds.';
                 } else {
                     msg = raw;
                 }
-                appendStatusLine('⚠️ Celo claim failed. Trying XDC claim anyway…', '#fbbf24');
-                try {
-                    const accounts = await provider.request({ method: 'eth_requestAccounts' });
-                    if (accounts && accounts.length) {
-                        const from = accounts[0];
-                        if (from.toLowerCase() === WALLET.toLowerCase()) {
-                            const xdcTxHash = await claimXdcInjected(provider, from);
-                            logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
-                            appendStatusLine(
-                                `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
-                                '#86efac'
-                            );
-                        }
-                    }
-                } catch (xdcErr) {
-                    const xdcRaw = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
-                    const xdcDisplay = _isXdcRpcHtmlError(xdcErr)
-                        ? 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.'
-                        : xdcRaw;
-                    appendStatusLine('❌ ' + xdcDisplay, 'var(--red)');
-                } finally {
+
+                // Show the CELO failure reason FIRST so users understand why,
+                // before any XDC fallback is attempted.
+                appendStatusLine('❌ Celo claim failed: ' + msg, 'var(--red)');
+
+                // Skip XDC fallback when the failure is something XDC cannot
+                // resolve and would only confuse the user with a second wallet
+                // prompt:
+                //   - User explicitly cancelled the CELO transaction.
+                //   - Wallet mismatch (wrong account connected).
+                // For genuine CELO-only issues (already claimed on Celo,
+                // contract revert, transient RPC errors) we still try XDC
+                // because XDC is an independent chain/contract — the user
+                // may still be entitled there.
+                const skipXdcFallback = userRejected || wrongWallet;
+                if (skipXdcFallback) {
                     btn.disabled = false;
                     label.textContent = 'Claim G$';
                     icon.textContent = '🪙';
-                    appendStatusLine('❌ Celo claim failed: ' + msg, 'var(--red)');
+                } else {
+                    appendStatusLine('⏳ Trying XDC claim on the other chain…', '#60a5fa');
+                    try {
+                        const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                        if (accounts && accounts.length) {
+                            const from = accounts[0];
+                            if (from.toLowerCase() === WALLET.toLowerCase()) {
+                                const xdcTxHash = await claimXdcInjected(provider, from);
+                                logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
+                                appendStatusLine(
+                                    `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
+                                    '#86efac'
+                                );
+                            }
+                        }
+                    } catch (xdcErr) {
+                        if (_isUserRejectedError(xdcErr)) {
+                            appendStatusLine('⚠️ XDC claim cancelled.', '#fbbf24');
+                        } else {
+                            const xdcRaw = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
+                            const xdcDisplay = _isXdcRpcHtmlError(xdcErr)
+                                ? 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.'
+                                : xdcRaw;
+                            appendStatusLine('❌ ' + xdcDisplay, 'var(--red)');
+                        }
+                    } finally {
+                        btn.disabled = false;
+                        label.textContent = 'Claim G$';
+                        icon.textContent = '🪙';
+                    }
                 }
             }
         }
