@@ -1130,10 +1130,6 @@
                     <div class="action-circle">💳</div>
                     <span class="action-label">Virtual Card</span>
                 </div>
-                <div class="action-item" onclick="toggleAirtimeInline(event)">
-                    <div class="action-circle" style="background:linear-gradient(135deg,#06b6d4,#2563eb);color:#fff;">📱</div>
-                    <span class="action-label">Buy Airtime</span>
-                </div>
                 <div class="action-item" onclick="return navigateWithFeedback('/xdc-wallet', 'Opening X Swap…')">
                     <div class="action-circle">💠</div>
                     <span class="action-label">X Swap</span>
@@ -1154,13 +1150,6 @@
 
             <!-- Crypto Tab -->
             <div id="cryptoPanel">
-        <div id="airtimeInlinePanel" style="display:none;margin-bottom:0.9rem;border:1px solid rgba(92,200,255,0.26);background:rgba(5,15,35,0.9);border-radius:16px;overflow:hidden;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.72rem 0.86rem;border-bottom:1px solid rgba(255,255,255,0.08);">
-                <div style="font-size:0.82rem;font-weight:700;color:#dbeafe;">📱 Airtime & Reloadly Products</div>
-                <button type="button" onclick="toggleAirtimeInline(event, false)" style="background:none;border:1px solid rgba(255,255,255,0.2);color:#cbd5e1;border-radius:9px;padding:0.25rem 0.55rem;font-size:0.72rem;font-weight:600;cursor:pointer;">Close</button>
-            </div>
-            <iframe id="airtimeInlineFrame" src="" title="Reloadly Airtime" loading="lazy" style="width:100%;min-height:840px;border:0;background:#0f1117;"></iframe>
-        </div>
         <div class="section-label">Supported Tokens · Celo Network</div>
         <div class="token-list">
             <div class="token-item">
@@ -1876,25 +1865,6 @@
             // If the visibility check fails, keep existing behavior and allow navigation.
         }
         navigateWithFeedback('/reloadly/#virtualcard', 'Opening Virtual Card…');
-    }
-
-    function toggleAirtimeInline(event, forceOpen = null) {
-        if (event && typeof event.preventDefault === 'function') event.preventDefault();
-        const panel = document.getElementById('airtimeInlinePanel');
-        const frame = document.getElementById('airtimeInlineFrame');
-        if (!panel || !frame) return false;
-
-        const isOpen = panel.style.display !== 'none';
-        const shouldOpen = forceOpen === null ? !isOpen : !!forceOpen;
-
-        if (shouldOpen) {
-            if (!frame.src) frame.src = '/reloadly/#topup';
-            panel.style.display = 'block';
-            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
-            panel.style.display = 'none';
-        }
-        return false;
     }
 
     // ── Modal ────────────────────────────────────────────────
