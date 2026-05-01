@@ -3374,37 +3374,82 @@
             setStatus(state.status, state.color);
         }
 
-        // Fixed CELO gas threshold — must stay in sync with backend
-        // FAUCET_MIN_CELO (default 0.005 CELO). Any wallet with balance
-        // >= this amount is considered gas-ready and the unified flow
-        // proceeds straight to the claim transaction. Below this, the
-        // backend faucet (GoodDollar API → GAMES_KEY on-chain fallback)
-        // is invoked via ensureGasReadyBeforeClaim().
-        const CELO_GAS_THRESHOLD_WEI = 5000000000000000n; // 0.005 CELO
+        // CELO gas threshold — must stay in sync with backend _get_gas_status().
+        // Required = max(estimated_gas * gas_price * FAUCET_BUFFER, FAUCET_MIN_CELO_WEI).
+        // The min floor (0.005 CELO) keeps top-ups predictable during low-gas
+        // periods; the dynamic component covers congestion spikes (observed
+        // 0.07+ CELO needed) so wallets that look "fine" against a flat floor
+        // still trigger the faucet when the network actually demands more gas.
+        const CELO_GAS_MIN_FLOOR_WEI = 5000000000000000n; // 0.005 CELO floor
+        const CELO_GAS_BUFFER_NUMERATOR = 135n;   // 1.35x buffer (matches FAUCET_BUFFER_MULTIPLIER)
+        const CELO_GAS_BUFFER_DENOMINATOR = 100n;
+        const CELO_FALLBACK_CLAIM_GAS = 220000n;
+        const CELO_FALLBACK_GAS_PRICE_WEI = 50000000000n; // 50 gwei
 
         async function getProviderGasSnapshot(provider) {
-            // Authoritative check: native CELO balance vs fixed threshold.
-            // We deliberately skip eth_estimateGas here because that call
-            // can throw or return inflated values when the contract reverts
-            // on non-gas conditions (e.g., already claimed today), which
-            // used to mark gas_ready=false even when the wallet had plenty
-            // of CELO. Aligned with backend _get_gas_status().
+            // Dynamic readiness check: balance must cover the actual cost of
+            // the next claim() at the current network gas price (with a buffer),
+            // never below the FAUCET_MIN_CELO floor.
             //
-            // The injected wallet routes eth_getBalance through whatever
-            // Celo RPC it has configured (typically forno.celo.org). When
-            // rate-limited / behind Cloudflare it can return HTML, which
-            // surfaces as "Unexpected token '<'". Retry once on transient
-            // parser errors before bubbling up.
+            // We try eth_estimateGas first, but fall back to a hardcoded gas
+            // amount on revert (e.g., user already claimed today, or any
+            // non-gas precondition) so we don't false-fail readiness for
+            // reasons unrelated to gas. Same approach the backend uses.
+            //
+            // The injected wallet routes RPC through whatever Celo RPC it has
+            // configured (typically forno.celo.org). When rate-limited /
+            // behind Cloudflare it can return HTML, which surfaces as
+            // "Unexpected token '<'". Retry once on transient parser errors.
             const snapshot = async () => {
                 const balanceHex = await provider.request({
                     method: 'eth_getBalance',
                     params: [WALLET, 'latest']
                 });
                 const balance = BigInt(balanceHex);
+
+                // Current network gas price (dynamic — Celo can spike during peak).
+                let gasPrice = CELO_FALLBACK_GAS_PRICE_WEI;
+                try {
+                    const gasPriceHex = await provider.request({
+                        method: 'eth_gasPrice',
+                        params: []
+                    });
+                    const parsed = BigInt(gasPriceHex);
+                    if (parsed > 0n) gasPrice = parsed;
+                } catch (_) {
+                    // Keep fallback gas price.
+                }
+
+                // Estimate gas for the actual claim() call. Fall back if the
+                // RPC reverts (already-claimed, etc.) so we don't false-fail.
+                let gasEstimate = CELO_FALLBACK_CLAIM_GAS;
+                try {
+                    const estHex = await provider.request({
+                        method: 'eth_estimateGas',
+                        params: [{
+                            from: WALLET,
+                            to: UBI_CONTRACT,
+                            data: CLAIM_DATA,
+                            value: '0x0'
+                        }]
+                    });
+                    const parsedEst = BigInt(estHex);
+                    if (parsedEst > 0n) gasEstimate = parsedEst;
+                } catch (_) {
+                    // Keep fallback gas estimate.
+                }
+
+                const dynamicRequired =
+                    (gasEstimate * gasPrice * CELO_GAS_BUFFER_NUMERATOR) /
+                    CELO_GAS_BUFFER_DENOMINATOR;
+                const required = dynamicRequired > CELO_GAS_MIN_FLOOR_WEI
+                    ? dynamicRequired
+                    : CELO_GAS_MIN_FLOOR_WEI;
+
                 return {
                     balance,
-                    required: CELO_GAS_THRESHOLD_WEI,
-                    gasReady: balance >= CELO_GAS_THRESHOLD_WEI,
+                    required,
+                    gasReady: balance >= required,
                 };
             };
             try {
