@@ -4,9 +4,36 @@ import asyncio
 import logging
 from web3 import Web3
 from eth_account import Account
-from config import DAILY_TASK_CONTRACT_ADDRESS as _CONFIG_DAILY_TASK_ADDRESS
+from config import (
+    DAILY_TASK_CONTRACT_ADDRESS as _CONFIG_DAILY_TASK_ADDRESS,
+    GOODDOLLAR_CONTRACT_ADDRESS as _CONFIG_GOODDOLLAR_ADDRESS,
+)
 
 logger = logging.getLogger(__name__)
+
+# Minimal G$ ERC-20 ABI used for the DAILYTASK_KEY direct-transfer fallback.
+# G$ is technically ERC-777 on Celo, but the ERC-20 transfer/balanceOf surface
+# is the only thing we need for direct payouts (matches the pattern used in
+# community_stories/blockchain.py).
+_GD_ERC20_FALLBACK_ABI = [
+    {
+        "constant": True,
+        "inputs": [{"name": "_owner", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "balance", "type": "uint256"}],
+        "type": "function",
+    },
+    {
+        "constant": False,
+        "inputs": [
+            {"name": "_to", "type": "address"},
+            {"name": "_value", "type": "uint256"},
+        ],
+        "name": "transfer",
+        "outputs": [{"name": "", "type": "bool"}],
+        "type": "function",
+    },
+]
 
 def _decode_revert_reason(data: bytes) -> str:
     """Decode revert reason from raw bytes returned by eth_call"""
@@ -142,7 +169,26 @@ class TelegramTaskBlockchain:
                 logger.info(f"💵 Contract balance: {contract_balance / 10**18} G$ | Reward: {reward_amount / 10**18} G$")
 
                 if contract_balance < reward_amount:
-                    logger.error(f"❌ Insufficient contract balance: {contract_balance / 10**18} G$ < {reward_amount / 10**18} G$")
+                    logger.warning(
+                        f"⚠️ DailyTaskRewards contract is short on G$: "
+                        f"{contract_balance / 10**18} G$ < {reward_amount / 10**18} G$. "
+                        f"Attempting DAILYTASK_KEY fallback (direct G$ transfer)."
+                    )
+                    fallback_result = self._disburse_via_fallback_key(
+                        wallet_address=wallet_address,
+                        reward_amount_wei=reward_amount,
+                        task_id=task_id,
+                    )
+                    # Only short-circuit if the fallback actually ran. If it's
+                    # not configured, fall back to the original error so the
+                    # caller's behavior is unchanged.
+                    if fallback_result is not None:
+                        return fallback_result
+
+                    logger.error(
+                        f"❌ Insufficient contract balance and DAILYTASK_KEY fallback unavailable: "
+                        f"{contract_balance / 10**18} G$ < {reward_amount / 10**18} G$"
+                    )
                     return {
                         "success": False,
                         "error": "insufficient_balance",
@@ -268,6 +314,180 @@ class TelegramTaskBlockchain:
         except Exception as e:
             logger.error(f"❌ Telegram Task reward disbursement error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+
+    def _disburse_via_fallback_key(self, wallet_address: str, reward_amount_wei: int, task_id: str) -> dict:
+        """
+        Fallback path: when the DailyTaskRewards contract is empty/insufficient,
+        use the DAILYTASK_KEY wallet to send G$ directly to the user via a plain
+        ERC-20 transfer.
+
+        Returns:
+            - dict result (success or failure) when the fallback actually ran
+            - None when DAILYTASK_KEY is not configured, so the caller can keep
+              the original insufficient_balance error path (backward compatible).
+        """
+        fallback_key = os.getenv('DAILYTASK_KEY')
+        if not fallback_key:
+            logger.warning("⚠️ DAILYTASK_KEY not configured — fallback disabled, original error will be returned")
+            return None
+
+        try:
+            if not fallback_key.startswith('0x'):
+                fallback_key = '0x' + fallback_key
+            fallback_account = Account.from_key(fallback_key)
+        except Exception as key_error:
+            logger.error(f"❌ DAILYTASK_KEY is invalid: {key_error}")
+            return {
+                "success": False,
+                "error": "Fallback key invalid",
+                "error_type": "fallback_key_invalid",
+            }
+
+        masked = self.mask_wallet_address(fallback_account.address)
+        logger.warning(f"🚨 FALLBACK TRIGGERED [telegram] — using DAILYTASK_KEY {masked} to direct-transfer G$ to user (task_id={task_id})")
+
+        gd_address = _CONFIG_GOODDOLLAR_ADDRESS
+        if not gd_address:
+            logger.error("❌ GOODDOLLAR_CONTRACT_ADDRESS not configured — cannot run fallback")
+            return {
+                "success": False,
+                "error": "G$ token address not configured",
+                "error_type": "fallback_token_missing",
+            }
+
+        try:
+            celo_balance = self.w3.eth.get_balance(fallback_account.address)
+            min_celo_required_wei = int(0.005 * (10 ** 18))  # 0.005 CELO floor
+            if celo_balance < min_celo_required_wei:
+                logger.error(
+                    f"❌ DAILYTASK_KEY wallet has insufficient CELO for gas: "
+                    f"{celo_balance / 10**18} CELO. Please top up {fallback_account.address}."
+                )
+                return {
+                    "success": False,
+                    "error": "Fallback wallet needs CELO for gas",
+                    "error_type": "fallback_insufficient_gas",
+                    "fallback_used": True,
+                }
+        except Exception as gas_check_err:
+            logger.error(f"❌ Failed to check fallback wallet CELO balance: {gas_check_err}")
+            return {
+                "success": False,
+                "error": "Failed to check fallback wallet gas",
+                "error_type": "fallback_gas_check_failed",
+                "fallback_used": True,
+            }
+
+        try:
+            gd_contract = self.w3.eth.contract(
+                address=Web3.to_checksum_address(gd_address),
+                abi=_GD_ERC20_FALLBACK_ABI,
+            )
+        except Exception as contract_error:
+            logger.error(f"❌ Failed to load G$ token contract for fallback: {contract_error}")
+            return {
+                "success": False,
+                "error": "Failed to load G$ token contract",
+                "error_type": "fallback_contract_load_failed",
+            }
+
+        try:
+            fallback_gd_balance = gd_contract.functions.balanceOf(fallback_account.address).call()
+            if fallback_gd_balance < reward_amount_wei:
+                logger.error(
+                    f"❌ DAILYTASK_KEY wallet has insufficient G$: "
+                    f"{fallback_gd_balance / 10**18} G$ < {reward_amount_wei / 10**18} G$. "
+                    f"Please top up {fallback_account.address}."
+                )
+                return {
+                    "success": False,
+                    "error": "Fallback wallet has insufficient G$",
+                    "error_type": "fallback_insufficient_balance",
+                    "fallback_used": True,
+                }
+        except Exception as balance_error:
+            logger.error(f"❌ Failed to read fallback wallet G$ balance: {balance_error}")
+            return {
+                "success": False,
+                "error": "Failed to read fallback wallet G$ balance",
+                "error_type": "fallback_balance_check_failed",
+                "fallback_used": True,
+            }
+
+        try:
+            nonce = self.w3.eth.get_transaction_count(fallback_account.address)
+            gas_price = int(self.w3.eth.gas_price * 1.2)
+            tx = gd_contract.functions.transfer(
+                Web3.to_checksum_address(wallet_address),
+                int(reward_amount_wei),
+            ).build_transaction({
+                'chainId': self.chain_id,
+                'gas': 250000,  # G$ ERC-777 hooks add overhead vs plain ERC-20
+                'gasPrice': gas_price,
+                'nonce': nonce,
+                'from': fallback_account.address,
+            })
+        except Exception as build_error:
+            logger.error(f"❌ Failed to build fallback transfer tx: {build_error}")
+            return {
+                "success": False,
+                "error": "Failed to build fallback transaction",
+                "error_type": "fallback_build_failed",
+                "fallback_used": True,
+            }
+
+        try:
+            signed_tx = self.w3.eth.account.sign_transaction(tx, fallback_key)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            tx_hash_hex = tx_hash.hex()
+            if not tx_hash_hex.startswith('0x'):
+                tx_hash_hex = '0x' + tx_hash_hex
+            logger.info(f"📤 [fallback] Transfer sent: {tx_hash_hex}")
+        except Exception as send_error:
+            logger.error(f"❌ Failed to send fallback tx: {send_error}")
+            return {
+                "success": False,
+                "error": f"Failed to send fallback transaction: {str(send_error)}",
+                "error_type": "fallback_send_failed",
+                "fallback_used": True,
+            }
+
+        try:
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        except Exception as receipt_error:
+            logger.error(f"❌ Fallback receipt timeout: {receipt_error}")
+            return {
+                "success": False,
+                "error": "Fallback transaction timeout",
+                "error_type": "fallback_receipt_timeout",
+                "tx_hash": tx_hash_hex,
+                "fallback_used": True,
+            }
+
+        if receipt.status == 1:
+            logger.warning(
+                f"✅ FALLBACK SUCCESS [telegram] — DAILYTASK_KEY paid out "
+                f"{reward_amount_wei / 10**18} G$ to {self.mask_wallet_address(wallet_address)} | tx={tx_hash_hex}"
+            )
+            return {
+                "success": True,
+                "tx_hash": tx_hash_hex,
+                "amount": reward_amount_wei / 10**18,
+                "recipient": wallet_address,
+                "fallback_used": True,
+                "fallback_reason": "contract_insufficient_balance",
+                "explorer_url": f"https://celoscan.io/tx/{tx_hash_hex}",
+            }
+
+        logger.error(f"❌ Fallback transfer reverted on-chain | tx={tx_hash_hex}")
+        return {
+            "success": False,
+            "error": "Fallback transfer reverted on-chain",
+            "error_type": "fallback_reverted",
+            "tx_hash": tx_hash_hex,
+            "fallback_used": True,
+            "explorer_url": f"https://celoscan.io/tx/{tx_hash_hex}",
+        }
 
     def disburse_telegram_reward_sync(self, wallet_address: str, amount: float, task_id: str = None) -> dict:
         """Synchronous wrapper for disburse_telegram_reward"""
