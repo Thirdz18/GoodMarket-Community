@@ -7346,7 +7346,9 @@ _faucet_lock = threading.Lock()
 #   - If wallet has >= FAUCET_MIN_CELO native CELO -> gas_ready=True, proceed to claim.
 #   - If wallet has <  FAUCET_MIN_CELO              -> call GoodDollar API faucet (Step B),
 #                                                     then GAMES_KEY on-chain fallback (Step C).
-FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.08"))
+# Tuned to 0.005 CELO (~10x ng actual claim gas cost ~0.0005 CELO).
+# Predictable, hindi over-faucet, sapat para sa 5-10 claims bago muling mag-trigger.
+FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.005"))
 FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.003"))
 FAUCET_BUFFER_MULTIPLIER = float(os.getenv("FAUCET_BUFFER_MULTIPLIER", "1.35"))
 FAUCET_DUPLICATE_WINDOW_MIN = int(os.getenv("FAUCET_DUPLICATE_WINDOW_MIN", "30"))
