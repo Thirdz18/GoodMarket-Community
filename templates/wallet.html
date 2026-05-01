@@ -3677,9 +3677,72 @@
                     if (!finalGasSnap.gasReady) {
                         setStatus('Gas changed while preparing tx. Retrying faucet top-up…', 'var(--text-dim)');
                         await ensureGasReadyBeforeClaim();
+
+                        // The backend faucet uses its own reliable RPC and has already
+                        // confirmed gas arrived on-chain. However, the *injected wallet's*
+                        // RPC (e.g. MetaMask/Trust Wallet's connection to forno.celo.org)
+                        // can lag behind by several seconds due to eventual consistency
+                        // across RPC nodes — it may still report a stale low balance even
+                        // though the top-up tx is already confirmed. Retry the wallet-side
+                        // snapshot a few times with progressive delays to let its RPC catch
+                        // up before failing the claim.
+                        const RPC_PROPAGATION_DELAYS_MS = [1500, 2500, 4000, 6000];
+                        let propagated = false;
                         finalGasSnap = await getProviderGasSnapshot(provider);
-                        if (!finalGasSnap.gasReady) {
-                            throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
+                        if (finalGasSnap.gasReady) {
+                            propagated = true;
+                        } else {
+                            for (const delay of RPC_PROPAGATION_DELAYS_MS) {
+                                setStatus('Gas top-up confirmed on-chain. Waiting for wallet RPC to sync…', 'var(--text-dim)');
+                                await new Promise(r => setTimeout(r, delay));
+                                finalGasSnap = await getProviderGasSnapshot(provider);
+                                if (finalGasSnap.gasReady) {
+                                    propagated = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!propagated) {
+                            // Wallet RPC still shows stale balance. Trust the backend's
+                            // gas_ready signal as a tiebreaker — if the backend (using a
+                            // reliable RPC) confirms gas is ready, allow the claim to
+                            // proceed. The wallet will fetch a fresh balance when it
+                            // actually broadcasts the tx, and any *genuine*
+                            // insufficient-funds error at send time is already handled
+                            // by the catch block below (line ~3711) which re-runs the
+                            // faucet fallback once and retries the send.
+                            let backendConfirmsGas = false;
+                            try {
+                                const correlationId =
+                                    window.__claimFaucetCorrelationId ||
+                                    `claim-${Date.now().toString(36)}`;
+                                const backendStatus = await _safeFetchJson('/api/faucet/status', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-Correlation-ID': correlationId,
+                                    },
+                                    body: JSON.stringify({
+                                        wallet: WALLET,
+                                        correlation_id: correlationId,
+                                    }),
+                                });
+                                backendConfirmsGas = !!(
+                                    backendStatus &&
+                                    backendStatus.success &&
+                                    backendStatus.gas_ready
+                                );
+                            } catch (statusErr) {
+                                console.warn('[claim] backend gas_ready re-check failed:', statusErr);
+                            }
+
+                            if (backendConfirmsGas) {
+                                setStatus('Gas confirmed by faucet. Proceeding with claim…', 'var(--text-dim)');
+                                setClaimGasUiState('gas_ready');
+                            } else {
+                                throw new Error('Wallet still lacks CELO gas after top-up retry. Please retry in a minute.');
+                            }
                         }
                     }
                 }
