@@ -7342,7 +7342,11 @@ _faucet_recent_refill: dict = {}
 _faucet_api_pending: dict = {}
 _faucet_lock = threading.Lock()
 
-FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.002"))
+# Fixed gas threshold aligned with GoodDapp claim flow:
+#   - If wallet has >= FAUCET_MIN_CELO native CELO -> gas_ready=True, proceed to claim.
+#   - If wallet has <  FAUCET_MIN_CELO              -> call GoodDollar API faucet (Step B),
+#                                                     then GAMES_KEY on-chain fallback (Step C).
+FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.08"))
 FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.003"))
 FAUCET_BUFFER_MULTIPLIER = float(os.getenv("FAUCET_BUFFER_MULTIPLIER", "1.35"))
 FAUCET_DUPLICATE_WINDOW_MIN = int(os.getenv("FAUCET_DUPLICATE_WINDOW_MIN", "30"))
@@ -7389,7 +7393,15 @@ def _validate_and_authorize_wallet(data: dict) -> tuple:
 
 
 def _get_gas_status(w3, checksum_wallet: str) -> dict:
-    """Estimate claim gas reserve and compare with current CELO balance."""
+    """Compare wallet CELO balance against the fixed FAUCET_MIN_CELO threshold.
+
+    Aligned with GoodDapp behavior:
+      - balance >= FAUCET_MIN_CELO (default 0.08 CELO)  -> gas_ready=True, claim proceeds.
+      - balance <  FAUCET_MIN_CELO                       -> caller should request faucet
+        (GoodDollar API first, GAMES_KEY on-chain fallback only if API is down/failed).
+    Estimated gas + gas price are still returned for diagnostics, but they no longer
+    move the readiness goalposts so users with adequate balance never get blocked.
+    """
     from blockchain import GOODDOLLAR_CONTRACTS
 
     claim_selector = "0x4e71d92d"  # claim()
@@ -7403,19 +7415,23 @@ def _get_gas_status(w3, checksum_wallet: str) -> dict:
     except Exception:
         estimated_gas = 220000
 
-    gas_price_wei = int(w3.eth.gas_price)
-    required_wei = int(estimated_gas * gas_price_wei * FAUCET_BUFFER_MULTIPLIER)
-    minimum_wei = w3.to_wei(FAUCET_MIN_CELO, "ether")
-    required_wei = max(required_wei, int(minimum_wei))
+    try:
+        gas_price_wei = int(w3.eth.gas_price)
+    except Exception:
+        gas_price_wei = 0
 
+    # Fixed threshold: a wallet with >= FAUCET_MIN_CELO is considered gas-ready.
+    required_wei = int(w3.to_wei(FAUCET_MIN_CELO, "ether"))
     balance_wei = int(w3.eth.get_balance(checksum_wallet))
+
     return {
         "balance_wei": str(balance_wei),
         "balance_celo": float(w3.from_wei(balance_wei, "ether")),
         "estimated_gas": int(estimated_gas),
         "gas_price_wei": str(gas_price_wei),
         "required_gas_wei": str(required_wei),
-        "required_gas_celo": float(w3.from_wei(required_wei, "ether")),
+        "required_gas_celo": float(FAUCET_MIN_CELO),
+        "gas_threshold_celo": float(FAUCET_MIN_CELO),
         "gas_ready": balance_wei >= required_wei,
     }
 
