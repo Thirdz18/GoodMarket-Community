@@ -1123,7 +1123,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
+            let animationEnabled = true;
             function draw() {
+                if (!animationEnabled) return;
                 ctx.clearRect(0, 0, W, H);
                 const maxDist = 140;
 
@@ -1157,9 +1159,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             window.addEventListener('resize', () => { resize(); initNodes(60); });
+            document.addEventListener('visibilitychange', () => {
+                animationEnabled = !document.hidden;
+                if (animationEnabled) requestAnimationFrame(draw);
+            });
             resize();
             initNodes(60);
-            draw();
+            if (!document.hidden) draw();
         })();
 
         /* ── Collapsible Menu Logic ── */
@@ -1352,11 +1358,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (wallet && wallet !== 'None' && wallet !== '') {
                 loadAnalyticsData();
                 loadGdPriceOverview();
-                setInterval(loadAnalyticsData, 60000);
+                setInterval(() => {
+                    if (!document.hidden) loadAnalyticsData();
+                }, 90000);
             }
 
             loadUbiPoolBalance();
-            setInterval(loadUbiPoolBalance, 120000);
+            setInterval(() => {
+                if (!document.hidden) loadUbiPoolBalance();
+            }, 180000);
 
             const today = new Date();
             const yyyy  = today.getFullYear();

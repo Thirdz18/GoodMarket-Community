@@ -2793,8 +2793,8 @@
                     .then(registration => {
                         console.log('✅ Service Worker registered successfully');
                         setInterval(() => {
-                            registration.update();
-                        }, 60000);
+                            if (!document.hidden) registration.update();
+                        }, 300000);
                     })
                     .catch(err => console.error('❌ Service Worker registration failed:', err));
             });
@@ -2818,7 +2818,9 @@
             await loadUnifiedInbox(true); // Show loading on first load
             // Start polling for new notifications every 30 seconds (optimized)
             if (inboxPollingInterval) clearInterval(inboxPollingInterval);
-            inboxPollingInterval = setInterval(() => loadUnifiedInbox(false), 30000);
+            inboxPollingInterval = setInterval(() => {
+                if (!document.hidden) loadUnifiedInbox(false);
+            }, 45000);
         }
 
         function closeInboxModal() {
@@ -3427,10 +3429,14 @@
 
     <script>
         // Auto-refresh recent submissions every 2 minutes (reduced frequency)
-        setInterval(loadRecentDailyTasks, 120000);
+        setInterval(() => {
+            if (!document.hidden) loadRecentDailyTasks();
+        }, 180000);
 
         // Auto-refresh community screenshots every 3 minutes (reduced frequency)
-        setInterval(loadCommunityScreenshots, 180000);
+        setInterval(() => {
+            if (!document.hidden) loadCommunityScreenshots();
+        }, 240000);
 
         async function loadRecentDailyTasks() {
             try {
@@ -3705,10 +3711,11 @@
         runWhenIdle(() => checkForNotifications().catch(() => {}), 2200);
         // Set interval to check for new notifications periodically
         var _notifPollingTimer = setInterval(function() {
+            if (document.hidden) return;
             checkForNotifications().catch(function() {
                 clearInterval(_notifPollingTimer);
             });
-        }, 30000);
+        }, 45000);
     </script>
 
     <script>
@@ -3737,7 +3744,9 @@
                 }
             }
 
+            let animationEnabled = true;
             function draw() {
+                if (!animationEnabled) return;
                 ctx.clearRect(0, 0, W, H);
                 const maxDist = 140;
 
@@ -3771,9 +3780,13 @@
             }
 
             window.addEventListener('resize', () => { resize(); initNodes(60); });
+            document.addEventListener('visibilitychange', () => {
+                animationEnabled = !document.hidden;
+                if (animationEnabled) requestAnimationFrame(draw);
+            });
             resize();
             initNodes(60);
-            draw();
+            if (!document.hidden) draw();
         })();
     </script>
 
