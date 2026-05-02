@@ -1,26 +1,23 @@
 """
-Match first_login (user_data) with first GoodDollar UBI claim on Celo.
+Match user_data.first_login (April 23 -> May 1, 2026, UTC) with each wallet's
+FIRST EVER GoodDollar UBI claim on Celo.
 
-Window: April 23, 2026 -> May 1, 2026 (UTC, inclusive).
-
-Approach:
+Approach (optimized batched scan):
   1. Pull user_data rows where first_login is in window.
-  2. For each wallet, query Celo RPC (eth_getLogs) on GoodDollar token contract
-     for Transfer events from UBI_PROXY -> wallet.
-       - First scan a slightly larger window (April 22 -> May 2) to catch the
-         claim that lines up with the first_login date.
-       - Then verify it is truly the FIRST EVER claim by scanning earlier
-         blocks (from a safe early block up to the first hit's block) for any
-         earlier UBI Transfer to that wallet. If an earlier claim exists, the
-         match is invalidated (first_claim != first_login date).
-  3. Compare calendar date (UTC) of first_login vs first_claim.
+  2. Resolve block range covering [HISTORY_FLOOR_BLOCK -> tip].
+  3. Single chunked eth_getLogs scan over the GoodDollar token contract for:
+       Transfer(from=UBI_PROXY, to=ANY_OF(our wallets))
+     Using a topic[2] array means ONE filter covers all 22+ wallets in parallel.
+  4. For each wallet, take the earliest matched log -> that is the first claim.
+  5. Compare calendar date (UTC) of first_login vs first_claim.
+
+CSV output: audit_first_login_vs_first_claim.csv
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import json
 import os
 import sys
 import time
@@ -55,11 +52,11 @@ TRANSFER_TOPIC = (
     "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 )
 
-# Reasonable lower bound: GoodDollar UBIScheme proxy was deployed long ago.
-# Pick a conservative early Celo block (Sept 2020-ish) to cover all history.
+# UBIScheme proxy was deployed on Celo around block 5,200,000 (Sept 2020).
+# 2,000,000 is a safe lower bound that covers all GoodDollar history.
 HISTORY_FLOOR_BLOCK = int(os.getenv("HISTORY_FLOOR_BLOCK", "2000000"))
 
-# Forno allows up to ~10k blocks per eth_getLogs filter.
+# Forno typical max is ~10k blocks per filter. 9000 is a safe chunk size.
 LOG_RANGE_CHUNK = int(os.getenv("LOG_RANGE_CHUNK", "9000"))
 
 SESSION = requests.Session()
@@ -76,22 +73,21 @@ def _rpc(method: str, params: List[Any]) -> Any:
     global _rpc_id
     _rpc_id += 1
     payload = {"jsonrpc": "2.0", "id": _rpc_id, "method": method, "params": params}
+    last_err: Optional[Exception] = None
     for attempt in range(5):
         try:
-            r = SESSION.post(CELO_RPC, json=payload, timeout=30)
+            r = SESSION.post(CELO_RPC, json=payload, timeout=45)
             r.raise_for_status()
             data = r.json()
             if "error" in data:
                 err = data["error"]
-                # Some "range too large" errors -> raise to caller
                 msg = str(err.get("message", err))
                 raise RuntimeError(f"rpc_error: {msg}")
             return data["result"]
-        except requests.RequestException as e:
-            if attempt == 4:
-                raise
+        except (requests.RequestException, RuntimeError) as e:
+            last_err = e
             time.sleep(1 + attempt)
-    raise RuntimeError("unreachable")
+    raise last_err  # type: ignore[misc]
 
 
 def block_by_number(num_hex: str) -> Optional[Dict[str, Any]]:
@@ -102,73 +98,34 @@ def latest_block() -> int:
     return int(_rpc("eth_blockNumber", []), 16)
 
 
-def find_block_at_or_after(ts: int, lo: int, hi: int) -> int:
-    """Binary search lowest block whose timestamp >= ts."""
-    while lo < hi:
-        mid = (lo + hi) // 2
-        b = block_by_number(hex(mid))
-        if not b:
-            lo = mid + 1
-            continue
-        bts = int(b["timestamp"], 16)
-        if bts >= ts:
-            hi = mid
-        else:
-            lo = mid + 1
-    return lo
-
-
-def find_block_at_or_before(ts: int, lo: int, hi: int) -> int:
-    """Binary search highest block whose timestamp <= ts."""
-    res = lo
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        b = block_by_number(hex(mid))
-        if not b:
-            break
-        bts = int(b["timestamp"], 16)
-        if bts <= ts:
-            res = mid
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return res
-
-
 def addr_topic(addr: str) -> str:
     a = addr.lower().replace("0x", "")
     return "0x" + a.rjust(64, "0")
 
 
-def get_logs(from_block: int, to_block: int, topics: List[Any]) -> List[Dict]:
-    """Chunked eth_getLogs scan."""
-    out: List[Dict] = []
-    cur = from_block
-    while cur <= to_block:
-        end = min(cur + LOG_RANGE_CHUNK - 1, to_block)
-        params = {
-            "address": GOODDOLLAR_TOKEN,
-            "fromBlock": hex(cur),
-            "toBlock": hex(end),
-            "topics": topics,
-        }
-        try:
-            res = _rpc("eth_getLogs", [params]) or []
-        except RuntimeError as e:
-            # If range too large, halve the chunk and retry once
-            msg = str(e)
-            if "range" in msg.lower() or "limit" in msg.lower() or "too" in msg.lower():
-                mid = (cur + end) // 2
-                left = get_logs(cur, mid, topics)
-                right = get_logs(mid + 1, end, topics)
-                out.extend(left)
-                out.extend(right)
-                cur = end + 1
-                continue
-            raise
-        out.extend(res)
-        cur = end + 1
-    return out
+def topic_to_addr(topic_hex: str) -> str:
+    return "0x" + topic_hex[-40:].lower()
+
+
+def get_logs_chunk(from_block: int, to_block: int, topics: List[Any]) -> List[Dict]:
+    params = {
+        "address": GOODDOLLAR_TOKEN,
+        "fromBlock": hex(from_block),
+        "toBlock": hex(to_block),
+        "topics": topics,
+    }
+    try:
+        return _rpc("eth_getLogs", [params]) or []
+    except RuntimeError as e:
+        msg = str(e).lower()
+        if any(s in msg for s in ("range", "limit", "too", "size", "many")):
+            if from_block >= to_block:
+                raise
+            mid = (from_block + to_block) // 2
+            left = get_logs_chunk(from_block, mid, topics)
+            right = get_logs_chunk(mid + 1, to_block, topics)
+            return left + right
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +158,7 @@ def fetch_users(sb, start_iso: str, end_iso: str) -> List[Dict[str, Any]]:
         q = (
             sb.table("user_data")
             .select(
-                "id,wallet_address,first_login,verified_after_goodmarket,verification_timestamp,profile_username"
+                "id,wallet_address,first_login,verified_after_goodmarket,verification_timestamp,username"
             )
             .gte("first_login", start_iso)
             .lte("first_login", end_iso)
@@ -222,49 +179,29 @@ def fetch_users(sb, start_iso: str, end_iso: str) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def parse_iso_to_dt(s: str) -> Optional[datetime]:
+def parse_iso_to_dt(s: Any) -> Optional[datetime]:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
     except Exception:
         return None
 
 
-def find_first_claim_for_wallet(
-    wallet: str,
-    window_from_block: int,
-    window_to_block: int,
-) -> Optional[Tuple[int, int, str]]:
-    """
-    Returns (block_number, timestamp, tx_hash) of FIRST EVER UBI claim
-    (Transfer from UBI_PROXY to wallet on GoodDollar token), or None.
-    """
-    topics = [TRANSFER_TOPIC, addr_topic(UBI_PROXY), addr_topic(wallet)]
-
-    # Step 1: scan history up to and including window_to_block.
-    logs = get_logs(HISTORY_FLOOR_BLOCK, window_to_block, topics)
-    if not logs:
-        return None
-
-    # First log in ascending order
-    logs.sort(key=lambda l: (int(l["blockNumber"], 16), int(l["logIndex"], 16)))
-    first = logs[0]
-    bn = int(first["blockNumber"], 16)
-    tx = first["transactionHash"]
-    block = block_by_number(hex(bn))
-    if not block:
-        return None
-    ts = int(block["timestamp"], 16)
-    return (bn, ts, tx)
-
-
-def main():
+def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--from", dest="d_from", default="2026-04-23")
     p.add_argument("--to", dest="d_to", default="2026-05-01")
     p.add_argument(
         "--out", default="audit_first_login_vs_first_claim.csv", help="output csv path"
+    )
+    p.add_argument(
+        "--floor",
+        type=int,
+        default=HISTORY_FLOOR_BLOCK,
+        help="lower bound block to search",
     )
     args = p.parse_args()
 
@@ -273,118 +210,181 @@ def main():
         hour=23, minute=59, second=59, tzinfo=timezone.utc
     )
 
-    print(f"[info] window: {start_dt.isoformat()} -> {end_dt.isoformat()}")
-    print(f"[info] RPC: {CELO_RPC} (chain_id={CHAIN_ID})")
-    print(f"[info] UBI_PROXY: {UBI_PROXY}")
-    print(f"[info] GOODDOLLAR_TOKEN: {GOODDOLLAR_TOKEN}")
+    print(f"[info] window:        {start_dt.isoformat()} -> {end_dt.isoformat()}")
+    print(f"[info] RPC:           {CELO_RPC} (chain_id={CHAIN_ID})")
+    print(f"[info] UBI_PROXY:     {UBI_PROXY}")
+    print(f"[info] GD_TOKEN:      {GOODDOLLAR_TOKEN}")
+    print(f"[info] HISTORY_FLOOR: {args.floor}")
 
-    # 1) Pull users
+    # --- 1) users ---
     sb = supabase_client()
-    rows = fetch_users(
-        sb,
-        start_dt.isoformat(),
-        end_dt.isoformat(),
-    )
+    rows = fetch_users(sb, start_dt.isoformat(), end_dt.isoformat())
     print(f"[info] user_data rows in window: {len(rows)}")
-
-    # filter: must have wallet
     rows = [r for r in rows if r.get("wallet_address")]
-    print(f"[info] with wallet_address: {len(rows)}")
-
+    print(f"[info] with wallet_address:      {len(rows)}")
     if not rows:
-        print("[done] no users in window with wallet address.")
+        print("[done] no users in window; nothing to do.")
         return
 
-    # 2) Resolve block range (with buffer) for the window
-    #    buffer = +/- 1 day so we comfortably cover same-date matches.
-    buf_from_ts = int((start_dt - timedelta(days=1)).timestamp())
-    buf_to_ts = int((end_dt + timedelta(days=1)).timestamp())
+    # de-dup wallet list, keep first row per wallet (lowest first_login)
+    by_wallet: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        w = r["wallet_address"].lower().strip()
+        if w not in by_wallet:
+            by_wallet[w] = r
+    wallets = sorted(by_wallet.keys())
+    print(f"[info] unique wallets:           {len(wallets)}")
+
+    # --- 2) tip + scan range ---
     tip = latest_block()
-    print(f"[info] latest block: {tip}")
-    print("[info] resolving window block range (binary search)...")
-    win_from_block = find_block_at_or_after(buf_from_ts, HISTORY_FLOOR_BLOCK, tip)
-    win_to_block = find_block_at_or_before(buf_to_ts, win_from_block, tip)
+    print(f"[info] latest block:             {tip}")
+    from_block = args.floor
+    to_block = tip
+    total_blocks = to_block - from_block
+    n_chunks = (total_blocks + LOG_RANGE_CHUNK - 1) // LOG_RANGE_CHUNK
     print(
-        f"[info] window blocks: {win_from_block} -> {win_to_block} "
-        f"({win_to_block - win_from_block:,} blocks)"
+        f"[info] scanning blocks {from_block} -> {to_block} "
+        f"({total_blocks:,} blocks, ~{n_chunks} chunks)"
     )
 
-    # 3) Per-wallet first claim lookup
-    out_rows = []
-    matches = []
-    for i, r in enumerate(rows, 1):
-        wallet = (r["wallet_address"] or "").strip()
+    # --- 3) ONE chunked scan covering all wallets ---
+    # topics: [Transfer, from=UBI_PROXY, to=ANY_OF(wallets)]
+    to_topic_array = [addr_topic(w) for w in wallets]
+    topics = [TRANSFER_TOPIC, addr_topic(UBI_PROXY), to_topic_array]
+
+    earliest_log_per_wallet: Dict[str, Tuple[int, int, str]] = {}
+    # value = (block_number, log_index, tx_hash)
+
+    cur = from_block
+    chunk_idx = 0
+    found_total = 0
+    t0 = time.time()
+    while cur <= to_block:
+        end = min(cur + LOG_RANGE_CHUNK - 1, to_block)
+        chunk_idx += 1
+        try:
+            logs = get_logs_chunk(cur, end, topics)
+        except Exception as e:
+            print(f"[warn] chunk {chunk_idx} ({cur}-{end}) failed: {e}; skipping")
+            cur = end + 1
+            continue
+        if logs:
+            for lg in logs:
+                bn = int(lg["blockNumber"], 16)
+                li = int(lg["logIndex"], 16)
+                tx = lg["transactionHash"]
+                # topics[2] = recipient
+                wallet = topic_to_addr(lg["topics"][2])
+                cur_first = earliest_log_per_wallet.get(wallet)
+                if cur_first is None or (bn, li) < (cur_first[0], cur_first[1]):
+                    earliest_log_per_wallet[wallet] = (bn, li, tx)
+            found_total += len(logs)
+        if chunk_idx % 25 == 0 or cur == from_block:
+            elapsed = time.time() - t0
+            pct = (chunk_idx / max(n_chunks, 1)) * 100
+            print(
+                f"[scan] chunk {chunk_idx}/{n_chunks} "
+                f"({pct:.1f}%) block={end:,} "
+                f"logs_found={found_total} matched_wallets={len(earliest_log_per_wallet)} "
+                f"elapsed={elapsed:.1f}s"
+            )
+        cur = end + 1
+
+    print(
+        f"[scan] DONE chunks={chunk_idx} logs_found={found_total} "
+        f"matched_wallets={len(earliest_log_per_wallet)}"
+    )
+
+    # --- 4) resolve block timestamps for first claims ---
+    print("[info] resolving block timestamps for first claims...")
+    block_ts_cache: Dict[int, int] = {}
+    first_claim_resolved: Dict[str, Tuple[int, int, str]] = {}
+    for wallet, (bn, li, tx) in earliest_log_per_wallet.items():
+        if bn not in block_ts_cache:
+            try:
+                blk = block_by_number(hex(bn))
+                block_ts_cache[bn] = int(blk["timestamp"], 16) if blk else 0
+            except Exception as e:
+                print(f"[warn] block {bn} ts fetch failed: {e}")
+                block_ts_cache[bn] = 0
+        ts = block_ts_cache[bn]
+        first_claim_resolved[wallet] = (bn, ts, tx)
+
+    # --- 5) build report ---
+    out_rows: List[Dict[str, Any]] = []
+    matches: List[Dict[str, Any]] = []
+    for wallet in wallets:
+        r = by_wallet[wallet]
         first_login = parse_iso_to_dt(r.get("first_login"))
         verified_via_gm = r.get("verified_after_goodmarket")
         v_at = parse_iso_to_dt(r.get("verification_timestamp"))
-        username = r.get("profile_username") or ""
+        username = r.get("username") or ""
 
-        print(
-            f"[{i}/{len(rows)}] {wallet}  first_login={first_login.isoformat() if first_login else '-'}"
-        )
-
-        try:
-            res = find_first_claim_for_wallet(wallet, win_from_block, win_to_block)
-        except Exception as e:
-            print(f"    [warn] rpc error: {e}")
-            res = None
-
-        if res is None:
-            first_claim_dt = None
-            first_claim_tx = ""
-            first_claim_block = ""
-        else:
-            bn, ts, tx = res
-            first_claim_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            first_claim_tx = tx
+        info = first_claim_resolved.get(wallet)
+        if info:
+            bn, ts, tx = info
+            first_claim_dt = (
+                datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None
+            )
             first_claim_block = bn
+            first_claim_tx = tx
+        else:
+            first_claim_dt = None
+            first_claim_block = ""
+            first_claim_tx = ""
 
         same_date = False
-        delta_seconds = ""
+        delta_seconds: Any = ""
         if first_login and first_claim_dt:
             same_date = first_login.date() == first_claim_dt.date()
-            delta_seconds = int(
-                (first_claim_dt - first_login).total_seconds()
-            )
+            delta_seconds = int((first_claim_dt - first_login).total_seconds())
 
-        out_rows.append(
-            {
-                "wallet_address": wallet,
-                "username": username,
-                "first_login_utc": first_login.isoformat() if first_login else "",
-                "first_claim_utc": first_claim_dt.isoformat() if first_claim_dt else "",
-                "same_calendar_date_utc": "YES" if same_date else "NO",
-                "delta_seconds_claim_minus_login": delta_seconds,
-                "first_claim_tx": first_claim_tx,
-                "first_claim_block": first_claim_block,
-                "verified_after_goodmarket": bool(verified_via_gm),
-                "verification_timestamp_utc": v_at.isoformat() if v_at else "",
-                "celoscan_url": (
-                    f"https://celoscan.io/tx/{first_claim_tx}" if first_claim_tx else ""
-                ),
-            }
-        )
+        row = {
+            "wallet_address": wallet,
+            "username": username,
+            "first_login_utc": first_login.isoformat() if first_login else "",
+            "first_login_date_utc": first_login.date().isoformat() if first_login else "",
+            "first_claim_utc": first_claim_dt.isoformat() if first_claim_dt else "",
+            "first_claim_date_utc": first_claim_dt.date().isoformat() if first_claim_dt else "",
+            "same_calendar_date_utc": "YES" if same_date else "NO",
+            "delta_seconds_claim_minus_login": delta_seconds,
+            "first_claim_tx": first_claim_tx,
+            "first_claim_block": first_claim_block,
+            "verified_after_goodmarket": bool(verified_via_gm),
+            "verification_timestamp_utc": v_at.isoformat() if v_at else "",
+            "celoscan_url": (
+                f"https://celoscan.io/tx/{first_claim_tx}" if first_claim_tx else ""
+            ),
+        }
+        out_rows.append(row)
         if same_date:
-            matches.append(out_rows[-1])
+            matches.append(row)
 
-        # be polite with public RPC
-        time.sleep(0.15)
-
-    # 4) Write CSV
+    # --- 6) write CSV + summary ---
     out_path = args.out
     with open(out_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(out_rows[0].keys()))
         w.writeheader()
         w.writerows(out_rows)
-    print(f"\n[done] wrote {len(out_rows)} rows -> {out_path}")
-    print(f"[summary] same-date matches: {len(matches)} / {len(out_rows)}")
+
+    print("\n" + "=" * 78)
+    print(f"[done] wrote {len(out_rows)} rows -> {out_path}")
+    print(f"[summary] users in window:        {len(wallets)}")
+    print(f"[summary] users with any claim:   {len(first_claim_resolved)}")
+    print(f"[summary] same-date matches:      {len(matches)}")
+    print("=" * 78)
     if matches:
-        print("[summary] matched wallets:")
+        print("\nMATCHED (first_login date == first_claim date, UTC):")
         for m in matches:
+            uname = f"  ({m['username']})" if m["username"] else ""
             print(
-                f"  - {m['wallet_address']}  login={m['first_login_utc']}  "
-                f"claim={m['first_claim_utc']}  tx={m['first_claim_tx']}"
+                f"  {m['wallet_address']}{uname}\n"
+                f"    login : {m['first_login_utc']}\n"
+                f"    claim : {m['first_claim_utc']}\n"
+                f"    tx    : {m['celoscan_url']}\n"
             )
+    else:
+        print("\nNo wallets had first_claim on the same UTC date as first_login.")
 
 
 if __name__ == "__main__":
