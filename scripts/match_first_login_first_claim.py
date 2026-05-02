@@ -1,63 +1,143 @@
 """
 Audit: For users in `user_data` whose first_login is between --from and --to (UTC),
-use the Celoscan API (account.tokentx) to find each wallet's FIRST GoodDollar UBI
-claim, and report whether that first claim happened on the SAME calendar date as
-the user's first_login.
+check on-chain (via Celo RPC eth_getLogs) whether the wallet received a GoodDollar
+UBI Scheme Transfer on the SAME calendar date (UTC) as their first_login.
 
-A "claim" = ERC-20 Transfer of G$ where:
-  contract = GoodDollar token (0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A)
-  from     = UBI Scheme proxy (0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1)
-  to       = the user's wallet
+Strategy (fast, no Celoscan rate limits):
+  1) Pull rows from Supabase user_data where first_login ∈ [from, to] AND wallet_address IS NOT NULL.
+  2) For each wallet, compute the day-window [00:00 UTC, 24:00 UTC] of first_login.
+     - Find startBlock = first block >= startOfDay (binary search on eth_getBlockByNumber)
+     - Find endBlock   = last block  <= endOfDay   (binary search)
+  3) eth_getLogs on the GoodDollar token contract:
+        topic0 = Transfer(address,address,uint256)
+        topic1 = UBI Scheme proxy (padded)        -> from
+        topic2 = wallet (padded)                  -> to
+        fromBlock..toBlock
+     -> If any logs returned, the wallet got a UBI claim on the same date as first_login.
+  4) Output CSV + summary.
 
-Read-only. Only writes a CSV report locally; nothing is modified in Supabase or onchain.
+Read-only: nothing is written to Supabase or onchain.
+
+Usage:
+    python scripts/match_first_login_first_claim.py --from 2026-04-23 --to 2026-05-01
+
+Env required:
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY/SUPABASE_ANON_KEY)
+    CELO_RPC_URL  (or RPC_URL)  -- defaults to https://forno.celo.org
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 import requests
 from supabase import create_client
 
+# ---- Constants ----------------------------------------------------------------
+GOODDOLLAR_TOKEN = "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"  # G$ on Celo
+UBI_PROXY = "0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1"          # GoodDollar UBI Scheme
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-UBI_PROXY = "0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1".lower()
-GOODDOLLAR_TOKEN = "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A".lower()
-CELOSCAN_API = "https://api.celoscan.io/api"
-
-
-def env(name: str, *fallbacks: str) -> str:
-    for n in (name, *fallbacks):
-        v = os.getenv(n)
-        if v:
-            return v
-    return ""
+DEFAULT_RPC = "https://forno.celo.org"
 
 
-def get_supabase():
-    url = env("SUPABASE_URL")
-    key = env(
-        "SUPABASE_SERVICE_ROLE_KEY",
-        "SUPABASE_SERVICE_KEY",
-        "SUPABASE_KEY",
-        "SUPABASE_ANON_KEY",
-    )
-    if not url or not key:
-        sys.exit("ERROR: SUPABASE_URL and a Supabase key must be set.")
-    using = (
-        "service_role"
-        if (env("SUPABASE_SERVICE_ROLE_KEY") or env("SUPABASE_SERVICE_KEY"))
-        else "anon"
-    )
-    print(f"[supabase] using {using} key", flush=True)
-    return create_client(url, key)
+def addr_to_topic(addr: str) -> str:
+    a = addr.lower().replace("0x", "")
+    return "0x" + ("0" * (64 - len(a))) + a
 
 
+# ---- RPC ---------------------------------------------------------------------
+class RPC:
+    def __init__(self, url: str):
+        self.url = url
+        self.s = requests.Session()
+        self._id = 0
+
+    def call(self, method: str, params: list[Any], retries: int = 5) -> Any:
+        backoff = 1.0
+        for attempt in range(retries):
+            self._id += 1
+            try:
+                r = self.s.post(
+                    self.url,
+                    json={"jsonrpc": "2.0", "id": self._id, "method": method, "params": params},
+                    timeout=30,
+                )
+                if r.status_code == 429:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if "error" in data:
+                    err = data["error"]
+                    msg = err.get("message", "")
+                    # transient errors: retry
+                    if "rate" in msg.lower() or "timeout" in msg.lower() or err.get("code") == -32005:
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                    raise RuntimeError(f"RPC error: {err}")
+                return data["result"]
+            except (requests.RequestException, ValueError) as e:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(backoff)
+                backoff *= 2
+        raise RuntimeError(f"RPC failed after {retries} retries")
+
+    def block_number(self) -> int:
+        return int(self.call("eth_blockNumber", []), 16)
+
+    def block_timestamp(self, block: int) -> int:
+        b = self.call("eth_getBlockByNumber", [hex(block), False])
+        if not b:
+            raise RuntimeError(f"block {block} not found")
+        return int(b["timestamp"], 16)
+
+    def get_logs(self, params: dict) -> list[dict]:
+        return self.call("eth_getLogs", [params])
+
+
+# ---- Block search ------------------------------------------------------------
+def find_block_at_or_after(rpc: RPC, ts: int, lo: int, hi: int) -> int:
+    """Return smallest block N in [lo,hi] with timestamp(N) >= ts."""
+    if rpc.block_timestamp(lo) >= ts:
+        return lo
+    if rpc.block_timestamp(hi) < ts:
+        return hi + 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if rpc.block_timestamp(mid) < ts:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+def find_block_at_or_before(rpc: RPC, ts: int, lo: int, hi: int) -> int:
+    """Return largest block N in [lo,hi] with timestamp(N) <= ts."""
+    if rpc.block_timestamp(hi) <= ts:
+        return hi
+    if rpc.block_timestamp(lo) > ts:
+        return lo - 1
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if rpc.block_timestamp(mid) > ts:
+            hi = mid - 1
+        else:
+            lo = mid
+    return lo
+
+
+# ---- Helpers -----------------------------------------------------------------
 def parse_iso(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
@@ -69,268 +149,199 @@ def parse_iso(s: Optional[str]) -> Optional[datetime]:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
     except Exception:
-        try:
-            return datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-        except Exception:
-            return None
+        return None
 
 
-def date_str(dt: Optional[datetime]) -> str:
-    return dt.strftime("%Y-%m-%d") if dt else ""
+def day_bounds_utc(d: datetime) -> tuple[datetime, datetime]:
+    s = datetime(d.year, d.month, d.day, 0, 0, 0, tzinfo=timezone.utc)
+    return s, s + timedelta(days=1)
 
 
-def fetch_first_ubi_claim(wallet: str, api_key: str = "") -> Optional[dict]:
-    """Return the wallet's first incoming G$ Transfer where from == UBI proxy, or None."""
-    params = {
-        "module": "account",
-        "action": "tokentx",
-        "contractaddress": GOODDOLLAR_TOKEN,
-        "address": wallet,
-        "page": 1,
-        "offset": 1000,
-        "startblock": 0,
-        "endblock": 99999999,
-        "sort": "asc",
-    }
-    if api_key:
-        params["apikey"] = api_key
-
-    backoff = 5.0
-    for _ in range(6):
-        try:
-            r = requests.get(CELOSCAN_API, params=params, timeout=30)
-            data = r.json()
-        except Exception as e:
-            print(f"  ! request error ({e}); sleeping {backoff:.0f}s", flush=True)
-            time.sleep(backoff)
-            backoff *= 1.5
-            continue
-
-        status = str(data.get("status", "0"))
-        message = data.get("message", "")
-        result = data.get("result")
-
-        if status == "1" and isinstance(result, list):
-            for tx in result:
-                if (tx.get("from") or "").lower() == UBI_PROXY:
-                    return tx
-            return None
-
-        if status == "0" and message == "No transactions found":
-            return None
-
-        # Rate limit / NOTOK
-        result_str = str(result) if not isinstance(result, list) else ""
-        if (
-            "rate limit" in result_str.lower()
-            or "max rate" in result_str.lower()
-            or message == "NOTOK"
-        ):
-            print(f"  ! rate limited; sleeping {backoff:.0f}s", flush=True)
-            time.sleep(backoff)
-            backoff *= 1.5
-            continue
-
-        print(
-            f"  ! unexpected response status={status} message={message} result={result_str[:120]}",
-            flush=True,
-        )
-        time.sleep(backoff)
-        backoff *= 1.5
-
-    return None
-
-
-def fetch_user_rows(sb, start_iso: str, end_iso: str) -> list[dict]:
-    rows: list[dict] = []
-    page_size = 1000
-    offset = 0
-    while True:
-        resp = (
-            sb.table("user_data")
-            .select(
-                "id,wallet_address,first_login,verified_after_goodmarket,verification_timestamp,username"
-            )
-            .gte("first_login", start_iso)
-            .lte("first_login", end_iso)
-            .not_.is_("wallet_address", None)
-            .order("first_login", desc=False)
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        batch = resp.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
-            break
-        offset += page_size
-    return rows
-
-
+# ---- Main --------------------------------------------------------------------
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--from", dest="date_from", required=True, help="UTC start date YYYY-MM-DD (inclusive)")
-    ap.add_argument("--to", dest="date_to", required=True, help="UTC end date YYYY-MM-DD (inclusive)")
-    ap.add_argument("--out", dest="out_csv", default="audit_first_login_vs_first_claim.csv")
-    ap.add_argument(
-        "--sleep",
-        type=float,
-        default=5.2,
-        help="Seconds between Celoscan calls. Free tier (no API key) is ~1 req / 5s.",
-    )
+    ap.add_argument("--from", dest="dfrom", required=True, help="YYYY-MM-DD (UTC, inclusive)")
+    ap.add_argument("--to", dest="dto", required=True, help="YYYY-MM-DD (UTC, inclusive)")
+    ap.add_argument("--out", default="audit_first_login_vs_first_claim.csv")
     args = ap.parse_args()
 
-    start_iso = f"{args.date_from}T00:00:00+00:00"
-    end_iso = f"{args.date_to}T23:59:59+00:00"
-    api_key = env("CELOSCAN_API_KEY", "ETHERSCAN_API_KEY")
-    if api_key:
-        print("[celoscan] using API key", flush=True)
-        if args.sleep > 0.25:
-            args.sleep = 0.25
-    else:
-        print("[celoscan] no API key; using public rate limits (~1 req / 5s)", flush=True)
-
-    sb = get_supabase()
-
-    print(
-        f"[supabase] fetching user_data with first_login in [{start_iso} .. {end_iso}]",
-        flush=True,
+    sb_url = os.environ.get("SUPABASE_URL")
+    sb_key = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        or os.environ.get("SUPABASE_KEY")
+        or os.environ.get("SUPABASE_ANON_KEY")
     )
-    rows = fetch_user_rows(sb, start_iso, end_iso)
+    if not sb_url or not sb_key:
+        print("ERROR: SUPABASE_URL and a Supabase key must be set.", file=sys.stderr)
+        return 2
+    using_service = bool(os.environ.get("SUPABASE_SERVICE_ROLE_KEY"))
+    print(f"[supabase] using {'service-role' if using_service else 'anon'} key", flush=True)
+
+    rpc_url = os.environ.get("CELO_RPC_URL") or os.environ.get("RPC_URL") or DEFAULT_RPC
+    print(f"[rpc] {rpc_url}", flush=True)
+
+    sb = create_client(sb_url, sb_key)
+    rpc = RPC(rpc_url)
+
+    start_iso = f"{args.dfrom}T00:00:00+00:00"
+    end_iso = f"{args.dto}T23:59:59+00:00"
+    print(f"[supabase] user_data first_login in [{start_iso} .. {end_iso}]", flush=True)
+
+    res = (
+        sb.table("user_data")
+        .select("id,wallet_address,first_login,verified_after_goodmarket,verification_timestamp,username")
+        .gte("first_login", start_iso)
+        .lte("first_login", end_iso)
+        .not_.is_("wallet_address", None)
+        .order("first_login", desc=False)
+        .execute()
+    )
+    rows = res.data or []
     print(f"[supabase] {len(rows)} candidate users", flush=True)
     if not rows:
-        print("No candidate users in window; exiting.")
         return 0
 
-    out_path = os.path.abspath(args.out_csv)
-    fieldnames = [
-        "username",
-        "wallet_address",
-        "first_login_utc",
-        "first_login_date",
-        "verified_after_goodmarket",
-        "verification_timestamp_utc",
-        "first_claim_tx",
-        "first_claim_block",
-        "first_claim_utc",
-        "first_claim_date",
-        "first_claim_amount_g$",
-        "same_date_match",
-        "match_status",
-        "celoscan_url",
-    ]
+    latest_block = rpc.block_number()
+    print(f"[rpc] latest block = {latest_block:,}", flush=True)
 
-    matches = 0
-    has_claim_count = 0
-    no_claim_count = 0
+    ubi_topic = addr_to_topic(UBI_PROXY)
     out_rows: list[dict] = []
+    matches = 0
+    no_claim = 0
+    errors = 0
 
-    for i, r in enumerate(rows, start=1):
-        wallet_raw = (r.get("wallet_address") or "").strip()
-        wallet = wallet_raw.lower()
+    for i, r in enumerate(rows, 1):
+        wallet = (r.get("wallet_address") or "").lower()
         username = r.get("username") or ""
-        fl = parse_iso(r.get("first_login"))
-        v_at = parse_iso(r.get("verification_timestamp"))
-
-        if not wallet.startswith("0x") or len(wallet) != 42:
-            print(f"[{i:>3}/{len(rows)}] {wallet_raw} - SKIP (invalid wallet)", flush=True)
+        verified = bool(r.get("verified_after_goodmarket"))
+        v_ts = parse_iso(r.get("verification_timestamp"))
+        login_dt = parse_iso(r.get("first_login"))
+        if not wallet or not login_dt:
             continue
 
+        day_start, day_end = day_bounds_utc(login_dt)
+        ts_start = int(day_start.timestamp())
+        ts_end = int(day_end.timestamp()) - 1
+
         print(
-            f"[{i:>3}/{len(rows)}] {wallet} ({username or '-'}) first_login={date_str(fl)}",
+            f"[{i:2}/{len(rows)}] {wallet} ({username or '-'}) "
+            f"first_login={login_dt.isoformat()}",
             flush=True,
         )
 
-        tx = fetch_first_ubi_claim(wallet, api_key)
-        time.sleep(args.sleep)
+        try:
+            start_block = find_block_at_or_after(rpc, ts_start, 1, latest_block)
+            end_block = find_block_at_or_before(rpc, ts_end, 1, latest_block)
+            if start_block > end_block:
+                print("    no blocks in day window", flush=True)
+                out_rows.append({
+                    "wallet_address": wallet,
+                    "username": username,
+                    "first_login_utc": login_dt.isoformat(),
+                    "first_login_date": login_dt.strftime("%Y-%m-%d"),
+                    "verified_after_goodmarket": verified,
+                    "verification_timestamp_utc": v_ts.isoformat() if v_ts else "",
+                    "claim_found_on_first_login_date": False,
+                    "first_claim_tx": "",
+                    "first_claim_block": "",
+                    "first_claim_utc": "",
+                    "match": "NO_CLAIM_ON_DATE",
+                })
+                no_claim += 1
+                continue
 
-        first_claim_dt: Optional[datetime] = None
-        first_claim_tx_hash = ""
-        first_claim_block = ""
-        first_claim_amount = ""
+            logs = rpc.get_logs({
+                "fromBlock": hex(start_block),
+                "toBlock": hex(end_block),
+                "address": GOODDOLLAR_TOKEN,
+                "topics": [TRANSFER_TOPIC, ubi_topic, addr_to_topic(wallet)],
+            })
 
-        if tx:
-            try:
-                ts = int(tx.get("timeStamp", 0))
-                first_claim_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
-            except Exception:
-                first_claim_dt = None
-            first_claim_tx_hash = tx.get("hash", "")
-            first_claim_block = str(tx.get("blockNumber", ""))
-            try:
-                decimals = int(tx.get("tokenDecimal", 18))
-                value = int(tx.get("value", 0))
-                first_claim_amount = f"{value / (10 ** decimals):.8f}"
-            except Exception:
-                first_claim_amount = tx.get("value", "")
+            if not logs:
+                print(f"    no UBI claim on {login_dt.strftime('%Y-%m-%d')}", flush=True)
+                out_rows.append({
+                    "wallet_address": wallet,
+                    "username": username,
+                    "first_login_utc": login_dt.isoformat(),
+                    "first_login_date": login_dt.strftime("%Y-%m-%d"),
+                    "verified_after_goodmarket": verified,
+                    "verification_timestamp_utc": v_ts.isoformat() if v_ts else "",
+                    "claim_found_on_first_login_date": False,
+                    "first_claim_tx": "",
+                    "first_claim_block": "",
+                    "first_claim_utc": "",
+                    "match": "NO_CLAIM_ON_DATE",
+                })
+                no_claim += 1
+                continue
 
-        if first_claim_dt:
-            has_claim_count += 1
-        else:
-            no_claim_count += 1
+            # logs are typically ordered; pick the earliest
+            logs.sort(key=lambda lg: (int(lg["blockNumber"], 16), int(lg.get("logIndex", "0x0"), 16)))
+            first = logs[0]
+            blk = int(first["blockNumber"], 16)
+            tx = first["transactionHash"]
+            blk_ts = rpc.block_timestamp(blk)
+            claim_dt = datetime.fromtimestamp(blk_ts, tz=timezone.utc)
+            amount_raw = int(first["data"], 16) if first.get("data") and first["data"] != "0x" else 0
+            amount = amount_raw / (10**18)
 
-        same_date = bool(
-            fl and first_claim_dt and date_str(fl) == date_str(first_claim_dt)
-        )
-        if same_date:
-            matches += 1
-            status = "MATCH"
-        elif first_claim_dt and fl:
-            status = f"DIFF (login={date_str(fl)} claim={date_str(first_claim_dt)})"
-        elif fl and not first_claim_dt:
-            status = "NO_CLAIM_FOUND"
-        else:
-            status = "MISSING_LOGIN"
-
-        celoscan_url = f"https://celoscan.io/tx/{first_claim_tx_hash}" if first_claim_tx_hash else ""
-
-        print(
-            f"      first_claim={date_str(first_claim_dt) or '-'} "
-            f"amount={first_claim_amount or '-'} -> {status}",
-            flush=True,
-        )
-
-        out_rows.append(
-            {
-                "username": username,
+            print(
+                f"    CLAIM at block {blk} tx {tx} {claim_dt.isoformat()} amount~{amount:.4f} G$",
+                flush=True,
+            )
+            out_rows.append({
                 "wallet_address": wallet,
-                "first_login_utc": fl.isoformat() if fl else "",
-                "first_login_date": date_str(fl),
-                "verified_after_goodmarket": r.get("verified_after_goodmarket"),
-                "verification_timestamp_utc": v_at.isoformat() if v_at else "",
-                "first_claim_tx": first_claim_tx_hash,
-                "first_claim_block": first_claim_block,
-                "first_claim_utc": first_claim_dt.isoformat() if first_claim_dt else "",
-                "first_claim_date": date_str(first_claim_dt),
-                "first_claim_amount_g$": first_claim_amount,
-                "same_date_match": "YES" if same_date else "NO",
-                "match_status": status,
-                "celoscan_url": celoscan_url,
-            }
-        )
+                "username": username,
+                "first_login_utc": login_dt.isoformat(),
+                "first_login_date": login_dt.strftime("%Y-%m-%d"),
+                "verified_after_goodmarket": verified,
+                "verification_timestamp_utc": v_ts.isoformat() if v_ts else "",
+                "claim_found_on_first_login_date": True,
+                "first_claim_tx": tx,
+                "first_claim_block": blk,
+                "first_claim_utc": claim_dt.isoformat(),
+                "match": "MATCH_SAME_DATE",
+            })
+            matches += 1
 
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(out_rows)
+        except Exception as e:
+            print(f"    ERROR: {e}", flush=True)
+            errors += 1
+            out_rows.append({
+                "wallet_address": wallet,
+                "username": username,
+                "first_login_utc": login_dt.isoformat(),
+                "first_login_date": login_dt.strftime("%Y-%m-%d"),
+                "verified_after_goodmarket": verified,
+                "verification_timestamp_utc": v_ts.isoformat() if v_ts else "",
+                "claim_found_on_first_login_date": "",
+                "first_claim_tx": "",
+                "first_claim_block": "",
+                "first_claim_utc": "",
+                "match": f"ERROR: {e}",
+            })
+
+    if out_rows:
+        out_path = args.out
+        with open(out_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=list(out_rows[0].keys()))
+            w.writeheader()
+            w.writerows(out_rows)
+        print(f"\n[output] wrote {len(out_rows)} rows -> {out_path}", flush=True)
 
     print("\n=== SUMMARY ===", flush=True)
-    print(f"window:                 {args.date_from} .. {args.date_to}  (UTC)", flush=True)
-    print(f"candidate users:        {len(rows)}", flush=True)
-    print(f"with first claim found: {has_claim_count}", flush=True)
-    print(f"no UBI claim ever:      {no_claim_count}", flush=True)
-    print(f"same-date matches:      {matches}", flush=True)
-    print(f"CSV:                    {out_path}", flush=True)
+    print(f"  candidates scanned : {len(rows)}", flush=True)
+    print(f"  same-date matches  : {matches}", flush=True)
+    print(f"  no claim on date   : {no_claim}", flush=True)
+    print(f"  errors             : {errors}", flush=True)
 
     if matches:
-        print("\n=== MATCHES (first_login date == first UBI claim date) ===", flush=True)
-        print(f"{'username':<22} {'wallet':<44} {'date':<12} tx", flush=True)
+        print("\n=== MATCHES (first_login date == first claim date) ===", flush=True)
         for row in out_rows:
-            if row["same_date_match"] == "YES":
+            if row["match"] == "MATCH_SAME_DATE":
                 print(
-                    f"{(row['username'] or '-'):<22} "
-                    f"{row['wallet_address']:<44} "
-                    f"{row['first_login_date']:<12} "
-                    f"{row['celoscan_url']}",
+                    f"  {row['wallet_address']}  {row['username'] or '-':<20}  "
+                    f"date={row['first_login_date']}  tx={row['first_claim_tx']}",
                     flush=True,
                 )
 
