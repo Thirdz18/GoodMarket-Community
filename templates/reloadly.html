@@ -198,6 +198,118 @@
             .operator-grid, .gc-grid { grid-template-columns: 1fr 1fr; }
             .tab-btn { padding: 12px 14px; font-size: 13px; }
         }
+
+        /* ── Country Picker ── */
+        .country-picker-btn {
+            width: 100%; padding: 10px 14px; border-radius: 8px;
+            border: 1px solid #2e3150; background: #0f1117; color: #e0e0e0;
+            font-size: 14px; cursor: pointer; text-align: left;
+            display: flex; align-items: center; gap: 10px;
+            transition: border-color 0.2s;
+        }
+        .country-picker-btn:hover { border-color: #7986cb; }
+        .country-picker-btn .cp-flag {
+            width: 26px; height: 18px; border-radius: 3px;
+            background: #2e3150; flex-shrink: 0; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .country-picker-btn .cp-flag img { width: 100%; height: 100%; object-fit: cover; }
+        .country-picker-btn .cp-label { flex: 1; line-height: 1.3; }
+        .country-picker-btn .cp-placeholder { color: #6b7280; }
+        .country-picker-btn .cp-chevron { color: #7986cb; font-size: 12px; }
+
+        .country-picker-modal {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            background: rgba(0,0,0,0.85);
+            align-items: flex-start; justify-content: center;
+            padding: 32px 16px;
+        }
+        .country-picker-modal.open { display: flex; }
+        .country-picker-panel {
+            background: #1a1d2e; border: 1px solid #2e3150; border-radius: 14px;
+            width: 100%; max-width: 480px; max-height: 80vh;
+            display: flex; flex-direction: column; overflow: hidden;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        }
+        .country-picker-header {
+            padding: 16px 18px; border-bottom: 1px solid #2e3150;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .country-picker-header h3 { font-size: 16px; color: #fff; flex: 1; margin: 0; }
+        .country-picker-close {
+            background: none; border: none; color: #aaa; font-size: 22px;
+            cursor: pointer; line-height: 1; padding: 0 4px;
+        }
+        .country-picker-close:hover { color: #fff; }
+        .country-picker-search {
+            padding: 12px 16px; border-bottom: 1px solid #2e3150;
+            position: relative;
+        }
+        .country-picker-search i {
+            position: absolute; left: 28px; top: 50%; transform: translateY(-50%);
+            color: #6b7280; font-size: 13px; pointer-events: none;
+        }
+        .country-picker-search input {
+            width: 100%; padding: 10px 14px 10px 36px; border-radius: 8px;
+            border: 1px solid #2e3150; background: #0f1117; color: #e0e0e0;
+            font-size: 14px; outline: none;
+        }
+        .country-picker-search input:focus { border-color: #7986cb; }
+        .country-picker-list { overflow-y: auto; flex: 1; padding: 4px 0; }
+        .country-picker-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 18px; cursor: pointer; transition: background 0.15s;
+        }
+        .country-picker-item:hover { background: #252840; }
+        .country-picker-item .cp-flag-img {
+            width: 28px; height: 20px; border-radius: 3px; object-fit: cover;
+            background: #2e3150; flex-shrink: 0;
+        }
+        .country-picker-item .cp-name { flex: 1; font-size: 14px; color: #e0e0e0; }
+        .country-picker-item .cp-code {
+            font-size: 13px; color: #7986cb; font-weight: 600;
+            white-space: nowrap;
+        }
+        .country-picker-empty, .country-picker-loading {
+            padding: 28px 18px; text-align: center; color: #6b7280; font-size: 13px;
+        }
+        .country-picker-loading i { color: #7986cb; font-size: 18px; }
+
+        /* ── Phone input with dial-code prefix ── */
+        .phone-input-wrap {
+            display: flex; align-items: stretch;
+            border: 1px solid #2e3150; border-radius: 8px;
+            background: #0f1117; overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .phone-input-wrap:focus-within { border-color: #7986cb; }
+        .phone-input-wrap .phone-prefix {
+            padding: 10px 12px; background: #252840; color: #7986cb;
+            font-size: 14px; font-weight: 600;
+            display: flex; align-items: center;
+            border-right: 1px solid #2e3150; flex-shrink: 0;
+            min-width: 56px; justify-content: center;
+        }
+        .phone-input-wrap input {
+            flex: 1; border: none; background: transparent;
+            padding: 10px 14px; color: #e0e0e0; font-size: 14px;
+            outline: none; min-width: 0;
+        }
+        .phone-input-wrap input::placeholder { color: #6b7280; }
+
+        .phone-hint {
+            font-size: 11px; color: #6b7280; margin-top: 6px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .country-required-msg {
+            font-size: 12.5px; color: #9ca3af;
+            padding: 12px 14px; border: 1px dashed #2e3150;
+            border-radius: 8px; background: rgba(0,0,0,0.2);
+            text-align: center; margin-bottom: 4px;
+        }
+        .country-required-msg i { color: #7986cb; margin-right: 6px; }
+
+        .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -222,14 +334,28 @@
     <div class="card">
         <h3><i class="fas fa-search"></i> Find Operator</h3>
         <div class="form-group">
-            <label>Country Code</label>
-            <input id="tuCountry" value="PH" maxlength="2" style="text-transform:uppercase"/>
+            <label>Country</label>
+            <button type="button" class="country-picker-btn" id="tuCountryBtn" onclick="openCountryPicker('topup')">
+                <span class="cp-flag" id="tuCountryFlag"></span>
+                <span class="cp-label cp-placeholder" id="tuCountryLabel">Select a country...</span>
+                <i class="fas fa-chevron-down cp-chevron"></i>
+            </button>
+            <input type="hidden" id="tuCountry" value=""/>
         </div>
-        <div class="form-group">
-            <label>Phone Number (optional — auto-detect operator)</label>
-            <input id="tuPhone" placeholder="e.g. 09171234567"/>
+        <div class="form-group" id="tuPhoneGroup" style="display:none">
+            <label>Phone Number <span style="color:#6b7280;font-weight:normal;font-size:11px">(optional — auto-detect operator)</span></label>
+            <div class="phone-input-wrap">
+                <span class="phone-prefix" id="tuPhonePrefix">+--</span>
+                <input id="tuPhone" type="tel" inputmode="numeric" autocomplete="off" placeholder="9171234567" oninput="formatPhoneInput(this)"/>
+            </div>
+            <div class="phone-hint">
+                <i class="fas fa-info-circle"></i> Skip the leading 0 — your country code is already added.
+            </div>
         </div>
-        <button class="btn btn-primary" onclick="loadOperators()"><i class="fas fa-search"></i> Find Operators</button>
+        <div id="tuCountryHint" class="country-required-msg">
+            <i class="fas fa-globe"></i> Please pick a country to continue.
+        </div>
+        <button class="btn btn-primary" id="tuFindBtn" onclick="loadOperators()" disabled style="margin-top:4px"><i class="fas fa-search"></i> Find Operators</button>
     </div>
     <div id="operatorList"></div>
     <div id="topupForm" style="display:none">
@@ -238,7 +364,13 @@
             <div id="tuAmountSection"></div>
             <div class="form-group" style="margin-top:12px">
                 <label>Recipient Phone Number</label>
-                <input id="tuRecipient" placeholder="Phone number to top-up"/>
+                <div class="phone-input-wrap">
+                    <span class="phone-prefix" id="tuRecipientPrefix">+--</span>
+                    <input id="tuRecipient" type="tel" inputmode="numeric" autocomplete="off" placeholder="Phone number to top-up" oninput="formatPhoneInput(this)"/>
+                </div>
+                <div class="phone-hint">
+                    <i class="fas fa-info-circle"></i> Skip the leading 0 — your country code is already added.
+                </div>
             </div>
             <div class="summary-box" id="tuSummary" style="display:none"></div>
             <button class="btn btn-primary btn-full" onclick="initiateTopup()" style="margin-top:12px"><i class="fas fa-bolt"></i> Pay with G$</button>
@@ -442,6 +574,23 @@
     </div>
 </div>
 
+<!-- ── COUNTRY PICKER MODAL ────────────────────────────────────────────── -->
+<div class="country-picker-modal" id="countryPickerModal" onclick="if(event.target===this) closeCountryPicker()">
+    <div class="country-picker-panel">
+        <div class="country-picker-header">
+            <h3>Select a country</h3>
+            <button type="button" class="country-picker-close" onclick="closeCountryPicker()" aria-label="Close">&times;</button>
+        </div>
+        <div class="country-picker-search">
+            <i class="fas fa-search"></i>
+            <input type="text" id="countryPickerSearch" placeholder="Search country or dial code..." oninput="filterCountries(this.value)" autocomplete="off"/>
+        </div>
+        <div class="country-picker-list" id="countryPickerList">
+            <div class="country-picker-loading"><i class="fas fa-spinner fa-spin"></i><div style="margin-top:8px">Loading countries...</div></div>
+        </div>
+    </div>
+</div>
+
 <script>
 let GD_PRICE = {{ gd_price }};
 const MERCHANT_ADDRESS = "{{ merchant_address }}";
@@ -496,6 +645,155 @@ async function apiFetch(url, opts = {}) {
     const res = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...opts });
     return res.json();
 }
+
+// ─── Country Picker ───────────────────────────────────────────────────────────
+let _countriesCache = null;
+let _countriesLoadingPromise = null;
+let _activePickerContext = null;        // 'topup'
+let _selectedCountry = null;            // last picked country object
+
+async function ensureCountriesLoaded() {
+    if (_countriesCache) return _countriesCache;
+    if (_countriesLoadingPromise) return _countriesLoadingPromise;
+    _countriesLoadingPromise = (async () => {
+        try {
+            const data = await apiFetch('/reloadly/api/countries');
+            if (!data.success) throw new Error(data.error || 'Failed to load countries');
+            const list = (data.countries || [])
+                .filter(c => c && c.isoName && c.name)
+                .slice()
+                .sort((a, b) => a.name.localeCompare(b.name));
+            _countriesCache = list;
+            return list;
+        } finally {
+            _countriesLoadingPromise = null;
+        }
+    })();
+    return _countriesLoadingPromise;
+}
+
+function getDialCode(country) {
+    if (!country) return '';
+    const cc = (country.callingCodes && country.callingCodes[0]) || '';
+    if (!cc) return '';
+    return String(cc).startsWith('+') ? cc : '+' + cc;
+}
+
+function openCountryPicker(context) {
+    _activePickerContext = context;
+    const modal = document.getElementById('countryPickerModal');
+    modal.classList.add('open');
+    const searchEl = document.getElementById('countryPickerSearch');
+    if (searchEl) {
+        searchEl.value = '';
+        setTimeout(() => searchEl.focus(), 80);
+    }
+    renderCountryList('');
+}
+
+function closeCountryPicker() {
+    document.getElementById('countryPickerModal').classList.remove('open');
+}
+
+function filterCountries(query) {
+    renderCountryList((query || '').trim().toLowerCase());
+}
+
+async function renderCountryList(query) {
+    const listEl = document.getElementById('countryPickerList');
+    let countries;
+    try {
+        countries = await ensureCountriesLoaded();
+    } catch (e) {
+        listEl.innerHTML = `<div class="country-picker-empty">Failed to load countries. Please try again.</div>`;
+        return;
+    }
+    const q = (query || '').toLowerCase();
+    const filtered = q
+        ? countries.filter(c =>
+            (c.name || '').toLowerCase().includes(q) ||
+            (c.isoName || '').toLowerCase().includes(q) ||
+            (c.callingCodes || []).some(cc => String(cc).includes(q.replace('+', '')))
+          )
+        : countries;
+    if (!filtered.length) {
+        listEl.innerHTML = `<div class="country-picker-empty">No countries match "${query}"</div>`;
+        return;
+    }
+    listEl.innerHTML = filtered.map(c => {
+        const dial = getDialCode(c);
+        const flagHtml = c.flag
+            ? `<img class="cp-flag-img" src="${c.flag}" alt="" loading="lazy" onerror="this.style.visibility='hidden'"/>`
+            : `<div class="cp-flag-img"></div>`;
+        const safeName = (c.name || '').replace(/"/g, '&quot;');
+        return `
+            <div class="country-picker-item" onclick="selectCountryFromPicker('${c.isoName}')">
+                ${flagHtml}
+                <div class="cp-name">${safeName} <span style="color:#6b7280;font-size:12px">(${c.isoName})</span></div>
+                <div class="cp-code">${dial || ''}</div>
+            </div>`;
+    }).join('');
+}
+
+async function selectCountryFromPicker(iso) {
+    const countries = await ensureCountriesLoaded();
+    const country = countries.find(c => c.isoName === iso);
+    if (!country) return;
+    _selectedCountry = country;
+    closeCountryPicker();
+    if (_activePickerContext === 'topup') applyTopupCountry(country);
+}
+
+function applyTopupCountry(country) {
+    const dial = getDialCode(country);
+    document.getElementById('tuCountry').value = country.isoName;
+
+    // Button label + flag
+    const flagEl = document.getElementById('tuCountryFlag');
+    flagEl.innerHTML = country.flag
+        ? `<img src="${country.flag}" alt="" onerror="this.style.visibility='hidden'"/>`
+        : '';
+    const labelEl = document.getElementById('tuCountryLabel');
+    labelEl.classList.remove('cp-placeholder');
+    labelEl.innerHTML = `<strong style="color:#fff">${country.name}</strong>` +
+        (dial ? ` <span style="color:#7986cb;font-weight:600;margin-left:4px">${dial}</span>` : '');
+
+    // Reveal phone input + dial-code prefix
+    const prefix = dial || '+--';
+    document.getElementById('tuPhonePrefix').textContent = prefix;
+    const recPrefix = document.getElementById('tuRecipientPrefix');
+    if (recPrefix) recPrefix.textContent = prefix;
+    document.getElementById('tuPhoneGroup').style.display = 'block';
+    const hint = document.getElementById('tuCountryHint');
+    if (hint) hint.style.display = 'none';
+
+    // Enable Find Operators
+    const btn = document.getElementById('tuFindBtn');
+    btn.disabled = false;
+
+    // Clear stale phone values when switching country
+    const tuPhone = document.getElementById('tuPhone'); if (tuPhone) tuPhone.value = '';
+    const tuRecipient = document.getElementById('tuRecipient'); if (tuRecipient) tuRecipient.value = '';
+}
+
+// Digits-only input + strip leading zeros (national prefix not allowed once
+// the country dial code is selected).
+function formatPhoneInput(input) {
+    let v = (input.value || '').replace(/\D/g, '');
+    while (v.startsWith('0')) v = v.slice(1);
+    input.value = v;
+}
+
+// Close picker on Escape
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const m = document.getElementById('countryPickerModal');
+        if (m && m.classList.contains('open')) closeCountryPicker();
+    }
+});
+
+// Pre-load the country list in the background so the picker opens instantly.
+ensureCountriesLoaded().catch(() => {});
 
 function switchTab(name, btn) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1082,7 +1380,14 @@ function closePayModal() {
 // ─── TOP-UP ───────────────────────────────────────────────────────────────────
 async function loadOperators() {
     const country = document.getElementById('tuCountry').value.trim().toUpperCase();
-    const phone = document.getElementById('tuPhone').value.trim();
+    if (!country || !_selectedCountry) {
+        showToast('Please select a country first', 'error');
+        return;
+    }
+    const localPhone = document.getElementById('tuPhone').value.trim();
+    const dialDigits = getDialCode(_selectedCountry).replace(/\D/g, '');
+    const fullPhone = localPhone ? (dialDigits + localPhone) : '';
+
     const list = document.getElementById('operatorList');
     list.innerHTML = '<div class="loading"><i class="fas fa-spinner"></i></div>';
     selectedOperator = null;
@@ -1092,8 +1397,8 @@ async function loadOperators() {
         let detectedId = null;
 
         // Auto-detect operator from phone number, but still load all operators
-        if (phone) {
-            const det = await apiFetch(`/reloadly/api/topup/detect-operator?phone=${encodeURIComponent(phone)}&country=${country}`);
+        if (fullPhone) {
+            const det = await apiFetch(`/reloadly/api/topup/detect-operator?phone=${encodeURIComponent(fullPhone)}&country=${country}`);
             if (det.success && det.operator) detectedId = det.operator.id;
         }
 
@@ -1107,6 +1412,12 @@ async function loadOperators() {
         if (detectedId !== null) {
             const idx = data.operators.findIndex(op => op.id === detectedId);
             if (idx !== -1) selectOperator(idx);
+        }
+
+        // Pre-fill the recipient field with what the user already typed
+        if (localPhone) {
+            const rec = document.getElementById('tuRecipient');
+            if (rec && !rec.value) rec.value = localPhone;
         }
     } catch(e) { list.innerHTML = '<div class="empty-msg">❌ Failed to load operators</div>'; }
 }
@@ -1223,18 +1534,23 @@ function updateTuSummary() {
 }
 
 function initiateTopup() {
-    const phone = document.getElementById('tuRecipient').value.trim();
-    if (!phone) { showToast('Enter recipient phone number', 'error'); return; }
+    const localPhone = document.getElementById('tuRecipient').value.trim();
+    if (!localPhone) { showToast('Enter recipient phone number', 'error'); return; }
+    if (!_selectedCountry) { showToast('Select a country first', 'error'); return; }
     if (!selectedOperator) { showToast('Select an operator', 'error'); return; }
     let usd, gd;
     if (selectedAmount) { usd = selectedAmount.usd; gd = selectedAmount.gd; }
     else { const inp = document.getElementById('tuCustomAmt'); if (!inp?.value) { showToast('Enter amount', 'error'); return; } usd = parseFloat(inp.value); gd = Math.ceil(usd / GD_PRICE); }
-    const country = document.getElementById('tuCountry').value.trim().toUpperCase();
+    const country = _selectedCountry.isoName;
+    const dial = getDialCode(_selectedCountry);
+    const dialDigits = dial.replace(/\D/g, '');
+    const fullPhone = dialDigits + localPhone;     // E.164 digits, no + sign
+    const displayPhone = `${dial} ${localPhone}`;
     const promoLabel = selectedAmount?.desc ? selectedAmount.desc : `$${parseFloat(usd).toFixed(2)}`;
     openPayModal({ order_type: 'topup', usd_amount: usd, gd_amount: gd,
-        payload: { operator_id: selectedOperator.operatorId, amount: usd, phone, country,
+        payload: { operator_id: selectedOperator.operatorId, amount: usd, phone: fullPhone, country,
                    operator_name: selectedOperator.name, promo_name: selectedAmount?.desc || null },
-        label: `${promoLabel} · ${phone} · ${selectedOperator.name}` });
+        label: `${promoLabel} · ${displayPhone} · ${selectedOperator.name}` });
 }
 
 // ─── GIFT CARDS ───────────────────────────────────────────────────────────────
