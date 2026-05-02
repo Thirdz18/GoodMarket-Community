@@ -694,6 +694,20 @@ try:
 except Exception as e:
     logger.error(f"❌ GoodMarket claim reconciler initialization failed: {e}")
 
+# Initialize GoodMarket attribution backfill (auto-runs once on next boot,
+# gated by a sentinel row so multi-worker deploys don't double-run). Catches
+# every wallet that verified on GoodDollar AND has GoodMarket-claim activity
+# but is still missing verified_after_goodmarket=TRUE in user_data.
+logger.info("🏷️ Initializing GoodMarket attribution backfill...")
+try:
+    from goodmarket_attribution_backfill import init_attribution_backfill
+    if init_attribution_backfill(app):
+        logger.info("✅ GoodMarket attribution backfill scheduled")
+    else:
+        logger.info("ℹ️ GoodMarket attribution backfill not scheduled (disabled or already ran)")
+except Exception as e:
+    logger.error(f"❌ GoodMarket attribution backfill initialization failed: {e}")
+
 
 @app.route("/health")
 def health_check():
@@ -1658,6 +1672,21 @@ def verify_identity():
                 session['ubi_verified'] = False
             else:
                 logger.info(f"✅ User is already face-verified on GoodDollar: {wallet_address[:10]}...")
+                # Backfill GoodMarket attribution for already-verified users who
+                # log in (e.g. they verified on a previous device, or fell through
+                # the /fv-callback net). The helper is idempotent and on-chain
+                # gated, so it never produces false positives. Runs on a daemon
+                # thread so we don't add latency to the verify-identity response.
+                try:
+                    from goodmarket_attribution_backfill import mark_verified_via_goodmarket
+                    mark_verified_via_goodmarket(
+                        wallet_address,
+                        source="verify_identity",
+                        require_on_chain_check=False,  # we already have fv_status above
+                        background=True,
+                    )
+                except Exception as attr_bf_err:
+                    logger.warning(f"⚠️ Attribution backfill skipped in verify-identity: {attr_bf_err}")
         except Exception as attr_err:
             logger.warning(f"⚠️ Could not record visit attribution: {attr_err}")
 

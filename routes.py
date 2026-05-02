@@ -230,6 +230,21 @@ def confirm_goodmarket_claim():
         # Idempotency unique-index violations are expected on repeat calls.
         logger.warning(f"[gm-claim-confirm] event insert skipped: {e_evt}")
 
+    # Best-effort attribution backfill: any wallet recording a claim through
+    # the GoodMarket UI is, by definition, "using GoodMarket". If they're
+    # also face-verified on-chain (verified inside the helper) but their
+    # user_data row still has verified_after_goodmarket=False, flip it now.
+    # Runs on a daemon thread so we don't add latency to the claim response.
+    try:
+        from goodmarket_attribution_backfill import mark_verified_via_goodmarket
+        mark_verified_via_goodmarket(
+            wallet,
+            source=f"claim_confirm:{network}:{status}",
+            background=True,
+        )
+    except Exception as e_attr:
+        logger.warning(f"[gm-claim-confirm] attribution backfill skipped: {e_attr}")
+
     return jsonify({
         "success": True,
         "tx_hash": tx_hash,
@@ -2116,6 +2131,64 @@ def check_admin_status():
     except Exception as e:
         logger.error(f"❌ Admin check error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+@routes.route("/api/admin/backfill-gm-attribution", methods=["POST", "GET"])
+@admin_required
+def admin_backfill_gm_attribution():
+    """Admin: backfill ``user_data.verified_after_goodmarket`` for every wallet
+    that has GoodMarket-claim activity but isn't yet attributed.
+
+    Query params (also accepts JSON body for POST):
+        * ``dry_run`` — when ``true`` / ``1``, no writes; returns the impact.
+        * ``limit``   — cap candidates examined this run (defaults to the
+          module's ``MAX_WALLETS_PER_RUN``).
+
+    Auth: protected by ``@admin_required`` (same as every other admin route).
+    Audit: writes to ``admin_action_logs`` so we can see who triggered each run.
+    """
+    try:
+        # Accept both query params and JSON body so curl + dashboard buttons
+        # both work without ceremony.
+        body = request.get_json(silent=True) or {}
+        raw_dry = (request.args.get("dry_run") or body.get("dry_run") or "")
+        dry_run = str(raw_dry).strip().lower() in ("1", "true", "yes", "on")
+
+        raw_limit = request.args.get("limit") or body.get("limit")
+        limit = None
+        if raw_limit is not None and str(raw_limit).strip() != "":
+            try:
+                limit = max(1, int(raw_limit))
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "error": "limit must be an integer"
+                }), 400
+
+        from goodmarket_attribution_backfill import run_full_backfill
+        summary = run_full_backfill(dry_run=dry_run, limit=limit)
+
+        # Audit log — best-effort. Don't fail the request if logging fails.
+        try:
+            admin_wallet = session.get("wallet")
+            log_admin_action(
+                admin_wallet=admin_wallet,
+                action_type="backfill_gm_attribution",
+                action_details={
+                    "dry_run": dry_run,
+                    "limit": limit,
+                    "examined": summary.get("examined"),
+                    "updated": summary.get("updated"),
+                    "errors": summary.get("errors"),
+                },
+            )
+        except Exception as audit_err:
+            logger.warning(f"[gm-backfill] admin audit log skipped: {audit_err}")
+
+        return jsonify(summary), (200 if summary.get("success") else 500)
+    except Exception as e:
+        logger.error(f"[gm-backfill] admin endpoint error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 @routes.route("/api/admin/users", methods=["GET"])
 @admin_required
