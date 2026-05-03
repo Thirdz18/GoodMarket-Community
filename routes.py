@@ -7467,7 +7467,7 @@ _faucet_lock = threading.Lock()
 # dynamically as estimated_gas * gas_price * FAUCET_BUFFER_MULTIPLIER and
 # floored at FAUCET_MIN_CELO. See _get_gas_status() for the full logic.
 #   - If wallet has >= max(dynamic_required, FAUCET_MIN_CELO) -> gas_ready=True.
-#   - Otherwise -> call GoodDollar API faucet (Step B), then GAMES_KEY on-chain
+#   - Otherwise -> call GoodDollar API faucet (Step B), then TOPWALLET_KEY on-chain
 #     fallback (Step C).
 # Default 0.005 CELO floor keeps top-ups predictable during low-gas periods;
 # the dynamic component covers congestion spikes (observed 0.07+ CELO needed).
@@ -7525,7 +7525,7 @@ def _get_gas_status(w3, checksum_wallet: str) -> dict:
       - required = max(dynamic_required, FAUCET_MIN_CELO)
       - balance >= required  -> gas_ready=True, claim proceeds.
       - balance <  required  -> caller should request faucet (GoodDollar API first,
-                                GAMES_KEY on-chain fallback only if API is down/failed).
+                                TOPWALLET_KEY on-chain fallback only if API is down/failed).
 
     Why dynamic instead of a fixed flat floor: Celo gas can spike well above the
     0.005 CELO floor during peak congestion (observed 0.07+ CELO needed). A flat
@@ -7705,7 +7705,7 @@ def _execute_onchain_faucet_topup(w3, checksum_wallet: str, correlation_id: str 
     from blockchain import CELO_CHAIN_ID
     from eth_account import Account
 
-    games_key = (os.getenv("TOPWALLET_KEY") or os.getenv("GAMES_KEY") or "").strip()
+    games_key = (os.getenv("TOPWALLET_KEY") or "").strip()
     if not games_key:
         logger.error(
             f"❌ Faucet onchain unavailable wallet={checksum_wallet.lower()} source=onchain "
@@ -7822,7 +7822,7 @@ def _execute_onchain_xdc_faucet_topup(w3, checksum_wallet: str, correlation_id: 
     from blockchain import XDC_CHAIN_ID
     from eth_account import Account
 
-    games_key = (os.getenv("TOPWALLET_KEY") or os.getenv("XDC_GAMES_KEY") or os.getenv("GAMES_KEY") or "").strip()
+    games_key = (os.getenv("TOPWALLET_KEY") or "").strip()
     if not games_key:
         return {
             "success": False,
