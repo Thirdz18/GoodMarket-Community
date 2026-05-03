@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>XDC Wallet - GoodMarket</title>
     <meta name="theme-color" content="#2563eb">
     <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
@@ -14,6 +14,18 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
+
+        /* Compact 70% scale for desktop/mobile/dapp browsers (visual-only) */
+        html { zoom: 0.7; }
+        @supports not (zoom: 1) {
+            body {
+                transform: scale(0.7);
+                transform-origin: top center;
+                width: 142.857%;
+                margin-left: -21.4285%;
+            }
+        }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
