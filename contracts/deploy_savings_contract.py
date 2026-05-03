@@ -1,5 +1,5 @@
 """
-GDSavings Contract Deployment Script for Celo Mainnet (v3)
+GDSavings Contract Deployment Script for Celo Mainnet (v4)
 
 Deploys the multi-token GDSavings vault (no owner, no pause, no early
 withdrawal). Tokens accepted: G$, CELO, cUSD.
@@ -13,12 +13,14 @@ Features:
       G$:   1,000        – 10,000,000
       CELO: 1            – 100,000
       cUSD: 1            – 1,000,000
-  - Bonus tiers (always paid in G$, regardless of deposit token):
-      1-day lock, ≥ token MIN → 10 G$
-      ≥150-day lock, by token amount:
-        G$:   10k–100k → 1k G$ | 100k–500k → 2.5k G$ | 500k–10M → 10k G$
-        CELO: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–100k → 10k G$
-        cUSD: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–1M  → 10k G$
+  - Per-duration bonus structure (always paid in G$, regardless of
+    deposit token; internal contract ratio 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD):
+      1-day  → 30 G$ if amount ≥ per-token MIN.
+      30..330d (multiples of 30) → (lockDays / 30) * 500 G$ if amount
+                                  ≥ per-token "100k G$ equivalent"
+                                  (G$ 100,000 / CELO 100 / cUSD 100).
+      365d   → 20,000 G$ if amount ≥ per-token "1M G$ equivalent"
+               (G$ 1,000,000 / CELO 1,000 / cUSD 1,000).
   - Anyone can fund the G$ reward pool via fundRewardPool().
   - No owner, no admin, no pause, no emergency, no early withdrawal.
 """
@@ -174,7 +176,7 @@ def deploy_contract():
 
         deployment_info = {
             "contract_name": "GDSavings",
-            "version": "3",
+            "version": "4",
             "contract_address": contract_address,
             "tx_hash": tx_hash_hex,
             "deployer": account.address,

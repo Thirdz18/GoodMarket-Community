@@ -100,25 +100,25 @@ contract GDSavings is ReentrancyGuard {
     uint256 public constant MAX_DEPOSIT_CUSD = 1_000_000  * 1e18;
 
     // ── Bonus rules (rewards always denominated in G$) ──────────────────────
-    uint256 public constant BONUS_MIN_DAYS     = 150;
-    uint256 public constant BONUS_SHORT_DAYS   = 1;
-    uint256 public constant BONUS_SHORT_AMOUNT = 10     * 1e18;
-    uint256 public constant BONUS_TIER1_AMOUNT = 1_000  * 1e18;
-    uint256 public constant BONUS_TIER2_AMOUNT = 2_500  * 1e18;
-    uint256 public constant BONUS_TIER3_AMOUNT = 10_000 * 1e18;
+    // Per-duration bonus structure (v4):
+    //   1-day  → 30 G$  if amount >= per-token MIN.
+    //   30..330-day (multiples of 30) → (lockDays / 30) * 500 G$ if amount
+    //                                   >= per-token "100k G$ equivalent".
+    //   365-day → 20,000 G$ if amount >= per-token "1M G$ equivalent".
+    uint256 public constant BONUS_1DAY         =     30 * 1e18;
+    uint256 public constant BONUS_PER_30D_STEP =    500 * 1e18; // x N for N*30 days, N in 1..11
+    uint256 public constant BONUS_1YEAR        = 20_000 * 1e18;
 
-    // Per-token long-term tier thresholds
-    uint256 public constant BONUS_TIER1_MIN_GD = 10_000  * 1e18;
-    uint256 public constant BONUS_TIER2_MIN_GD = 100_000 * 1e18;
-    uint256 public constant BONUS_TIER3_MIN_GD = 500_000 * 1e18;
+    // Per-token "100k G$ equivalent" thresholds for 30..330-day locks.
+    // Internal contract ratio: 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD.
+    uint256 public constant MID_TIER_MIN_GD   = 100_000 * 1e18;
+    uint256 public constant MID_TIER_MIN_CELO =     100 * 1e18;
+    uint256 public constant MID_TIER_MIN_CUSD =     100 * 1e18;
 
-    uint256 public constant BONUS_TIER1_MIN_CELO = 10  * 1e18;
-    uint256 public constant BONUS_TIER2_MIN_CELO = 100 * 1e18;
-    uint256 public constant BONUS_TIER3_MIN_CELO = 500 * 1e18;
-
-    uint256 public constant BONUS_TIER1_MIN_CUSD = 10  * 1e18;
-    uint256 public constant BONUS_TIER2_MIN_CUSD = 100 * 1e18;
-    uint256 public constant BONUS_TIER3_MIN_CUSD = 500 * 1e18;
+    // Per-token "1M G$ equivalent" thresholds for the 365-day lock.
+    uint256 public constant LONG_TIER_MIN_GD   = 1_000_000 * 1e18;
+    uint256 public constant LONG_TIER_MIN_CELO =     1_000 * 1e18;
+    uint256 public constant LONG_TIER_MIN_CUSD =     1_000 * 1e18;
 
     // ── Lock durations ──────────────────────────────────────────────────────
     uint16[13] private _validDurations;
@@ -242,33 +242,36 @@ contract GDSavings is ReentrancyGuard {
     }
 
     function _bonusForSlot(address token, uint256 amount, uint256 lockDays) internal view returns (uint256) {
-        // Long-term tiers (highest priority)
-        if (lockDays >= BONUS_MIN_DAYS) {
-            uint256 t1; uint256 t2; uint256 t3;
-            if (token == gd) {
-                t1 = BONUS_TIER1_MIN_GD;
-                t2 = BONUS_TIER2_MIN_GD;
-                t3 = BONUS_TIER3_MIN_GD;
-            } else if (token == celoToken) {
-                t1 = BONUS_TIER1_MIN_CELO;
-                t2 = BONUS_TIER2_MIN_CELO;
-                t3 = BONUS_TIER3_MIN_CELO;
-            } else if (token == cusd) {
-                t1 = BONUS_TIER1_MIN_CUSD;
-                t2 = BONUS_TIER2_MIN_CUSD;
-                t3 = BONUS_TIER3_MIN_CUSD;
-            } else {
-                return 0;
-            }
-            if (amount >= t3) return BONUS_TIER3_AMOUNT;
-            if (amount >= t2) return BONUS_TIER2_AMOUNT;
-            if (amount >= t1) return BONUS_TIER1_AMOUNT;
-        }
-        // Short-term tier: exactly 1-day lock, any deposit >= per-token MIN
-        if (lockDays == BONUS_SHORT_DAYS) {
+        if (!_isAllowedToken(token)) return 0;
+
+        // 1-day "tester" tier: any deposit >= per-token MIN earns 30 G$.
+        if (lockDays == 1) {
             (uint256 minA, ) = _minMaxFor(token);
-            if (amount >= minA) return BONUS_SHORT_AMOUNT;
+            if (amount >= minA) return BONUS_1DAY;
+            return 0;
         }
+
+        // 365-day "loyalty" tier: 20,000 G$ if amount >= per-token 1M G$ eq.
+        if (lockDays == 365) {
+            uint256 longMin;
+            if (token == gd)             longMin = LONG_TIER_MIN_GD;
+            else if (token == celoToken) longMin = LONG_TIER_MIN_CELO;
+            else                         longMin = LONG_TIER_MIN_CUSD;
+            if (amount >= longMin) return BONUS_1YEAR;
+            return 0;
+        }
+
+        // 30..330-day mid tiers (multiples of 30): require per-token 100k G$ eq.
+        // Bonus = (lockDays / 30) * 500 G$.
+        if (lockDays >= 30 && lockDays <= 330 && lockDays % 30 == 0) {
+            uint256 midMin;
+            if (token == gd)             midMin = MID_TIER_MIN_GD;
+            else if (token == celoToken) midMin = MID_TIER_MIN_CELO;
+            else                         midMin = MID_TIER_MIN_CUSD;
+            if (amount < midMin) return 0;
+            return (lockDays / 30) * BONUS_PER_30D_STEP;
+        }
+
         return 0;
     }
 

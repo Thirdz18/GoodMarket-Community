@@ -1,16 +1,16 @@
 {
   "contract_name": "GDSavings",
-  "version": "3",
-  "contract_address": "0x57c1CA8897EDE56735F2010ed9d4F265023895Af",
-  "tx_hash": "0x40116bb96db3a9264671b696cd5bcebb69f759a7a0f3cce02b44b2bee92b4817",
+  "version": "4",
+  "contract_address": "0x78d2a6Dd976337d3bEaFA0c30df6a0fDE949a618",
+  "tx_hash": "0x77fac11f6bfac2d51c6b6280e88561b2fd60fa7fac9d7543a243607cd8fc3950",
   "deployer": "0xC91fed8C1C73CD1a35FaD073404bC4a57F5B06bE",
   "gooddollar_token": "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A",
   "celo_token": "0x471EcE3750Da237f93B8E339c536989b8978a438",
   "cusd_token": "0x765DE816845861e75A25fCA122bb6898B8B1282a",
   "chain_id": 42220,
   "network": "Celo Mainnet",
-  "block_number": 65909100,
-  "gas_used": 1892354,
+  "block_number": 65917286,
+  "gas_used": 1898058,
   "compiler_version": "v0.8.21+commit.d9974bed",
   "optimization": true,
   "optimization_runs": 200,
@@ -187,7 +187,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_MIN_DAYS",
+      "name": "BONUS_1DAY",
       "outputs": [
         {
           "internalType": "uint256",
@@ -200,7 +200,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_SHORT_AMOUNT",
+      "name": "BONUS_1YEAR",
       "outputs": [
         {
           "internalType": "uint256",
@@ -213,7 +213,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_SHORT_DAYS",
+      "name": "BONUS_PER_30D_STEP",
       "outputs": [
         {
           "internalType": "uint256",
@@ -226,7 +226,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_TIER1_AMOUNT",
+      "name": "LONG_TIER_MIN_CELO",
       "outputs": [
         {
           "internalType": "uint256",
@@ -239,7 +239,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_TIER1_MIN_CELO",
+      "name": "LONG_TIER_MIN_CUSD",
       "outputs": [
         {
           "internalType": "uint256",
@@ -252,124 +252,7 @@
     },
     {
       "inputs": [],
-      "name": "BONUS_TIER1_MIN_CUSD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER1_MIN_GD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER2_AMOUNT",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER2_MIN_CELO",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER2_MIN_CUSD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER2_MIN_GD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER3_AMOUNT",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER3_MIN_CELO",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER3_MIN_CUSD",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "BONUS_TIER3_MIN_GD",
+      "name": "LONG_TIER_MIN_GD",
       "outputs": [
         {
           "internalType": "uint256",
@@ -409,6 +292,45 @@
     {
       "inputs": [],
       "name": "MAX_DEPOSIT_GD",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MID_TIER_MIN_CELO",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MID_TIER_MIN_CUSD",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "MID_TIER_MIN_GD",
       "outputs": [
         {
           "internalType": "uint256",

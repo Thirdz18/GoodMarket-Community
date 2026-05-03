@@ -2,7 +2,7 @@
 G$ Savings blockchain service.
 All on-chain reads. Withdrawals and deposits happen directly from the user's wallet (frontend).
 
-Contract mechanics (v3 — multi-token, slot-based):
+Contract mechanics (v4 — multi-token, slot-based, per-duration bonuses):
   - Tokens accepted: G$, CELO, cUSD
   - One slot per (user, token, lockDays). Top-ups inherit the slot's
     original unlocksAt (no lock extension).
@@ -12,12 +12,14 @@ Contract mechanics (v3 — multi-token, slot-based):
       G$:   1,000        – 10,000,000
       CELO: 1            – 100,000
       cUSD: 1            – 1,000,000
-  - Bonus tiers (always paid in G$, regardless of deposit token):
-      1-day lock, ≥ token MIN → 10 G$
-      ≥150-day lock, by token amount:
-        G$:   10k–100k → 1k G$ | 100k–500k → 2.5k G$ | 500k–10M → 10k G$
-        CELO: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–100k → 10k G$
-        cUSD: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–1M  → 10k G$
+  - Per-duration bonus structure (always paid in G$, regardless of
+    deposit token; internal contract ratio 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD):
+      1-day  → 30 G$  if amount ≥ per-token MIN.
+      30..330d (multiples of 30) → (lockDays / 30) * 500 G$  if amount
+                                  ≥ per-token "100k G$ equivalent"
+                                  (G$ 100,000 / CELO 100 / cUSD 100).
+      365d   → 20,000 G$ if amount ≥ per-token "1M G$ equivalent"
+               (G$ 1,000,000 / CELO 1,000 / cUSD 1,000).
   - Bonus only paid if reward pool has sufficient G$ (optional / trustless).
   - No owner, no pause, no early withdrawal.
 """
