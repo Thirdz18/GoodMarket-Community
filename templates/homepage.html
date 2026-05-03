@@ -2078,14 +2078,14 @@
             <div class="wallet-form" id="walletConnectOptions">
                 <button class="back-btn" onclick="showWalletOptions()">← Back to login options</button>
 
-                <div class="wallet-input-group" style="margin-bottom:0.85rem;">
+                <div id="wcReferralWrap" class="wallet-input-group" style="margin-bottom:0.85rem;">
                     <label class="wallet-label" for="wcReferralCode">Referral Code <span style="font-weight:400;color:#9ca3af;">(Optional)</span></label>
                     <input type="text" id="wcReferralCode" class="wallet-input" placeholder="Enter referral code if you have one" autocomplete="off" oninput="syncReferralInputs(this)" />
                     <p style="font-size:0.72rem;color:#6b7280;margin-top:0.35rem;line-height:1.45;">Paste the 8-character code from the friend who invited you. Applies to Injected Wallet, WalletConnect, and Manual Address login below.</p>
                 </div>
 
-                <div class="wallet-options">
-                    <button class="wallet-option-card" id="injectedWalletBtn" onclick="connectInjectedWallet()" style="border-color: rgba(249,115,22,0.5);">
+                <div id="wcOptionCards" class="wallet-options">
+                    <button class="wallet-option-card" id="injectedWalletBtn" onclick="connectInjectedWallet()" style="border-color: rgba(249,115,22,0.5);display:none;">
                         <div class="option-icon" id="injectedWalletIcon">👛</div>
                         <div class="option-text">
                             <div class="option-title" id="injectedWalletTitle">Injected Wallet</div>
@@ -2114,7 +2114,7 @@
                 </div>
                 <div id="wcQrWrap" style="display:none;margin-top:1rem;text-align:center;">
                     <div id="wcQrCode" style="display:flex;justify-content:center;"></div>
-                    <p style="font-size:0.78rem;color:#6b7280;margin-top:0.55rem;">Scan using MetaMask, Trust Wallet, Valora, Rainbow, etc.</p>
+                    <p style="font-size:0.78rem;color:#6b7280;margin-top:0.55rem;">Scan using GoodWallet, MetaMask, Trust Wallet, Valora, Rainbow, etc.</p>
                 </div>
 
                 <div id="walletConnectStatus" class="status-message"></div>
@@ -2212,6 +2212,12 @@
             });
             const f = document.getElementById('walletConnectOptions');
             if (f) f.classList.add('visible');
+            // Restore the picker rows when returning to this view so a
+            // user who came back from the QR can choose a different
+            // connection method again.
+            setWcQrCompactMode(false);
+            const qrWrap = document.getElementById('wcQrWrap');
+            if (qrWrap) qrWrap.style.display = 'none';
             detectInjectedWallet();
         }
 
@@ -2390,6 +2396,30 @@
         function isMobileDappContext() {
             const ua = (navigator.userAgent || '').toLowerCase();
             return /android|iphone|ipad|ipod|minipay|trust|metamask/.test(ua);
+        }
+
+        // Decide whether the Injected Wallet picker card should be shown.
+        // Plain mobile Safari/Chrome users without a wallet have nothing
+        // to inject — surfacing the option just confuses them. Show only
+        // when (a) a provider is actually present, or (b) the UA hints a
+        // known wallet's in-app dApp browser.
+        function shouldShowInjectedOption() {
+            try {
+                if (typeof window !== 'undefined') {
+                    if (window.ethereum) return true;
+                    if (window.trustwallet || window.trustWallet) return true;
+                }
+            } catch (_) {}
+            try {
+                if (getAllInjectedProviders().length > 0) return true;
+            } catch (_) {}
+            const ua = (navigator.userAgent || '').toLowerCase();
+            // Strict UA match for known dApp wallet browsers (not generic
+            // mobile UAs). MetaMask Mobile injects "MetaMaskMobile";
+            // MiniPay injects "MiniPay"; Trust Wallet injects "Trust"
+            // or "TrustWallet" (sometimes only in custom builds).
+            if (/minipay|trustwallet|trust\/|metamask/.test(ua)) return true;
+            return false;
         }
 
         function _eip6963InfoForProvider(provider) {
@@ -2576,6 +2606,15 @@
             const btn = document.getElementById('injectedWalletBtn');
             const icon = document.getElementById('injectedWalletIcon');
             if (!title || !desc || !btn) return;
+            // Hide the Injected Wallet picker entirely on plain mobile
+            // Safari/Chrome (no provider, no dApp-browser UA). Reveal
+            // it as soon as a provider is found or the UA hints a
+            // wallet's in-app browser.
+            if (!shouldShowInjectedOption() && !provider) {
+                btn.style.display = 'none';
+                return;
+            }
+            btn.style.display = 'flex';
             const depth = Number(_retryDepth || 0);
             const maxDepth = _walletDetectionMaxDepth();
             if (!provider) {
@@ -3030,10 +3069,23 @@
             });
         }
 
+        // Once the WalletConnect QR is shown the user has committed to
+        // the WalletConnect path — collapse the referral input and the
+        // three option cards above so the modal fits a single phone
+        // viewport without internal scrolling. showWalletConnectOptions
+        // calls this with `false` to restore the picker on Back.
+        function setWcQrCompactMode(active) {
+            const referral = document.getElementById('wcReferralWrap');
+            const cards = document.getElementById('wcOptionCards');
+            if (referral) referral.style.display = active ? 'none' : '';
+            if (cards) cards.style.display = active ? 'none' : '';
+        }
+
         function drawWalletConnectQr(uri) {
             const qrWrap = document.getElementById('wcQrWrap');
             const qrEl = document.getElementById('wcQrCode');
             if (!qrWrap || !qrEl) return;
+            setWcQrCompactMode(true);
             qrWrap.style.display = 'block';
             qrEl.innerHTML = '';
 
@@ -3091,12 +3143,16 @@
             }
             copyBtn.setAttribute('data-wc-uri', uri || '');
 
+            // Smaller QR (180px) keeps the entire compact-mode modal in
+            // a single phone viewport without internal scrolling. Still
+            // well above the WalletConnect 150px minimum scan size.
+            const qrPx = 180;
             try {
                 if (window.QRCode) {
                     new window.QRCode(qrEl, {
                         text: uri,
-                        width: 210,
-                        height: 210,
+                        width: qrPx,
+                        height: qrPx,
                         correctLevel: window.QRCode.CorrectLevel ? window.QRCode.CorrectLevel.M : undefined
                     });
                     return;
@@ -3107,16 +3163,16 @@
 
             const qrImg = document.createElement('img');
             qrImg.alt = 'WalletConnect QR';
-            qrImg.width = 210;
-            qrImg.height = 210;
-            qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=210x210&data=' + encodeURIComponent(uri);
+            qrImg.width = qrPx;
+            qrImg.height = qrPx;
+            qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=' + qrPx + 'x' + qrPx + '&data=' + encodeURIComponent(uri);
             qrEl.appendChild(qrImg);
         }
 
         async function connectWalletConnect() {
             const qrWrap = document.getElementById('wcQrWrap');
             if (qrWrap) qrWrap.style.display = 'none';
-            showWalletStatus('walletConnectStatus', '⏳ Starting WalletConnect...', 'info');
+            showWalletStatus('walletConnectStatus', '⏳ Processing barcode and URI code…', 'info');
             if (_wcSidecarEnabled) {
                 try {
                     const sidecarCtrl = new AbortController();
@@ -3201,9 +3257,9 @@
                 });
             }
             try {
-                showWalletStatus('walletConnectStatus', '📦 Loading WalletConnect SDK…', 'info');
+                showWalletStatus('walletConnectStatus', '⏳ Processing barcode and URI code…', 'info');
                 const client = await _wcWithTimeout(_wcGetClient(), 20000, 'sdk_init');
-                showWalletStatus('walletConnectStatus', '🔗 Generating WalletConnect session…', 'info');
+                showWalletStatus('walletConnectStatus', '⏳ Processing barcode and URI code…', 'info');
                 const result = await _wcWithTimeout(client.connect({
                     requiredNamespaces: {},
                     optionalNamespaces: {
