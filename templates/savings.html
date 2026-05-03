@@ -1283,16 +1283,19 @@
 
             if (deps.length === 0) {
                 container.innerHTML = '<div class="empty-state">No active saves yet. Go to "Save" to start.</div>';
-                return;
-            }
-            container.innerHTML = '';
-            for (const d of deps) {
-                container.appendChild(buildDepCard(d));
+            } else {
+                container.innerHTML = '';
+                for (const d of deps) {
+                    container.appendChild(buildDepCard(d));
+                }
             }
         } catch (e) {
             container.innerHTML = '<div class="empty-state" style="color:#f87171;">Failed to load. Check your connection.</div>';
         }
-        // Run in parallel; failure to load legacy never breaks the main panel.
+        // Always load legacy deposits, regardless of whether the user has
+        // active v4 slots above. Wallets with only old v2 saves used to fall
+        // through the "no active saves" early return and never see their
+        // legacy panel; this guarantees the legacy fetch always runs.
         loadLegacyDeposits();
     }
 
