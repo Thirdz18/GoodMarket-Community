@@ -36,6 +36,13 @@
             margin: 0;
             padding: 0;
             position: relative;
+            /* Desktop-only 70% shrink so the whole landing page (hero,
+               stats, sponsors, stories) is visible without scrolling on
+               typical laptop viewports. Mobile keeps native scale. */
+            zoom: 1;
+        }
+        @media (min-width: 769px) {
+            body { zoom: 0.7; }
         }
 
         /* Fixed network canvas background */
@@ -3046,18 +3053,55 @@
             qrWrap.style.display = 'block';
             qrEl.innerHTML = '';
 
-            let textEl = document.getElementById('wcQrUriText');
-            if (!textEl) {
-                textEl = document.createElement('div');
-                textEl.id = 'wcQrUriText';
-                textEl.style.marginTop = '10px';
-                textEl.style.fontSize = '12px';
-                textEl.style.opacity = '0.85';
-                textEl.style.wordBreak = 'break-all';
-                textEl.style.maxWidth = '100%';
-                qrWrap.appendChild(textEl);
+            // Replace raw-URI text dump with a clean "Copy URI" button so
+            // the modal looks polished. The URI is still kept on a data
+            // attribute for the click handler to read.
+            const stale = document.getElementById('wcQrUriText');
+            if (stale) stale.remove();
+            let copyBtn = document.getElementById('wcCopyUriBtn');
+            if (!copyBtn) {
+                copyBtn = document.createElement('button');
+                copyBtn.id = 'wcCopyUriBtn';
+                copyBtn.type = 'button';
+                copyBtn.style.cssText =
+                    'margin-top:10px;padding:8px 14px;border-radius:10px;border:1px solid rgba(99,102,241,0.5);' +
+                    'background:rgba(99,102,241,0.15);color:#e2e8f0;font-weight:600;font-size:0.85rem;' +
+                    'cursor:pointer;display:inline-flex;align-items:center;gap:6px;';
+                copyBtn.textContent = '📋 Copy WalletConnect URI';
+                copyBtn.addEventListener('click', function() {
+                    const u = copyBtn.getAttribute('data-wc-uri') || '';
+                    if (!u) return;
+                    const showCopied = function() {
+                        const original = '📋 Copy WalletConnect URI';
+                        copyBtn.textContent = '✅ Copied!';
+                        setTimeout(function() { copyBtn.textContent = original; }, 1800);
+                    };
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(u).then(showCopied, function() {
+                            // Fallback for older / non-secure contexts.
+                            try {
+                                const ta = document.createElement('textarea');
+                                ta.value = u; ta.setAttribute('readonly', '');
+                                ta.style.position = 'absolute'; ta.style.left = '-9999px';
+                                document.body.appendChild(ta); ta.select();
+                                document.execCommand('copy'); document.body.removeChild(ta);
+                                showCopied();
+                            } catch (_) {}
+                        });
+                    } else {
+                        try {
+                            const ta = document.createElement('textarea');
+                            ta.value = u; ta.setAttribute('readonly', '');
+                            ta.style.position = 'absolute'; ta.style.left = '-9999px';
+                            document.body.appendChild(ta); ta.select();
+                            document.execCommand('copy'); document.body.removeChild(ta);
+                            showCopied();
+                        } catch (_) {}
+                    }
+                });
+                qrWrap.appendChild(copyBtn);
             }
-            textEl.textContent = uri || '';
+            copyBtn.setAttribute('data-wc-uri', uri || '');
 
             try {
                 if (window.QRCode) {
