@@ -1266,6 +1266,13 @@
 
     // ── Load deposits (slots) ──
     async function loadDeposits() {
+        // Kick off the v2 (legacy) panel load immediately, in parallel with the
+        // v4 fetch below. It must run regardless of v4 outcome — including when
+        // a wallet has no v4 saves yet, when /api/deposits errors, or when the
+        // v4 path early-returns — otherwise users with only legacy history can
+        // never see their v2 deposits in the UX.
+        loadLegacyDeposits();
+
         const container = document.getElementById('depList');
         container.innerHTML = '<div class="empty-state">Loading…</div>';
         try {
@@ -1292,8 +1299,6 @@
         } catch (e) {
             container.innerHTML = '<div class="empty-state" style="color:#f87171;">Failed to load. Check your connection.</div>';
         }
-        // Run in parallel; failure to load legacy never breaks the main panel.
-        loadLegacyDeposits();
     }
 
     // Lightweight cache refresh used after deposit / withdraw.
