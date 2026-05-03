@@ -1720,6 +1720,9 @@
     loadStats();
     loadSponsorStats();
     refreshMySlots();
+    // Pre-load legacy v2 deposits at page init so the panel is ready when
+    // the user switches to the "My Saves" tab — independent of v4 state.
+    loadLegacyDeposits();
 
 
 </script>
