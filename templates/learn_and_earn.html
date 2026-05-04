@@ -1912,6 +1912,32 @@
             integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
+    <!-- Shared WalletConnect bridge so quiz / NFT / send flows still work for
+         users that logged in via WalletConnect (no `window.ethereum`). -->
+    <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+    <script>
+        if (typeof GMWalletConnect !== "undefined") {
+            GMWalletConnect.configure({
+                walletAddress: "{{ wallet }}",
+                loginMethod: "{{ login_method }}",
+                projectId: "{{ walletconnect_project_id|default('', true) }}",
+                sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+                dappName: "GoodMarket — Learn & Earn",
+                dappDescription: "Earn G$ on Celo via quizzes, NFTs, and tasks",
+                assetVersion: "{{ ASSET_VERSION }}",
+            });
+        }
+        function _learnGetWcProviderIfPreferred() {
+            try {
+                if (typeof GMWalletConnect === "undefined") return null;
+                if (!GMWalletConnect.isPreferred()) return null;
+                return GMWalletConnect.getProvider();
+            } catch (_) {
+                return null;
+            }
+        }
+    </script>
+
     <script type="module">
         let quizData = null;
         let currentQuestionIndex = 0;
@@ -3628,7 +3654,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         async function swSendViaWallet(amountG) {
             var provider = await _vAwaitEthProvider(1200);
             if (!provider) {
-                alert('No wallet found. Please open this page inside a DApp browser (MiniPay, MetaMask, Trust Wallet).');
+                provider = _learnGetWcProviderIfPreferred();
+            }
+            if (!provider) {
+                alert('No wallet found. Please open this page inside a DApp browser (MiniPay, MetaMask, Trust Wallet) or sign in again with WalletConnect.');
                 return;
             }
             try {

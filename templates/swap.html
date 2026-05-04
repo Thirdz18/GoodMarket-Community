@@ -2025,7 +2025,13 @@
 
                 showQuote(currentQuote);
 
-                if (_getEthProvider()) {
+                // Users who logged in via WalletConnect (or manual address)
+                // don't have an injected `window.ethereum`, but we can still
+                // sign their swap through the shared WalletConnect bridge
+                // (`_wcBridgeRequest` / `getConnectedSwapSigner`). Don't lock
+                // the button for them — they'll get a QR / approval prompt
+                // when they actually click "Swap".
+                if (_getEthProvider() || PREFER_WC_SIGNING) {
                     setSwapBtnState("ready");
                 } else {
                     setSwapBtnState("no-wallet");

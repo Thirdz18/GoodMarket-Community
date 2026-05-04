@@ -1595,11 +1595,42 @@
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"
             integrity="sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
+    <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
 
     <script>
     const WALLET = "{{ wallet }}";
     // GoodMarket is pure self-custody now: signing must come from injected wallet / WalletConnect.
     window.useServerSigning = false;
+
+    // Configure the shared WalletConnect bridge so users that logged in via
+    // WalletConnect (no `window.ethereum`) can still claim / send / sign with
+    // approval prompts coming back through their original WC session.
+    if (typeof GMWalletConnect !== "undefined") {
+        GMWalletConnect.configure({
+            walletAddress: "{{ wallet }}",
+            loginMethod: "{{ login_method }}",
+            projectId: "{{ walletconnect_project_id|default('', true) }}",
+            sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+            dappName: "GoodMarket — Wallet",
+            dappDescription: "Claim and send GoodDollar on Celo",
+            assetVersion: "{{ ASSET_VERSION }}",
+        });
+    }
+
+    // Returns an EIP-1193-shaped provider for WC users when no injected
+    // provider is available. `null` if the user can't / shouldn't use
+    // WalletConnect (e.g. server-side signing, or a regular browser without
+    // a WC login).
+    async function _walletGetWcProviderIfPreferred() {
+        try {
+            if (typeof GMWalletConnect === "undefined") return null;
+            if (!GMWalletConnect.isPreferred()) return null;
+            return GMWalletConnect.getProvider();
+        } catch (_) {
+            return null;
+        }
+    }
 
     // ── Token state ──────────────────────────────────────────
     let gdBal = 0, celoBal = 0, cusdBal = 0, usdtBal = 0;
@@ -2475,8 +2506,13 @@
 
             let txHash = null;
             if (!window.useServerSigning) {
-                const provider = await _vAwaitEthProvider();
-                if (!provider) throw new Error('No wallet detected. Please connect your GoodMarket wallet.');
+                let provider = await _vAwaitEthProvider();
+                if (!provider) {
+                    provider = await _walletGetWcProviderIfPreferred();
+                }
+                if (!provider) {
+                    throw new Error('No wallet detected. Please connect your GoodMarket wallet, or sign in again with WalletConnect.');
+                }
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
                 if (!accounts || !accounts.length) throw new Error('No wallet account available.');
@@ -3934,9 +3970,14 @@
                 });
             };
 
-            const provider = await _vAwaitEthProvider();
+            let provider = await _vAwaitEthProvider();
+            let usingWcBridge = false;
             if (!provider) {
-                setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or use WalletConnect.', '#fbbf24');
+                provider = await _walletGetWcProviderIfPreferred();
+                usingWcBridge = !!provider;
+            }
+            if (!provider) {
+                setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or sign in again with WalletConnect.', '#fbbf24');
                 return;
             }
 
@@ -3944,10 +3985,14 @@
             setClaimGasUiState('checking_balance');
 
             try {
-                const isMiniPayClaim = _isMiniPay();
+                // The WalletConnect bridge can't introspect the user's local
+                // gas balance the way an injected MetaMask/Trust provider can,
+                // so we treat the WC path as MiniPay-like (skip gas preflight)
+                // — the wallet itself will reject the tx if gas is missing
+                // and the user can use the standard top-up button.
+                const isMiniPayClaim = _isMiniPay() || usingWcBridge;
 
-                // MiniPay pays gas with stablecoins via CIP-64, so gas top-up
-                // is not needed.
+                // MiniPay / WalletConnect bridge: no preflight gas top-up.
                 if (!isMiniPayClaim) {
                     const gasSnap = await getProviderGasSnapshot(provider);
                     if (!gasSnap.gasReady) {
@@ -4417,7 +4462,15 @@
         }
 
         async function signWithWalletConnect(address) {
-            const provider = _getWalletConnectProvider() || (await _vAwaitEthProvider());
+            // Prefer an injected WC connector if a wallet exposed one, then any
+            // other injected provider. As a last resort fall back to the
+            // shared GMWalletConnect bridge (sidecar / browser SignClient) so
+            // QR-scan WalletConnect logins can still produce a signature.
+            let provider = _getWalletConnectProvider();
+            if (!provider) provider = await _vAwaitEthProvider();
+            if (!provider) {
+                provider = await _walletGetWcProviderIfPreferred();
+            }
             if (!provider) {
                 throw new Error('WalletConnect signer unavailable. Reconnect your wallet and try again.');
             }
