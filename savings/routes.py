@@ -27,6 +27,9 @@ def savings_home():
     if not wallet or not verified:
         return redirect("/login")
     wc_pid = os.environ.get('WALLETCONNECT_PROJECT_ID', '')
+    has_explicit_sidecar = bool(os.getenv("WC_SERVICE_URL"))
+    is_serverless_runtime = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    wc_sidecar = has_explicit_sidecar or not is_serverless_runtime
     return render_template(
         "savings.html",
         wallet=wallet,
@@ -37,6 +40,7 @@ def savings_home():
         legacy_v2_contract=LEGACY_V2_CONTRACT_ADDRESS,
         chain_id=CHAIN_ID,
         walletconnect_project_id=wc_pid,
+        walletconnect_sidecar_enabled=wc_sidecar,
         login_method=session.get("login_method", "walletconnect"),
     )
 

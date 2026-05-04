@@ -896,11 +896,16 @@ def dashboard():
     dashboard_data = analytics.get_dashboard_stats(wallet)
 
     wc_project_id = os.environ.get("WALLETCONNECT_PROJECT_ID", "")
+    has_explicit_sidecar = bool(os.getenv("WC_SERVICE_URL"))
+    is_serverless_runtime = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    walletconnect_sidecar_enabled = has_explicit_sidecar or not is_serverless_runtime
     return render_template(
         "dashboard.html",
         wallet=wallet,
         data=dashboard_data,
         wc_project_id=wc_project_id,
+        walletconnect_project_id=wc_project_id,
+        walletconnect_sidecar_enabled=walletconnect_sidecar_enabled,
         login_method=session.get("login_method", "walletconnect")
     )
 

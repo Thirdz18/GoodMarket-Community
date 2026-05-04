@@ -4172,11 +4172,55 @@
         });
     </script>
 
+    <!-- Shared WalletConnect bridge so voucher claims work for users that
+         logged in via WalletConnect (no `window.ethereum` injected). -->
+    <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
     <script>
         (function() {
             var voucherCheckInterval = null;
             const LOGIN_METHOD = "{{ login_method | default('walletconnect') }}";
             const SESSION_WALLET = "{{ wallet | default('') }}";
+
+            if (typeof GMWalletConnect !== "undefined") {
+                GMWalletConnect.configure({
+                    walletAddress: SESSION_WALLET,
+                    loginMethod: LOGIN_METHOD,
+                    projectId: "{{ walletconnect_project_id|default('', true) }}",
+                    sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+                    dappName: "GoodMarket — Voucher",
+                    dappDescription: "Claim your daily G$ voucher on Celo",
+                    assetVersion: "{{ ASSET_VERSION }}",
+                });
+            }
+            function _voucherWcProviderIfPreferred() {
+                try {
+                    if (typeof GMWalletConnect === "undefined") return null;
+                    if (!GMWalletConnect.isPreferred()) return null;
+                    return GMWalletConnect.getProvider();
+                } catch (_) {
+                    return null;
+                }
+            }
+
+            // Provide the legacy `window._wcOpen(onUri) -> Promise<address>`
+            // shim that the existing voucher QR / NFT-buy flows rely on. We
+            // forward the WalletConnect QR URI to the caller so it can render
+            // the QR inline in its own modal, then resolve with the connected
+            // wallet address once the user approves the session.
+            if (!window._wcOpen) {
+                window._wcOpen = function(onUri) {
+                    if (typeof GMWalletConnect === "undefined") {
+                        return Promise.reject(new Error("WalletConnect bridge not loaded."));
+                    }
+                    GMWalletConnect.configure({
+                        showQr: function(uri) {
+                            try { if (typeof onUri === "function") onUri(uri); } catch (_) {}
+                        },
+                        hideQr: function() {}
+                    });
+                    return GMWalletConnect.connect();
+                };
+            }
 
             async function checkDailyVoucher() {
                 try {
@@ -4311,8 +4355,9 @@
                         otpCheck = new ethers.Contract(VOTP_ADDRESS, VOTP_ABI, providerRead);
                     } else {
                         var ep = _vGetEthProvider();
+                        if (!ep) ep = _voucherWcProviderIfPreferred();
                         btn.innerHTML = spinner + ' Connecting wallet...';
-                        if (!ep) throw new Error('No Web3 wallet detected. Install MetaMask or use a Celo-compatible wallet.');
+                        if (!ep) throw new Error('No Web3 wallet detected. Install MetaMask, MiniPay, or sign in again with WalletConnect.');
                         await ep.request({ method: 'eth_requestAccounts' });
 
                         var chainHex = await ep.request({ method: 'eth_chainId' });
@@ -4511,7 +4556,7 @@
             }
 
             async function wcExecuteClaim() {
-                if (!_wcSessionId || !_wcReceiverAddr || !_voucherPaymentWallet) return;
+                if (!_wcReceiverAddr || !_voucherPaymentWallet) return;
                 var ethers = window.ethers;
                 var btn = document.getElementById('wcClaimBtn');
                 var spinner = '<span style="display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;"></span>';
@@ -4531,22 +4576,25 @@
                     btn.innerHTML = spinner + ' Confirm in your wallet...';
                     wcSetAlert('info', spinner + ' A transaction request has been sent to your mobile wallet. Please approve it there.');
 
-                    // Send transaction via server-side WC session
-                    var txRes = await fetch('/api/wc-tx/' + _wcSessionId, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
+                    // Route the eth_sendTransaction through the shared
+                    // WalletConnect bridge — it knows whether the active
+                    // session is a Node sidecar session or an in-browser
+                    // SignClient session and handles both.
+                    if (typeof GMWalletConnect === "undefined" || !GMWalletConnect.isConnected()) {
+                        throw new Error("WalletConnect session not active. Please re-scan the QR.");
+                    }
+                    var txHash;
+                    try {
+                        txHash = await GMWalletConnect.bridgeRequest('eth_sendTransaction', [{
                             from: _wcReceiverAddr,
                             to: VOTP_ADDRESS,
                             data: callData,
+                            value: '0x0',
                             gas: '0x' + (300000).toString(16)
-                        })
-                    });
-                    var txData = await txRes.json();
-
-                    if (txData.error) {
-                        var em = txData.error;
-                        if (em.includes('rejected') || em.includes('cancelled') || em.includes('ACTION_REJECTED')) {
+                        }]);
+                    } catch (txErr) {
+                        var em = (txErr && txErr.message) ? txErr.message : String(txErr);
+                        if (/reject|cancel|ACTION_REJECTED/i.test(em)) {
                             wcSetAlert('error', '❌ Transaction cancelled in wallet.');
                         } else {
                             wcSetAlert('error', '❌ Transaction failed: ' + em.substring(0, 150));
@@ -4555,8 +4603,6 @@
                         btn.textContent = 'Retry — Claim G$';
                         return;
                     }
-
-                    var txHash = txData.txHash;
                     btn.innerHTML = spinner + ' Waiting for confirmation...';
                     wcSetAlert('info', spinner + ' Transaction submitted. Waiting for Celo confirmation...');
 

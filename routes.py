@@ -5331,6 +5331,8 @@ def learn_earn_page():
     return render_template("learn_and_earn.html",
                          wallet=wallet,
                          login_method=session.get("login_method", "walletconnect"),
+                         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+                         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
                          is_admin_user=is_admin_user)
 
 @routes.route('/api/p2p/history')
@@ -6321,7 +6323,13 @@ def wallet_page():
                 return render_template("feature_unavailable.html", feature_name="Wallet", wallet=wallet)
     except Exception:
         pass
-    return render_template("wallet.html", wallet=wallet, login_method=session.get("login_method", "walletconnect"))
+    return render_template(
+        "wallet.html",
+        wallet=wallet,
+        login_method=session.get("login_method", "walletconnect"),
+        walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
+    )
 
 
 @routes.route("/swap")
@@ -6362,6 +6370,7 @@ def swap_page():
         wallet=wallet,
         login_method=session.get("login_method", "walletconnect"),
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         reserve_swap_visible=reserve_visible,
         is_minipay=is_minipay,
     )
@@ -6527,6 +6536,7 @@ def send_link_page():
         wallet=wallet,
         login_method=session.get("login_method", "walletconnect"),
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
     )
 
 

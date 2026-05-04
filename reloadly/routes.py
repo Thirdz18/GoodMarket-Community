@@ -31,6 +31,9 @@ def reloadly_home():
         return redirect("/")
     import os
     gd_price = get_gd_usd_price()
+    has_explicit_sidecar = bool(os.getenv("WC_SERVICE_URL"))
+    is_serverless_runtime = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+    wc_sidecar = has_explicit_sidecar or not is_serverless_runtime
     return render_template(
         "reloadly.html",
         wallet=wallet,
@@ -39,6 +42,7 @@ def reloadly_home():
         merchant_address=os.getenv("MERCHANT_ADDRESS", ""),
         gd_contract=os.getenv("GOODDOLLAR_CONTRACT", "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"),
         walletconnect_project_id=os.getenv("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=wc_sidecar,
         login_method=session.get("login_method", "walletconnect"),
     )
 
