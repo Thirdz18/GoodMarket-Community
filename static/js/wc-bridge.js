@@ -46,16 +46,9 @@
 
     if (global.GMWalletConnect) return;
 
-    var RPC_URLS = {
-        42220: "https://forno.celo.org",
-        50: "https://rpc.xinfin.network",
-    };
-    var CHAIN_HEX = {
-        42220: "0xa4ec",
-        50: "0x32",
-    };
+    var CELO_RPC_URL = "https://forno.celo.org";
+    var CELO_CHAIN_HEX = "0xa4ec";
     var CELO_CHAIN_ID = 42220;
-    var XDC_CHAIN_ID = 50;
     var WC_CDN_URL = "https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js";
 
     var _config = {
@@ -80,7 +73,6 @@
     var _state = {
         sessionId: null,
         address: null,
-        chainId: CELO_CHAIN_ID,
         mode: null,             // "sidecar" | "browser"
         signClient: null,
         browserSession: null,
@@ -179,14 +171,11 @@
                 if (sessions && sessions.length && !_state.browserSession) {
                     _state.browserSession = sessions[sessions.length - 1];
                     _state.mode = "browser";
-                    _state.chainId = CELO_CHAIN_ID;
                     var ns = _state.browserSession.namespaces || {};
                     Object.keys(ns).some(function (key) {
                         var accts = (ns[key] && ns[key].accounts) || [];
                         if (accts.length) {
                             _state.address = String(accts[0]).split(":").pop();
-                            var parts = String(accts[0]).split(":");
-                            if (parts.length >= 3) _state.chainId = _chainIdFromHex(parts[1]);
                             return true;
                         }
                         return false;
@@ -197,28 +186,8 @@
         });
     }
 
-    function _chainIdFromHex(chainId) {
-        if (chainId === null || chainId === undefined) return CELO_CHAIN_ID;
-        if (typeof chainId === "number" && isFinite(chainId)) return chainId;
-        var raw = String(chainId).trim().toLowerCase();
-        if (!raw) return CELO_CHAIN_ID;
-        if (raw.indexOf("eip155:") === 0) raw = raw.split(":").pop();
-        if (raw.indexOf("0x") === 0) return parseInt(raw, 16);
-        if (/^\d+$/.test(raw)) return parseInt(raw, 10);
-        return CELO_CHAIN_ID;
-    }
-
-    function _chainHexFromId(chainId) {
-        var id = _chainIdFromHex(chainId);
-        return CHAIN_HEX[id] || ("0x" + id.toString(16));
-    }
-
-    function _rpcForChainId(chainId) {
-        return RPC_URLS[_chainIdFromHex(chainId)] || RPC_URLS[CELO_CHAIN_ID];
-    }
-
-    function _jsonRpc(chainId, method, params) {
-        return fetch(_rpcForChainId(chainId), {
+    function _celoJsonRpc(method, params) {
+        return fetch(CELO_RPC_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -233,30 +202,6 @@
             if (data.error) throw new Error(data.error.message || "RPC error");
             return data.result;
         });
-    }
-
-    function _chainIdForRequest(method, params) {
-        if (params && params.length && params[0] && typeof params[0] === "object" && params[0].chainId) {
-            return _chainIdFromHex(params[0].chainId);
-        }
-        return _state.chainId || CELO_CHAIN_ID;
-    }
-
-    function _sessionSupportsChain(session, chainId) {
-        if (!session) return false;
-        var wanted = "eip155:" + _chainIdFromHex(chainId);
-        var ns = session.namespaces || {};
-        var keys = Object.keys(ns);
-        for (var i = 0; i < keys.length; i++) {
-            var entry = ns[keys[i]] || {};
-            var chains = entry.chains || [];
-            if (chains.indexOf(wanted) >= 0) return true;
-            var accounts = entry.accounts || [];
-            for (var j = 0; j < accounts.length; j++) {
-                if (String(accounts[j]).indexOf(wanted + ":") === 0) return true;
-            }
-        }
-        return false;
     }
 
     function _defaultShowQr(uri, label) {
@@ -345,30 +290,17 @@
     function reset() {
         _state.sessionId = null;
         _state.address = null;
-        _state.chainId = CELO_CHAIN_ID;
         _state.mode = null;
         _state.browserSession = null;
     }
 
-    function connect(chainId) {
-        var desiredChainId = chainId ? _chainIdFromHex(chainId) : null;
-        if (_state.address) {
-            if (
-                !desiredChainId ||
-                (_state.mode === "browser" && _sessionSupportsChain(_state.browserSession, desiredChainId)) ||
-                (_state.mode !== "browser" && desiredChainId === CELO_CHAIN_ID)
-            ) {
-                return Promise.resolve(_state.address);
-            }
-            _state.browserSession = null;
-            _state.address = null;
-            _state.mode = null;
-        }
+    function connect() {
+        if (_state.address) return Promise.resolve(_state.address);
         var wantedAddress = String(_config.walletAddress || "").toLowerCase();
 
         // Try the Node sidecar first when enabled (matches homepage login flow).
         var sidecarPromise = Promise.resolve(null);
-        if (_config.sidecarEnabled !== false && (!desiredChainId || desiredChainId === CELO_CHAIN_ID)) {
+        if (_config.sidecarEnabled !== false) {
             sidecarPromise = (function () {
                 return fetch("/api/wc-uri")
                     .then(function (resp) {
@@ -421,11 +353,7 @@
         return sidecarPromise.then(function (addr) {
             if (addr) return addr;
             return _wcGetClient().then(function (client) {
-                if (
-                    _state.browserSession &&
-                    _state.address &&
-                    (!desiredChainId || _sessionSupportsChain(_state.browserSession, desiredChainId))
-                ) {
+                if (_state.browserSession && _state.address) {
                     _state.mode = "browser";
                     return _state.address;
                 }
@@ -443,7 +371,7 @@
                                 "eth_signTypedData",
                                 "eth_signTypedData_v4"
                             ],
-                            chains: ["eip155:" + CELO_CHAIN_ID, "eip155:" + XDC_CHAIN_ID],
+                            chains: ["eip155:" + CELO_CHAIN_ID],
                             events: ["chainChanged", "accountsChanged"]
                         }
                     }
@@ -456,14 +384,11 @@
                 }).then(function (session) {
                     _defaultHideQr();
                     _state.browserSession = session;
-                    _state.chainId = CELO_CHAIN_ID;
                     var ns = session.namespaces || {};
                     Object.keys(ns).some(function (key) {
                         var accts = (ns[key] && ns[key].accounts) || [];
                         if (accts.length) {
                             _state.address = String(accts[0]).split(":").pop();
-                            var parts = String(accts[0]).split(":");
-                            if (parts.length >= 3) _state.chainId = _chainIdFromHex(parts[1]);
                             return true;
                         }
                         return false;
@@ -525,28 +450,20 @@
             return connect().then(function (addr) { return [addr]; });
         }
         if (method === "eth_chainId") {
-            return Promise.resolve(_chainHexFromId(_state.chainId || CELO_CHAIN_ID));
+            return Promise.resolve(CELO_CHAIN_HEX);
         }
         if (method === "net_version") {
-            return Promise.resolve(String(_state.chainId || CELO_CHAIN_ID));
+            return Promise.resolve(String(CELO_CHAIN_ID));
         }
         if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") {
-            // WalletConnect sessions authorize chains up front; switching is
-            // represented by the chainId used on the next request.
-            if (p && p[0] && p[0].chainId) {
-                _state.chainId = _chainIdFromHex(p[0].chainId);
-            }
+            // Sessions are scoped to Celo, so these are no-ops over the bridge.
             return Promise.resolve(null);
         }
 
         if (_walletScopedMethod(method)) {
-            var desiredChainId = method === "eth_sendTransaction" ? _chainIdForRequest(method, p) : null;
-            return connect(desiredChainId).then(function () {
+            return connect().then(function () {
                 if (_state.mode === "sidecar" && method === "eth_sendTransaction") {
                     var txParams = (p && p[0]) ? p[0] : {};
-                    if (!txParams.chainId && _state.chainId && _state.chainId !== CELO_CHAIN_ID) {
-                        txParams = Object.assign({}, txParams, { chainId: _chainHexFromId(_state.chainId) });
-                    }
                     return fetch("/api/wc-tx/" + encodeURIComponent(_state.sessionId), {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -594,22 +511,11 @@
                 if (!_state.browserSession) {
                     throw _wcRpcError("WalletConnect browser session is not active.", null, -32603);
                 }
-                var chainId = _chainIdForRequest(method, p);
-                var requestParams = p;
-                if (method === "eth_sendTransaction" && p && p[0]) {
-                    var tx = {};
-                    for (var txKey in p[0]) {
-                        if (Object.prototype.hasOwnProperty.call(p[0], txKey) && txKey !== "chainId") {
-                            tx[txKey] = p[0][txKey];
-                        }
-                    }
-                    requestParams = [tx];
-                }
                 return _wcGetClient().then(function (client) {
                     return client.request({
                         topic: _state.browserSession.topic,
-                        chainId: "eip155:" + chainId,
-                        request: { method: method, params: requestParams }
+                        chainId: "eip155:" + CELO_CHAIN_ID,
+                        request: { method: method, params: p }
                     }).catch(function (wcErr) {
                         // Re-throw with .code preserved so ethers.js sees a
                         // proper EIP-1193 error (4001 → user rejected, etc.)
@@ -622,9 +528,9 @@
             });
         }
 
-        // Read-only RPC calls — answer directly off public RPC to avoid an
+        // Read-only RPC calls — answer directly off Celo RPC to avoid an
         // extra wallet round-trip for things like eth_estimateGas.
-        return _jsonRpc(_chainIdForRequest(method, p), method, p);
+        return _celoJsonRpc(method, p);
     }
 
     var _provider = null;
