@@ -990,8 +990,10 @@
                     Destination wallet: <code id="bridgeDestinationWalletCeloToXdc" style="color:#c4b5fd;">{{ wallet }}</code><br>
                     Destination chain: <strong>XDC Network (Chain ID {{ xdc_chain_id }})</strong><br>
                     <div style="font-size:0.74rem; color:rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:0.05em; margin-top:0.55rem; margin-bottom:0.35rem;">Bridge Summary</div>
+                    <div id="bridgeLimitsHintCeloToXdc" style="color:rgba(255,255,255,0.55); font-size:0.78rem; margin-bottom:0.25rem;"></div>
                     <div style="color:rgba(255,255,255,0.65);">Gross amount: <strong id="bridgeGrossReceiveCeloToXdc" style="color:#e2e8f0;">0.000000 G$</strong></div>
-                    <div style="color:rgba(255,255,255,0.65);">Fee sent (max): <strong id="bridgeFeeDeductionDisplayCeloToXdc" style="color:#bfdbfe;">0.150000 CELO</strong></div>
+                    <div style="color:rgba(255,255,255,0.65);">Bridge fee (CELO, max): <strong id="bridgeFeeDeductionDisplayCeloToXdc" style="color:#bfdbfe;">0.150000 CELO</strong></div>
+                    <div id="bridgeProtocolFeeDisplayCeloToXdc" style="color:rgba(255,255,255,0.65); display:none;"></div>
                     <div style="color:rgba(255,255,255,0.8);">Net estimated receive on XDC: <strong id="bridgeNetReceiveCeloToXdc" style="color:#a7f3d0;">0.000000 G$</strong></div>
                 </div>
 
@@ -3103,7 +3105,15 @@
         const CELO_TO_XDC_SOURCE_CHAIN_ID = {{ celo_chain_id }};
         const CELO_TO_XDC_BRIDGE_ABI = [
             "function bridgeTo(address target, uint256 targetChainId, uint256 amount, uint8 bridge) payable",
-            "function canBridge(address from, uint256 amount) view returns (bool)"
+            // Per the deployed contract on Celo, canBridge actually returns
+            // `(bool, string)` where the string is the rejection reason
+            // (e.g. "minAmount", "txLimit", "dailyLimit"). The earlier
+            // `bool`-only ABI was wrong and silently swallowed the reason.
+            "function canBridge(address from, uint256 amount) view returns (bool, string)",
+            // (uint128 dailyLimit, uint128 txLimit, uint128 accountDailyLimit, uint64 minAmount, bool onlyWhitelisted)
+            "function bridgeLimits() view returns (uint128, uint128, uint128, uint64, bool)",
+            // (uint128 minFee, uint128 maxFee, uint128 feeBPS) — feeBPS is in basis points (1 bps = 0.01%)
+            "function bridgeFees() view returns (uint128, uint128, uint128)"
         ];
         const CELO_TO_XDC_ERC20_ABI = [
             "function approve(address spender, uint256 value) external returns (bool)",
@@ -3123,6 +3133,11 @@
         let _celoBridgeFeeEstimateDebounce = null;
         let _celoBridgeAttemptContext = null;
         let _celoBridgeRecommendedFeeWei = null;
+        // Cached on-chain limits/fees from the Celo bridge contract. Loaded
+        // once when the bridge tab is first viewed; used to pre-validate
+        // amounts and to display correct net G$ on XDC.
+        let _celoBridgeLimitsCache = null; // { dailyLimit, txLimit, accountDailyLimit, minAmount } as bigint G$ wei
+        let _celoBridgeFeesCache  = null;  // { minFee, maxFee, feeBPS } as bigint G$ wei + bps
 
         function _formatBridgeAmountCelo(value, symbol = 'G$') {
             const num = Number(value || 0);
@@ -3164,6 +3179,58 @@
             } catch (_) { /* best-effort */ }
         }
 
+        async function _loadCeloBridgeLimitsAndFees() {
+            // Fetches the on-chain limits + fees once and caches them. The
+            // values here are baked into the deployed bridge contract — the
+            // GoodDollar docs at the top-level page don't reproduce them, so
+            // we read them straight from the source of truth on Celo mainnet.
+            if (_celoBridgeLimitsCache && _celoBridgeFeesCache) {
+                return { limits: _celoBridgeLimitsCache, fees: _celoBridgeFeesCache };
+            }
+            try {
+                const provider = new ethers.JsonRpcProvider(CELO_RPC);
+                const bridge = new ethers.Contract(CELO_TO_XDC_BRIDGE_CONTRACT, CELO_TO_XDC_BRIDGE_ABI, provider);
+                const [limits, fees] = await Promise.all([
+                    bridge.bridgeLimits(),
+                    bridge.bridgeFees()
+                ]);
+                _celoBridgeLimitsCache = {
+                    dailyLimit:        BigInt(limits[0]),
+                    txLimit:           BigInt(limits[1]),
+                    accountDailyLimit: BigInt(limits[2]),
+                    minAmount:         BigInt(limits[3]),
+                    onlyWhitelisted:   Boolean(limits[4])
+                };
+                _celoBridgeFeesCache = {
+                    minFee: BigInt(fees[0]),
+                    maxFee: BigInt(fees[1]),
+                    feeBPS: BigInt(fees[2])
+                };
+                return { limits: _celoBridgeLimitsCache, fees: _celoBridgeFeesCache };
+            } catch (err) {
+                console.warn('[bridge celo→xdc] failed to load on-chain limits/fees', err);
+                return { limits: null, fees: null };
+            }
+        }
+
+        function _computeCeloBridgeProtocolFeeGdWei(amountWei) {
+            // Mirrors what the bridge does on-chain when computing the
+            // G$-denominated protocol fee that is deducted from the bridged
+            // amount — i.e. fee = clamp(amount * feeBPS / 10000, minFee, maxFee).
+            // The user receives `amount - fee` G$ on the destination chain.
+            if (!_celoBridgeFeesCache) return null;
+            const { minFee, maxFee, feeBPS } = _celoBridgeFeesCache;
+            try {
+                let fee = (amountWei * feeBPS) / 10000n;
+                if (fee < minFee) fee = minFee;
+                if (maxFee > 0n && fee > maxFee) fee = maxFee;
+                if (fee < 0n) fee = 0n;
+                return fee;
+            } catch (_) {
+                return null;
+            }
+        }
+
         function updateCeloBridgeBalanceDisplay() {
             const fromEl = document.getElementById('bridgeFromBalance');
             const feeEl  = document.getElementById('bridgeFeeBalance');
@@ -3175,15 +3242,49 @@
                 const celo = (typeof celoBalanceNum === 'number') ? celoBalanceNum : 0;
                 feeEl.textContent = celo.toLocaleString(undefined, { maximumFractionDigits: 4 }) + ' CELO';
             }
+            // Best-effort load — won't block the UI.
+            _loadCeloBridgeLimitsAndFees().then(() => {
+                _renderCeloBridgeLimitsHint();
+                updateCeloBridgeSummary();
+            }).catch(() => { /* no-op */ });
             updateCeloBridgeSummary();
+        }
+
+        function _renderCeloBridgeLimitsHint() {
+            const el = document.getElementById('bridgeLimitsHintCeloToXdc');
+            if (!el) return;
+            if (!_celoBridgeLimitsCache || !_celoBridgeFeesCache) {
+                el.textContent = '';
+                return;
+            }
+            const minG = Number(ethers.formatUnits(_celoBridgeLimitsCache.minAmount, 18));
+            const txG  = Number(ethers.formatUnits(_celoBridgeLimitsCache.txLimit,   18));
+            const minFeeG = Number(ethers.formatUnits(_celoBridgeFeesCache.minFee, 18));
+            const maxFeeG = Number(ethers.formatUnits(_celoBridgeFeesCache.maxFee, 18));
+            const bps = Number(_celoBridgeFeesCache.feeBPS);
+            const feePct = (bps / 100).toFixed(2);
+            el.innerHTML =
+                `Min bridgeable: <strong>${minG.toLocaleString(undefined,{maximumFractionDigits:2})} G$</strong> · ` +
+                `Max per tx: <strong>${txG.toLocaleString(undefined,{maximumFractionDigits:2})} G$</strong> · ` +
+                `Protocol fee: <strong>${feePct}%</strong> ` +
+                `(min ${minFeeG.toLocaleString(undefined,{maximumFractionDigits:2})} G$, ` +
+                `max ${maxFeeG.toLocaleString(undefined,{maximumFractionDigits:2})} G$)`;
         }
 
         function setBridgeMaxCeloToXdc() {
             const gd = (typeof gdBalanceNum === 'number') ? gdBalanceNum : 0;
             const input = document.getElementById('bridgeAmountCeloToXdc');
             if (!input) return;
-            // Per docs: max 300M G$. Use full balance if below cap.
-            const cap = Math.min(gd, 300_000_000);
+            // Cap at the on-chain per-tx limit when known (≈ 4,577 G$ today),
+            // not at a generic doc-level 300M cap. Falls back to 300M only if
+            // the on-chain values aren't loaded yet.
+            let cap = gd;
+            if (_celoBridgeLimitsCache && _celoBridgeLimitsCache.txLimit > 0n) {
+                const txG = Number(ethers.formatUnits(_celoBridgeLimitsCache.txLimit, 18));
+                cap = Math.min(cap, txG);
+            } else {
+                cap = Math.min(cap, 300_000_000);
+            }
             input.value = cap > 0 ? cap.toFixed(6) : '';
             updateCeloBridgeSummary();
             scheduleCeloBridgeFeeEstimate();
@@ -3203,13 +3304,43 @@
             const feeStr    = (document.getElementById('bridgeFeeCeloToXdc')?.value || '').trim();
             const gross = parseFloat(amountStr) || 0;
             const fee   = parseFloat(feeStr) || 0;
-            const net   = gross;
-            const grossEl = document.getElementById('bridgeGrossReceiveCeloToXdc');
-            const feeEl   = document.getElementById('bridgeFeeDeductionDisplayCeloToXdc');
-            const netEl   = document.getElementById('bridgeNetReceiveCeloToXdc');
+
+            // Compute the on-chain G$ protocol fee (deducted from the amount
+            // before relaying to XDC). This is *separate* from the LayerZero
+            // CELO fee, which is paid as msg.value and refunded on excess.
+            let protoFeeG = 0;
+            let net = gross;
+            try {
+                if (gross > 0 && _celoBridgeFeesCache) {
+                    const amtWei  = ethers.parseUnits(gross.toFixed(18).replace(/0+$/,'').replace(/\.$/,'.0'), 18);
+                    const feeWei  = _computeCeloBridgeProtocolFeeGdWei(amtWei);
+                    if (feeWei !== null) {
+                        protoFeeG = Number(ethers.formatUnits(feeWei, 18));
+                        net = Math.max(0, gross - protoFeeG);
+                    }
+                }
+            } catch (_) { /* keep net = gross as conservative fallback */ }
+
+            const grossEl    = document.getElementById('bridgeGrossReceiveCeloToXdc');
+            const feeEl      = document.getElementById('bridgeFeeDeductionDisplayCeloToXdc');
+            const netEl      = document.getElementById('bridgeNetReceiveCeloToXdc');
+            const protoFeeEl = document.getElementById('bridgeProtocolFeeDisplayCeloToXdc');
             if (grossEl) grossEl.textContent = _formatBridgeAmountCelo(gross);
             if (feeEl)   feeEl.textContent   = `${_formatBridgeFeeCelo(fee)} (actual fee may be lower; excess refunded)`;
             if (netEl)   netEl.textContent   = _formatBridgeAmountCelo(net);
+            if (protoFeeEl) {
+                if (protoFeeG > 0) {
+                    protoFeeEl.textContent = `Protocol fee: ${_formatBridgeAmountCelo(protoFeeG)} (deducted from bridged amount)`;
+                    protoFeeEl.style.display = '';
+                } else if (_celoBridgeFeesCache) {
+                    const minFeeG = Number(ethers.formatUnits(_celoBridgeFeesCache.minFee, 18));
+                    protoFeeEl.textContent = `Protocol fee: ${_formatBridgeAmountCelo(minFeeG)} minimum (deducted from bridged amount)`;
+                    protoFeeEl.style.display = '';
+                } else {
+                    protoFeeEl.textContent = '';
+                    protoFeeEl.style.display = 'none';
+                }
+            }
         }
 
         function scheduleCeloBridgeFeeEstimate() {
@@ -3291,7 +3422,36 @@
             if (!feeStr || parseFloat(feeStr) <= 0) {
                 return showCeloBridgeAlert('alert-error', '❌ Enter a valid bridge fee in CELO.');
             }
-            if (parseFloat(amountStr) > 300_000_000) {
+
+            // On-chain limits live on the bridge contract and supersede the
+            // generic doc-level 300M cap. Pre-validate against them first so we
+            // can give the user a clear message instead of a wallet-side
+            // simulation revert ("Review alert" in MetaMask).
+            try {
+                await _loadCeloBridgeLimitsAndFees();
+            } catch (_) { /* best-effort; flow continues */ }
+
+            if (_celoBridgeLimitsCache) {
+                try {
+                    const enteredWei = ethers.parseUnits(amountStr, 18);
+                    if (_celoBridgeLimitsCache.minAmount > 0n && enteredWei < _celoBridgeLimitsCache.minAmount) {
+                        const minG = Number(ethers.formatUnits(_celoBridgeLimitsCache.minAmount, 18));
+                        return showCeloBridgeAlert(
+                            'alert-error',
+                            `❌ Minimum bridge amount is ${minG.toLocaleString(undefined,{maximumFractionDigits:2})} G$ per the on-chain bridge contract.`
+                        );
+                    }
+                    if (_celoBridgeLimitsCache.txLimit > 0n && enteredWei > _celoBridgeLimitsCache.txLimit) {
+                        const txG = Number(ethers.formatUnits(_celoBridgeLimitsCache.txLimit, 18));
+                        return showCeloBridgeAlert(
+                            'alert-error',
+                            `❌ Amount exceeds the on-chain per-tx bridge limit of ${txG.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`
+                        );
+                    }
+                } catch (_) { /* fall through to canBridge() */ }
+            } else if (parseFloat(amountStr) > 300_000_000) {
+                // Couldn't load on-chain limits — fall back to the generic
+                // doc cap so we still reject obviously-too-large requests.
                 return showCeloBridgeAlert(
                     'alert-error',
                     '❌ Amount exceeds the bridge cap of 300M G$ per request (per GoodDollar bridge docs).'
@@ -3342,15 +3502,41 @@
 
                 btn.innerHTML = '<span class="spinner-inline"></span> Checking bridge limits...';
                 try {
-                    const canBridge = await sourceBridge.canBridge(WALLET_ADDRESS, amountWei);
-                    if (!canBridge) {
-                        throw new Error(
-                            'Bridge preflight failed (canBridge=false). Lower the amount or retry later.'
-                        );
+                    const canBridgeResult = await sourceBridge.canBridge(WALLET_ADDRESS, amountWei);
+                    // canBridge returns `(bool, string)`. The string carries
+                    // the rejection reason — e.g. "minAmount", "txLimit",
+                    // "dailyLimit", "accountDailyLimit", "onlyWhitelisted".
+                    const isAllowed = Array.isArray(canBridgeResult) ? Boolean(canBridgeResult[0]) : Boolean(canBridgeResult);
+                    const reasonRaw = Array.isArray(canBridgeResult) ? String(canBridgeResult[1] || '') : '';
+                    if (!isAllowed) {
+                        let friendly = 'Bridge preflight failed (canBridge=false). Lower the amount or retry later.';
+                        const reason = reasonRaw.toLowerCase();
+                        if (reason === 'minamount' && _celoBridgeLimitsCache) {
+                            const minG = Number(ethers.formatUnits(_celoBridgeLimitsCache.minAmount, 18));
+                            friendly = `Minimum bridge amount is ${minG.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`;
+                        } else if (reason === 'txlimit' && _celoBridgeLimitsCache) {
+                            const txG = Number(ethers.formatUnits(_celoBridgeLimitsCache.txLimit, 18));
+                            friendly = `Amount exceeds the on-chain per-tx limit of ${txG.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`;
+                        } else if (reason.includes('dailylimit')) {
+                            friendly = 'Bridge daily limit reached. Please try again later.';
+                        } else if (reason.includes('whitelist')) {
+                            friendly = 'This wallet is not whitelisted on the bridge yet.';
+                        } else if (reasonRaw) {
+                            friendly = `Bridge preflight failed: ${reasonRaw}.`;
+                        }
+                        throw new Error(friendly);
                     }
                 } catch (limitErr) {
                     const limitMessage = limitErr?.message || String(limitErr || '');
-                    if (limitMessage.toLowerCase().includes('canbridge=false')) {
+                    const lower = limitMessage.toLowerCase();
+                    if (
+                        lower.includes('canbridge=false') ||
+                        lower.includes('minimum bridge amount') ||
+                        lower.includes('per-tx limit') ||
+                        lower.includes('daily limit') ||
+                        lower.includes('whitelisted') ||
+                        lower.includes('preflight failed')
+                    ) {
                         throw limitErr;
                     }
                     // Soft-fail: surface as warning but allow user to retry.
