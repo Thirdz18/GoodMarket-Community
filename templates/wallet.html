@@ -1184,13 +1184,13 @@
         <!-- Action Buttons -->
         <aside class="sidebar-nav">
             <div class="action-row">
-                <div class="action-item" id="actionUniswap" onclick="return navigateWithFeedback('/swap', 'Opening Uniswap…')">
+                <div class="action-item" id="actionGoodSwap" onclick="return navigateWithFeedback('/swap?tab=goodswap', 'Opening GoodSwap…')">
                     <div class="action-circle">⇌</div>
-                    <span class="action-label">Uniswap</span>
+                    <span class="action-label">GoodSwap</span>
                 </div>
-                <div class="action-item" id="actionGoodReserve" style="display:none;" onclick="return navigateWithFeedback('/swap?tab=reserve', 'Opening GoodReserve…')">
-                    <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#f59e0b);color:#fff;">🪙</div>
-                    <span class="action-label">GoodReserve</span>
+                <div class="action-item" id="actionBridge" onclick="return navigateWithFeedback('/swap?tab=bridge', 'Opening Bridge…')">
+                    <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">🌉</div>
+                    <span class="action-label">Bridge</span>
                 </div>
                 <div class="action-item" onclick="handleDashboardFromWallet(event)">
                     <div class="action-circle">📊</div>
@@ -4605,23 +4605,16 @@
         }
         loadBalances();
         loadPortfolioCardholder();
-        // Reveal the GoodReserve action button only when the admin flag is on.
-        (async () => {
+        // Keep GoodSwap and Bridge visible in all wallet environments.
+        // GoodReserve is no longer a top-level action — it lives as a
+        // sub-tab inside GoodSwap (see /swap → GoodSwap → GoodReserve).
+        (function ensureGoodSwapAndBridgeVisible() {
             try {
-                const res = await fetch('/api/feature-visibility', { cache: 'no-store' });
-                const data = await res.json();
-                if (data && data.reserve_swap_visible === true) {
-                    const el = document.getElementById('actionGoodReserve');
+                const ids = ['actionGoodSwap', 'actionBridge'];
+                ids.forEach(id => {
+                    const el = document.getElementById(id);
                     if (el) el.style.display = '';
-                }
-            } catch (_) { /* keep hidden on failure */ }
-        })();
-
-        // Keep Uniswap visible in all wallet environments.
-        (function ensureUniswapVisible() {
-            try {
-                const uniswapEl = document.getElementById('actionUniswap');
-                if (uniswapEl) uniswapEl.style.display = '';
+                });
             } catch (_) { /* no-op */ }
         })();
     });
