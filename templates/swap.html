@@ -3005,6 +3005,21 @@
 
                 if (!target && !goodswapPane && !bridgeDir) return;
 
+                // "Focused mode": when the user arrived via an explicit
+                // ?tab= / ?pane= / ?dir= URL (e.g. clicked a wallet
+                // sidebar shortcut), hide the top-level [GoodSwap |
+                // Bridge] switcher so they only see the sub-tabs of the
+                // section they asked for. This avoids a confusing
+                // double-row-of-tabs when the entry point already
+                // committed to a section. Switching between sections
+                // happens via the wallet sidebar.
+                //
+                // Bare /swap (no params) still shows both top tabs so
+                // existing bookmarks / power-user navigation stay
+                // intact.
+                const focusBridge   = (target === "bridge") || !!bridgeDir;
+                const focusGoodSwap = !focusBridge && ((target === "goodswap") || !!goodswapPane);
+
                 const apply = () => {
                     if (typeof setSwapTab !== "function") return;
                     if (target === "bridge" && !document.querySelector(".pane-bridge")) return;
@@ -3014,6 +3029,19 @@
                         setGoodSwapSubTab(goodswapPane);
                     }
                     if (bridgeDir && typeof setBridgeSubTab === "function") setBridgeSubTab(bridgeDir);
+
+                    if (focusBridge || focusGoodSwap) {
+                        const switcher = document.getElementById("swapTabSwitcher");
+                        if (switcher) switcher.style.display = "none";
+                        // Hide the inactive top pane outright so it
+                        // can't be reached even by toggling a stale
+                        // top-tab button (defensive: setSwapTab already
+                        // adds .hidden-tab to it).
+                        const otherPane = focusBridge
+                            ? document.getElementById("swapPaneGoodSwap")
+                            : document.getElementById("swapPaneBridge");
+                        if (otherPane) otherPane.style.display = "none";
+                    }
                 };
                 if (document.readyState === "loading") {
                     document.addEventListener("DOMContentLoaded", apply, { once: true });
