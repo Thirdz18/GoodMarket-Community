@@ -180,6 +180,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"
             integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <script>
         const CELO_CHAIN_ID = 42220;
         const CELO_RPC      = "https://forno.celo.org";
@@ -689,12 +690,8 @@
 
             } catch(err) {
                 console.error(err);
-                const msg = err?.reason || err?.shortMessage || err?.message || "Unknown error";
-                if (msg.includes("user rejected") || msg.includes("ACTION_REJECTED")) {
-                    showAlert("alert-error", "❌ Transaction cancelled.");
-                } else {
-                    showAlert("alert-error", `❌ Error: ${msg.substring(0, 150)}`);
-                }
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.reason || err?.shortMessage || err?.message || "Unknown error");
+                showAlert("alert-error", `❌ Error: ${friendly}`);
                 const val = document.getElementById("amountInput").value;
                 setBtnState(val && parseFloat(val) > 0 ? `Generate Link → ${val} G$` : "Enter an amount", !val || parseFloat(val) <= 0);
             }
@@ -825,8 +822,11 @@
                 await renderHistory();
             } catch(err) {
                 btn.disabled = false; btn.textContent = "❌ Refund";
-                const msg = err?.reason || err?.message || "";
-                if (!msg.includes("user rejected") && !msg.includes("ACTION_REJECTED")) alert(`Cancel failed: ${msg.substring(0, 100)}`);
+                const isReject = (window.GMTxError && GMTxError.isUserRejection) ? GMTxError.isUserRejection(err) : /user rejected|ACTION_REJECTED/i.test(String(err?.message || ""));
+                if (!isReject) {
+                    const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.reason || err?.message || "");
+                    alert(`Cancel failed: ${friendly}`);
+                }
             }
         }
     </script>

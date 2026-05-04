@@ -1914,6 +1914,7 @@
 
     <!-- Shared WalletConnect bridge so quiz / NFT / send flows still work for
          users that logged in via WalletConnect (no `window.ethereum`). -->
+    <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
     <script>
         if (typeof GMWalletConnect !== "undefined") {
@@ -3808,8 +3809,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 
             } catch (err) {
                 console.error('DApp wallet error:', err);
-                var msg = (err && err.message) ? err.message : 'Transaction cancelled or failed.';
-                if (err && err.code === 4001) msg = 'Transaction was rejected. Please try again.';
+                var msg = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : ((err && err.message) ? err.message : 'Transaction cancelled or failed.');
                 // Go back to step 2 and show error
                 swGoTo(2);
                 var nameErr = document.getElementById('sw-name-error');

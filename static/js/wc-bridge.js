@@ -422,6 +422,27 @@
                method === "eth_signTypedData_v4";
     }
 
+    // EIP-1193-shaped error so ethers.js BrowserProvider can recognise it
+    // (e.g. 4001 → user rejected) and avoid the opaque
+    // "could not coalesce error" wrapping that confuses end users.
+    function _wcRpcError(message, sourceErr, fallbackCode) {
+        var src = sourceErr;
+        if (typeof src === "string") src = { message: src };
+        var code;
+        if (src && typeof src.code === "number") code = src.code;
+        else code = (typeof fallbackCode === "number") ? fallbackCode : -32603;
+        var msg = message || (src && src.message) || "WalletConnect request failed";
+        // Heuristic: any rejection-y phrase → 4001 (user rejected) so the
+        // friendly cancellation copy fires across all surfaces.
+        if (/user rejected|user denied|user disapproved|rejected by user|user closed|user cancel|cancelled|canceled/i.test(String(msg))) {
+            code = 4001;
+        }
+        var e = new Error(String(msg));
+        e.code = code;
+        if (src && src.data !== undefined) e.data = src.data;
+        return e;
+    }
+
     function bridgeRequest(method, params) {
         var p = params || [];
 
@@ -449,7 +470,7 @@
                         body: JSON.stringify(txParams)
                     }).then(function (r) { return r.json(); }).then(function (d) {
                         if (!d || !d.success || d.error || !d.txHash) {
-                            throw new Error((d && d.error) || "WalletConnect transaction failed");
+                            throw _wcRpcError((d && d.error) || "WalletConnect transaction failed", d && d.error);
                         }
                         return d.txHash;
                     });
@@ -480,7 +501,7 @@
                         body: JSON.stringify({ message: message, address: address })
                     }).then(function (r) { return r.json(); }).then(function (d) {
                         if (!d || !d.signature) {
-                            throw new Error((d && d.error) || "WalletConnect signature failed");
+                            throw _wcRpcError((d && d.error) || "WalletConnect signature failed", d && d.error);
                         }
                         var sig = d.signature;
                         return sig.indexOf("0x") === 0 ? sig : ("0x" + sig);
@@ -488,13 +509,20 @@
                 }
                 // Fall through to the in-browser SignClient session.
                 if (!_state.browserSession) {
-                    throw new Error("WalletConnect browser session is not active.");
+                    throw _wcRpcError("WalletConnect browser session is not active.", null, -32603);
                 }
                 return _wcGetClient().then(function (client) {
                     return client.request({
                         topic: _state.browserSession.topic,
                         chainId: "eip155:" + CELO_CHAIN_ID,
                         request: { method: method, params: p }
+                    }).catch(function (wcErr) {
+                        // Re-throw with .code preserved so ethers.js sees a
+                        // proper EIP-1193 error (4001 → user rejected, etc.)
+                        // instead of wrapping it as "could not coalesce error".
+                        var code = (wcErr && typeof wcErr.code === "number") ? wcErr.code : -32603;
+                        var msg = (wcErr && wcErr.message) ? String(wcErr.message) : "WalletConnect request failed";
+                        throw _wcRpcError(msg, msg, code);
                     });
                 });
             });

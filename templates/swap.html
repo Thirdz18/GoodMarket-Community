@@ -921,6 +921,7 @@
             integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="/static/js/tx-preview.js?v={{ ASSET_VERSION }}"></script>
+    <script src="/static/js/tx-error.js?v={{ ASSET_VERSION }}"></script>
     <script>
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
@@ -1368,39 +1369,60 @@
             return data.result;
         }
 
-        async function _wcConnectSwap() {
-            if (_wcAddress) return _wcAddress;
+        // EIP-1193-shaped error so ethers.js BrowserProvider can coalesce the
+        // failure into a useful exception (with .code / .message preserved)
+        // rather than wrapping it as a generic "could not coalesce error".
+        function _wcRpcError(message, code, data) {
+            const err = new Error(message);
+            err.code = code || 4001;
+            if (data !== undefined) err.data = data;
+            return err;
+        }
+
+        async function _wcSidecarConnect() {
+            let uriData;
             try {
                 const uriResp = await fetch('/api/wc-uri');
-                const uriData = await uriResp.json();
-                if (!uriResp.ok || !uriData.success || !uriData.id || !uriData.uri) {
-                    throw new Error(uriData.error || 'WalletConnect unavailable');
-                }
-                _wcSessionId = uriData.id;
-                _wcMode = "sidecar";
-                showAlert('info',
-                    '📲 Scan WalletConnect QR in your wallet app:<br>' +
-                    `<div style="margin-top:8px"><img alt="WalletConnect QR" style="max-width:180px;border-radius:8px;background:#fff;padding:8px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uriData.uri)}"></div>`
-                );
-                for (let i = 0; i < 60; i++) {
-                    await _delay(2000);
-                    const stResp = await fetch('/api/wc-session/' + encodeURIComponent(_wcSessionId));
-                    const stData = await stResp.json();
-                    if (!stResp.ok || !stData.success) continue;
-                    if (stData.status === 'approved' && stData.address) {
-                        _wcAddress = stData.address;
-                        if (_wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
-                            throw new Error('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.');
-                        }
-                        return _wcAddress;
-                    }
-                    if (stData.status === 'rejected') throw new Error('WalletConnect request was rejected.');
-                }
-                throw new Error('WalletConnect approval timed out.');
-            } catch (sidecarErr) {
-                console.warn('WalletConnect sidecar unavailable; using browser fallback.', sidecarErr);
+                if (!uriResp.ok) throw new Error('sidecar HTTP ' + uriResp.status);
+                uriData = await uriResp.json();
+            } catch (err) {
+                // /api/wc-uri unreachable / not deployed — let the caller try
+                // the in-browser SignClient fallback instead.
+                const e = new Error('sidecar-unavailable');
+                e._sidecarUnavailable = true;
+                throw e;
             }
+            if (!uriData || !uriData.success || !uriData.id || !uriData.uri) {
+                const e = new Error('sidecar-unavailable');
+                e._sidecarUnavailable = true;
+                throw e;
+            }
+            _wcSessionId = uriData.id;
+            _wcMode = "sidecar";
+            showAlert('info',
+                '📲 Scan WalletConnect QR in your wallet app:<br>' +
+                `<div style="margin-top:8px"><img alt="WalletConnect QR" style="max-width:180px;border-radius:8px;background:#fff;padding:8px" src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(uriData.uri)}"></div>`
+            );
+            for (let i = 0; i < 60; i++) {
+                await _delay(2000);
+                const stResp = await fetch('/api/wc-session/' + encodeURIComponent(_wcSessionId));
+                const stData = await stResp.json();
+                if (!stResp.ok || !stData.success) continue;
+                if (stData.status === 'approved' && stData.address) {
+                    _wcAddress = stData.address;
+                    if (_wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+                        throw _wcRpcError('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.', 4001);
+                    }
+                    return _wcAddress;
+                }
+                if (stData.status === 'rejected') {
+                    throw _wcRpcError('WalletConnect request was rejected.', 4001);
+                }
+            }
+            throw _wcRpcError('WalletConnect approval timed out.', -32603);
+        }
 
+        async function _wcBrowserConnect() {
             const client = await _wcGetClient();
             const result = await client.connect({
                 requiredNamespaces: {},
@@ -1429,11 +1451,27 @@
                 }
                 return false;
             });
-            if (!_wcAddress) throw new Error('No accounts returned from wallet');
+            if (!_wcAddress) throw _wcRpcError('No accounts returned from wallet', -32603);
             if (_wcAddress.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
-                throw new Error('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.');
+                throw _wcRpcError('Wrong WalletConnect wallet connected. Please connect your GoodMarket wallet.', 4001);
             }
             return _wcAddress;
+        }
+
+        async function _wcConnectSwap() {
+            if (_wcAddress) return _wcAddress;
+            try {
+                return await _wcSidecarConnect();
+            } catch (err) {
+                // Only fall through to the in-browser SignClient when the
+                // sidecar wasn't reachable in the first place. Real user
+                // outcomes (rejection, timeout) must propagate so we don't
+                // surprise them with a *second* QR after they already
+                // dismissed the first one.
+                if (!err || !err._sidecarUnavailable) throw err;
+                console.warn('WalletConnect sidecar unavailable; using browser fallback.');
+            }
+            return await _wcBrowserConnect();
         }
 
         async function _wcBridgeRequest(method, params) {
@@ -1455,18 +1493,31 @@
                     });
                     const txData = await txResp.json();
                     if (!txResp.ok || !txData.success || txData.error || !txData.txHash) {
-                        throw new Error(txData.error || 'WalletConnect transaction failed');
+                        const rawErr = (txData && txData.error) ? String(txData.error) : 'WalletConnect transaction failed';
+                        const isReject = /user rejected|user denied|user disapproved|rejected|cancelled|canceled/i.test(rawErr);
+                        throw _wcRpcError(rawErr, isReject ? 4001 : -32603);
                     }
                     return txData.txHash;
                 }
-                if (!_wcBrowserSession) throw new Error('WalletConnect browser session is not active.');
+                if (!_wcBrowserSession) throw _wcRpcError('WalletConnect browser session is not active.', -32603);
                 const client = await _wcGetClient();
-                const txHash = await client.request({
-                    topic: _wcBrowserSession.topic,
-                    chainId: 'eip155:42220',
-                    request: { method: 'eth_sendTransaction', params: [txParams] }
-                });
-                if (!txHash) throw new Error('WalletConnect transaction failed');
+                let txHash;
+                try {
+                    txHash = await client.request({
+                        topic: _wcBrowserSession.topic,
+                        chainId: 'eip155:42220',
+                        request: { method: 'eth_sendTransaction', params: [txParams] }
+                    });
+                } catch (wcErr) {
+                    // WalletConnect SignClient throws a JsonRpcError-shaped
+                    // object; preserve its code/message so the wallet's
+                    // "user rejected" surfaces as a friendly cancellation
+                    // instead of an opaque "could not coalesce error".
+                    const code = (wcErr && typeof wcErr.code === 'number') ? wcErr.code : -32603;
+                    const msg = (wcErr && wcErr.message) ? String(wcErr.message) : 'WalletConnect transaction failed';
+                    throw _wcRpcError(msg, code);
+                }
+                if (!txHash) throw _wcRpcError('WalletConnect transaction failed', -32603);
                 return txHash;
             }
             return _celoJsonRpc(method, params || []);
@@ -2258,8 +2309,8 @@
                             `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                             `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
                     } else {
-                        const msg = err?.message || "Unknown error";
-                        showAlert("alert-error", `❌ Swap failed: ${msg.substring(0, 150)}`);
+                        const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.shortMessage || err?.message || "Unknown error");
+                        showAlert("alert-error", `❌ Swap failed: ${friendly}`);
                     }
                     if (currentQuote) setSwapBtnState("ready");
                     else setSwapBtnState("enter");
@@ -2367,11 +2418,8 @@
                             `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                             `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
                     } else {
-                        const rawMsg = err?.shortMessage || err?.message || "Unknown error";
-                        const msg = rawMsg.toLowerCase().includes("user rejected") || rawMsg.toLowerCase().includes("denied by user")
-                            ? "Transaction cancelled in wallet."
-                            : rawMsg;
-                        showAlert("alert-error", `❌ Swap failed: ${msg.substring(0, 150)}`);
+                        const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.shortMessage || err?.message || "Unknown error");
+                        showAlert("alert-error", `❌ Swap failed: ${friendly}`);
                     }
                     if (currentQuote) setSwapBtnState("ready");
                     else setSwapBtnState("enter");
@@ -2495,11 +2543,8 @@
                 await loadBalances();
             } catch (err) {
                 stepIndicators.className = "step-indicators";
-                const rawMsg = err?.shortMessage || err?.message || "Unknown error";
-                const msg = rawMsg.toLowerCase().includes("user rejected")
-                    ? "Transaction cancelled in wallet."
-                    : rawMsg;
-                showAlert("alert-error", `❌ Swap failed: ${msg.substring(0, 150)}`);
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.shortMessage || err?.message || "Unknown error");
+                showAlert("alert-error", `❌ Swap failed: ${friendly}`);
                 if (currentQuote) setSwapBtnState("ready");
                 else setSwapBtnState("enter");
             }
@@ -2843,11 +2888,8 @@
             } catch (err) {
                 console.error("[reserve] swap error", err);
                 stepIndicators.className = "step-indicators";
-                const rawMsg = err?.shortMessage || err?.message || "Unknown error";
-                const msg = (rawMsg + "").toLowerCase().includes("user rejected") || (rawMsg + "").toLowerCase().includes("denied by user")
-                    ? "Transaction cancelled in wallet."
-                    : rawMsg;
-                showReserveAlert("alert-error", `❌ ${reserveDirection === "buy" ? "Buy" : "Sell"} failed: ${(msg + "").substring(0,180)}`);
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.shortMessage || err?.message || "Unknown error");
+                showReserveAlert("alert-error", `❌ ${reserveDirection === "buy" ? "Buy" : "Sell"} failed: ${friendly}`);
                 setReserveBtnState(reserveQuote ? "ready" : "enter");
             }
         }
