@@ -591,6 +591,7 @@
     </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
 <script>
 let GD_PRICE = {{ gd_price }};
 const MERCHANT_ADDRESS = "{{ merchant_address }}";
@@ -1245,13 +1246,12 @@ async function dappSendPayment() {
 
     } catch (err) {
         btn.disabled = false;
-        const msg = err?.message || 'Unknown error';
-        if (msg.toLowerCase().includes('rejected') || msg.toLowerCase().includes('cancelled') || msg.toLowerCase().includes('denied')) {
-            setDappStatus('error', '❌ Payment cancelled by user.');
-        } else if (msg.toLowerCase().includes('no transaction hash')) {
+        const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.message || 'Unknown error');
+        const lc = String(err?.message || '').toLowerCase();
+        if (lc.includes('no transaction hash')) {
             setDappStatus('error', '❌ Wallet did not broadcast the transaction. Try using WalletConnect QR instead.');
         } else {
-            setDappStatus('error', '❌ ' + msg.substring(0, 160));
+            setDappStatus('error', '❌ ' + friendly);
         }
     }
 }

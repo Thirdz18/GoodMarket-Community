@@ -495,6 +495,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"
         integrity="sha384-u0NcfwGT0MUYq60cVWPN34m99JhiJTCRG+0JOgmAQ++pTQ4w6AKkwhA9Wj/VjNRi"
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
 <script>
     const WALLET = "{{ wallet }}";
     const SAVINGS_CONTRACT = "{{ savings_contract }}";
@@ -764,11 +765,25 @@
                 return null;
             }
             if (_WC_WALLET_SCOPED_METHODS.has(method)) {
-                return this._sc.request({
-                    topic: this._session.topic,
-                    chainId: 'eip155:42220',
-                    request: { method, params: params || [] }
-                });
+                try {
+                    return await this._sc.request({
+                        topic: this._session.topic,
+                        chainId: 'eip155:42220',
+                        request: { method, params: params || [] }
+                    });
+                } catch (wcErr) {
+                    // WalletConnect SignClient throws JsonRpcError-shaped
+                    // objects ({ code, message }). Re-throw as a real Error
+                    // with .code preserved so ethers.js can recognise the
+                    // user-rejection path instead of wrapping it as an
+                    // opaque "could not coalesce error".
+                    var code = (wcErr && typeof wcErr.code === 'number') ? wcErr.code : -32603;
+                    var msg = (wcErr && wcErr.message) ? String(wcErr.message) : 'WalletConnect request failed';
+                    var err = new Error(msg);
+                    err.code = code;
+                    if (wcErr && wcErr.data !== undefined) err.data = wcErr.data;
+                    throw err;
+                }
             }
             // Read-only RPC: answer locally via public Celo RPC so ethers.js'
             // tx-build pre-flight (eth_blockNumber, eth_estimateGas, …) works
@@ -1141,7 +1156,8 @@
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                     `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
             } else {
-                showAlert('saveAlert', 'error', '❌ Approval failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('saveAlert', 'error', '❌ Approval failed: ' + friendly);
             }
             btn.disabled = false;
             btn.innerHTML = `<i class="fas fa-check-circle"></i> <span id="approveBtnLabel">Step 1 — Approve ${sym} Spending</span>`;
@@ -1233,7 +1249,8 @@
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                     `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
             } else {
-                showAlert('saveAlert', 'error', '❌ Save failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('saveAlert', 'error', '❌ Save failed: ' + friendly);
             }
             btn.disabled = false;
             btn.innerHTML = `<i class="fas fa-lock"></i> <span id="saveBtnLabel">Step 2 — Lock & Save ${sym}</span>`;
@@ -1290,7 +1307,8 @@
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                     `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
             } else {
-                showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('depositsAlert', 'error', '❌ Withdrawal failed: ' + friendly);
             }
         }
     }
@@ -1544,7 +1562,8 @@
                     `❌ MiniPay legacy withdrawal failed<br>` +
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small>`);
             } else {
-                showAlert('legacyAlert', 'error', '❌ Legacy withdrawal failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('legacyAlert', 'error', '❌ Legacy withdrawal failed: ' + friendly);
             }
         }
     }
@@ -1655,7 +1674,8 @@
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                     `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
             } else {
-                showAlert('sponsorAlert', 'error', '❌ Approval failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('sponsorAlert', 'error', '❌ Approval failed: ' + friendly);
             }
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-check-circle"></i> Step 1 — Approve G$ Spending';
@@ -1743,7 +1763,8 @@
                     `<small style="opacity:.75">Step: ${d.fn} → ${d.to.slice(0,10)}…</small><br>` +
                     `<small style="opacity:.75">${d.errorLog.map(e => `code=${e.code} msg=${e.message.substring(0, 80)}`).join('<br>')}</small>`);
             } else {
-                showAlert('sponsorAlert', 'error', '❌ Transaction failed: ' + (err.reason || err.message || 'Unknown error'));
+                const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.reason || err.message || 'Unknown error');
+                showAlert('sponsorAlert', 'error', '❌ Transaction failed: ' + friendly);
             }
             document.getElementById('poolFundBtn').disabled = false;
             document.getElementById('poolFundBtn').innerHTML = '<i class="fas fa-hand-holding-heart"></i> Step 2 — Add to Reward Pool';

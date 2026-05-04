@@ -4174,6 +4174,7 @@
 
     <!-- Shared WalletConnect bridge so voucher claims work for users that
          logged in via WalletConnect (no `window.ethereum` injected). -->
+    <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
     <script>
         (function() {
@@ -4441,12 +4442,8 @@
 
                 } catch(err) {
                     console.error(err);
-                    var errMsg = err?.reason || err?.shortMessage || err?.message || 'Unknown error';
-                    if (errMsg.includes('user rejected') || errMsg.includes('ACTION_REJECTED')) {
-                        voucherDappSetAlert('error', '❌ Transaction cancelled.');
-                    } else {
-                        voucherDappSetAlert('error', '❌ Claim failed: ' + errMsg.substring(0, 150));
-                    }
+                    var friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.reason || err?.shortMessage || err?.message || 'Unknown error');
+                    voucherDappSetAlert('error', '❌ Claim failed: ' + friendly);
                     var humanAmt2 = _voucherPaymentAmount ? parseFloat(ethers.formatUnits(_voucherPaymentAmount, VGD_DECIMALS)).toFixed(2) : '?';
                     btn.disabled = false;
                     btn.textContent = 'Retry — Claim ' + humanAmt2 + ' G$';
@@ -4593,12 +4590,8 @@
                             gas: '0x' + (300000).toString(16)
                         }]);
                     } catch (txErr) {
-                        var em = (txErr && txErr.message) ? txErr.message : String(txErr);
-                        if (/reject|cancel|ACTION_REJECTED/i.test(em)) {
-                            wcSetAlert('error', '❌ Transaction cancelled in wallet.');
-                        } else {
-                            wcSetAlert('error', '❌ Transaction failed: ' + em.substring(0, 150));
-                        }
+                        var friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(txErr) : ((txErr && txErr.message) ? txErr.message : String(txErr));
+                        wcSetAlert('error', '❌ Transaction failed: ' + friendly);
                         btn.disabled = false;
                         btn.textContent = 'Retry — Claim G$';
                         return;
@@ -4626,8 +4619,8 @@
 
                 } catch(err) {
                     console.error('WC claim error:', err);
-                    var errMsg = err?.message || 'Unknown error';
-                    wcSetAlert('error', '❌ Error: ' + errMsg.substring(0, 150));
+                    var friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.message || 'Unknown error');
+                    wcSetAlert('error', '❌ Error: ' + friendly);
                     btn.disabled = false;
                     btn.textContent = 'Retry — Claim G$';
                 }

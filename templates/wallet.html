@@ -1595,6 +1595,8 @@
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"
             integrity="sha384-0d+Gr7vM4Drod8E3hXKgciWJSWbjD/opKLLygI9ktiWbuvlDwQLzU46wJ9s5gsp7"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <!-- Shared transaction-error formatter so user-facing alerts don't leak ethers/RPC JSON. -->
+    <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
 
@@ -2626,8 +2628,7 @@
             setTimeout(() => isXdcToken ? loadXdcBalances() : loadBalances(), 3000);
 
         } catch (err) {
-            let msg = err.message || 'Transaction failed';
-            if (err.code === 4001) msg = 'Transaction rejected.';
+            const msg = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.message || 'Transaction failed');
             showAlert('sendAlert', 'alert-error', '❌ ' + msg);
         } finally {
             btn.disabled = false;
@@ -4170,6 +4171,8 @@
                     msg = 'Transaction cancelled.';
                 } else if (_isRpcHtmlError(err)) {
                     msg = 'Celo network is temporarily busy (RPC returned a non-JSON response). Please retry your claim in 30–60 seconds.';
+                } else if (window.GMTxError && GMTxError.format) {
+                    msg = GMTxError.format(err);
                 } else {
                     msg = raw;
                 }
