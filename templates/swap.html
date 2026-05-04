@@ -1657,6 +1657,12 @@
         let slippage        = 1.0;   // default 1% — 0.5% causes "Too little received" on multi-hop routes
         let currentQuote    = null;
         let quoteTimer      = null;
+        // Monotonically increasing id for fetchQuote calls so a slow / stale
+        // response from an earlier attempt can't overwrite the UI state set
+        // by a newer attempt (causes "no liquidity pool" alert to linger
+        // even after a successful re-quote, especially on mobile where users
+        // type slowly enough to trigger multiple debounces).
+        let _quoteRequestId = 0;
         let gdBalanceNum    = 0;    // human-readable float  e.g. 7513.72
         let celoBalanceNum  = 0;    // human-readable float  e.g. 0.0290
         let cusdBalanceNum  = 0;    // human-readable float  e.g. 1.23
@@ -1991,6 +1997,7 @@
             const raw = document.getElementById("amountIn").value.trim();
             if (!raw || parseFloat(raw) <= 0) { setSwapBtnState("enter"); return; }
 
+            const myReqId = ++_quoteRequestId;
             const from    = TOKENS[fromToken];
             const to      = TOKENS[toToken];
             const amountIn = ethers.parseUnits(raw, from.decimals);
@@ -2046,6 +2053,10 @@
                 // Run all attempts in parallel for speed
                 const results = await Promise.all(attempts);
 
+                // Bail if a newer fetchQuote() has superseded this one — its
+                // result will paint the UI; ours would only stomp on it.
+                if (myReqId !== _quoteRequestId) return;
+
                 for (const r of results) {
                     if (!r) continue;
                     if (bestQuote === null || r.amountOut > bestQuote) {
@@ -2057,9 +2068,37 @@
                     }
                 }
 
+                // Parallel quote bursts can occasionally have every single
+                // attempt fail (forno rate-limits, transient 5xx, mobile
+                // network hiccups). Retry the single-hop fee tiers
+                // sequentially before giving up — much more reliable on
+                // mobile / WalletConnect setups.
+                if (bestQuote === null) {
+                    for (const fee of FEE_TIERS) {
+                        try {
+                            const [amountOut] = await quoter.quoteExactInputSingle.staticCall({
+                                tokenIn:           from.address,
+                                tokenOut:          to.address,
+                                amountIn:          amountIn,
+                                fee:               fee,
+                                sqrtPriceLimitX96: 0n
+                            });
+                            if (amountOut && amountOut > 0n) {
+                                bestQuote   = amountOut;
+                                bestFee     = fee;
+                                bestPath    = null;
+                                bestIsMulti = false;
+                                bestMidToken = null;
+                                break;
+                            }
+                        } catch (_) { /* keep trying remaining fee tiers */ }
+                    }
+                    if (myReqId !== _quoteRequestId) return;
+                }
+
                 if (bestQuote === null) {
                     setSwapBtnState("no-pool");
-                    showAlert("alert-error", "❌ No liquidity pool found for this pair on Uniswap V3 (Celo). Try a different amount or check back later.");
+                    showAlert("alert-error", "❌ Couldn't fetch a quote on Uniswap V3 (Celo) right now. Please check your connection and try again.");
                     return;
                 }
 
@@ -2076,6 +2115,13 @@
 
                 showQuote(currentQuote);
 
+                // Wipe any stale error alert left by an earlier failed
+                // fetchQuote (e.g. user typed slowly, the first attempt
+                // raced and showed "couldn't fetch a quote" before the
+                // newer attempt succeeded). Without this, the bad alert
+                // lingers next to a perfectly valid quote.
+                clearAlert();
+
                 // Users who logged in via WalletConnect (or manual address)
                 // don't have an injected `window.ethereum`, but we can still
                 // sign their swap through the shared WalletConnect bridge
@@ -2089,6 +2135,7 @@
                 }
 
             } catch (e) {
+                if (myReqId !== _quoteRequestId) return;
                 console.error("fetchQuote error:", e);
                 showAlert("alert-error", "❌ Could not fetch quote. Check your connection and try again.");
                 setSwapBtnState("enter");
