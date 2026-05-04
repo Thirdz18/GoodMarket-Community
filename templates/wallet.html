@@ -3972,10 +3972,8 @@
             };
 
             let provider = await _vAwaitEthProvider();
-            let usingWcBridge = false;
             if (!provider) {
                 provider = await _walletGetWcProviderIfPreferred();
-                usingWcBridge = !!provider;
             }
             if (!provider) {
                 setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or sign in again with WalletConnect.', '#fbbf24');
@@ -3986,14 +3984,11 @@
             setClaimGasUiState('checking_balance');
 
             try {
-                // The WalletConnect bridge can't introspect the user's local
-                // gas balance the way an injected MetaMask/Trust provider can,
-                // so we treat the WC path as MiniPay-like (skip gas preflight)
-                // — the wallet itself will reject the tx if gas is missing
-                // and the user can use the standard top-up button.
-                const isMiniPayClaim = _isMiniPay() || usingWcBridge;
+                const isMiniPayClaim = _isMiniPay();
 
-                // MiniPay / WalletConnect bridge: no preflight gas top-up.
+                // MiniPay pays gas with supported stablecoins, so it does not
+                // need CELO faucet preflight. Injected wallets and
+                // WalletConnect both use the same balance → faucet → poll flow.
                 if (!isMiniPayClaim) {
                     const gasSnap = await getProviderGasSnapshot(provider);
                     if (!gasSnap.gasReady) {
