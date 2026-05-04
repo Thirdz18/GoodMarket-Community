@@ -3554,8 +3554,9 @@
             if (isFinite(_enteredAmountGd) && _enteredAmountGd < CELO_TO_XDC_UI_MIN_AMOUNT_GD) {
                 return showCeloBridgeAlert(
                     'alert-error',
-                    `❌ Minimum bridge amount is ${CELO_TO_XDC_UI_MIN_AMOUNT_GD.toLocaleString()} G$. ` +
-                    `You entered ${_enteredAmountGd.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`
+                    `❌ You don't have enough G$ to bridge. ` +
+                    `Minimum is ${CELO_TO_XDC_UI_MIN_AMOUNT_GD.toLocaleString()} G$ per transaction — ` +
+                    `you entered ${_enteredAmountGd.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`
                 );
             }
             if (!feeStr || parseFloat(feeStr) <= 0) {

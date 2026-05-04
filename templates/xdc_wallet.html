@@ -742,6 +742,31 @@
         // Sits above the contract's own minAmount so the tab is reserved
         // for transfers that are actually worth the LayerZero fee.
         const XDC_TO_CELO_UI_MIN_AMOUNT_GD = 2000;
+        // Realistic worst-case gas units for the two on-chain operations the
+        // XDC → Celo bridge tab triggers. Mirrors the Celo → XDC reserve
+        // logic in swap.html so the user gets a clear app-side alert with
+        // an itemized breakdown ("LayerZero fee Y + approve + bridge gas
+        // ≈ Z, add about D more XDC") instead of a generic "Not enough
+        // XDC" message that doesn't tell them how much to top up.
+        const XDC_TO_CELO_BRIDGE_TO_GAS_LIMIT = 500000n;
+        const XDC_TO_CELO_APPROVE_GAS_LIMIT   = 60000n;
+        // Pad applied to a successful eth_estimateGas result so the
+        // preflight tracks what the wallet will actually reserve as
+        // gasLimit at submit time (~1.15× of the simulation).
+        const XDC_TO_CELO_ESTIMATE_PAD_BPS    = 1500n; // +15%
+        // Headroom on top of (gasUnits × gasPrice) so a small gas-price
+        // tick between preflight and submit doesn't knock a barely-funded
+        // wallet back out of the check.
+        const XDC_TO_CELO_GAS_RESERVE_BUFFER_BPS = 500n; // +5%
+        // Static fallback reserve when we can't fetch gasPrice (RPC down).
+        // Sized for XDC's typical 0.25–12.5 gwei range with comfortable
+        // head-room, so users still don't slip past the preflight when
+        // the dynamic path fails. (12.5 gwei × 500k gas ≈ 0.00625 XDC,
+        // padded to 0.01 XDC for safety.)
+        const XDC_TO_CELO_GAS_RESERVE_FALLBACK_XDC = 0.01;
+        // Tiny rounding safety so the preflight never approves a tx that
+        // ends up 1 wei short of the wallet's gas estimate.
+        const XDC_TO_CELO_GAS_RESERVE_FLOOR_XDC = 0.001;
 
         function _providerLabel(provider) {
             if (!provider) return 'wallet';
@@ -996,6 +1021,76 @@
                 if (ep) return new ethers.BrowserProvider(ep);
             }
             return new ethers.JsonRpcProvider('https://erpc.xinfin.network');
+        }
+
+        // Returns a wei-denominated gas reserve for the bridgeTo() call (and
+        // the optional preceding approve() when allowance < amount), sized
+        // against the live `eth_gasPrice` so the preflight matches what the
+        // user's wallet will actually quote at signing time. Mirrors the
+        // _estimateCeloBridgeGasReserveWei() helper in swap.html so the
+        // two bridge directions surface the same itemized error.
+        async function _estimateXdcBridgeGasReserveWei(provider, fromAddr, amountWei, feeWei, needsApprove) {
+            const fallbackWei = ethers.parseUnits(String(XDC_TO_CELO_GAS_RESERVE_FALLBACK_XDC), 18);
+            const floorWei    = ethers.parseUnits(String(XDC_TO_CELO_GAS_RESERVE_FLOOR_XDC), 18);
+            try {
+                let gasPriceWei = 0n;
+                try {
+                    const feeData = await provider.getFeeData();
+                    if (feeData?.maxFeePerGas && feeData.maxFeePerGas > 0n) {
+                        gasPriceWei = feeData.maxFeePerGas;
+                    } else if (feeData?.gasPrice && feeData.gasPrice > 0n) {
+                        gasPriceWei = feeData.gasPrice;
+                    }
+                } catch (_) { /* fall through */ }
+                if (gasPriceWei === 0n) {
+                    try {
+                        const hex = await provider.send('eth_gasPrice', []);
+                        if (typeof hex === 'string' && hex.startsWith('0x')) {
+                            gasPriceWei = BigInt(hex);
+                        }
+                    } catch (_) { /* fall through */ }
+                }
+                if (gasPriceWei === 0n) {
+                    return needsApprove
+                        ? ((fallbackWei * 11500n) / 10000n)
+                        : fallbackWei;
+                }
+
+                let bridgeGasUnits = XDC_TO_CELO_BRIDGE_TO_GAS_LIMIT;
+                try {
+                    const bridgeIface = new ethers.Interface(BRIDGE_ABI);
+                    const callData = bridgeIface.encodeFunctionData('bridgeTo', [
+                        fromAddr,
+                        CELO_CHAIN_ID,
+                        amountWei,
+                        BRIDGE_SERVICE_LAYERZERO,
+                    ]);
+                    const estimated = await provider.estimateGas({
+                        from: fromAddr,
+                        to: XDC_CELO_BRIDGE,
+                        data: callData,
+                        value: feeWei,
+                    });
+                    if (estimated && estimated > 0n) {
+                        const padded = (estimated * (10000n + XDC_TO_CELO_ESTIMATE_PAD_BPS)) / 10000n;
+                        // Don't go below the realistic worst case — we've
+                        // seen ~470k gas on Celo mainnet for the same
+                        // bridgeTo() call shape, so 500k floor catches
+                        // chain conditions where eth_estimateGas slightly
+                        // under-counts on XDC.
+                        bridgeGasUnits = padded > XDC_TO_CELO_BRIDGE_TO_GAS_LIMIT ? padded : XDC_TO_CELO_BRIDGE_TO_GAS_LIMIT;
+                    }
+                } catch (_) { /* keep static gas limit */ }
+
+                let totalGasUnits = bridgeGasUnits;
+                if (needsApprove) totalGasUnits += XDC_TO_CELO_APPROVE_GAS_LIMIT;
+
+                const rawCostWei = totalGasUnits * gasPriceWei;
+                const buffered   = (rawCostWei * (10000n + XDC_TO_CELO_GAS_RESERVE_BUFFER_BPS)) / 10000n;
+                return buffered > floorWei ? buffered : floorWei;
+            } catch (_) {
+                return fallbackWei;
+            }
         }
 
         async function quoteXswap() {
@@ -1300,8 +1395,9 @@
             if (Number.isFinite(_enteredAmountGd) && _enteredAmountGd < XDC_TO_CELO_UI_MIN_AMOUNT_GD) {
                 return showBridgeAlert(
                     'alert-error',
-                    `❌ Minimum bridge amount is ${XDC_TO_CELO_UI_MIN_AMOUNT_GD.toLocaleString()} G$. ` +
-                    `You entered ${_enteredAmountGd.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`
+                    `❌ You don't have enough G$ to bridge. ` +
+                    `Minimum is ${XDC_TO_CELO_UI_MIN_AMOUNT_GD.toLocaleString()} G$ per transaction — ` +
+                    `you entered ${_enteredAmountGd.toLocaleString(undefined,{maximumFractionDigits:2})} G$.`
                 );
             }
             if (!feeStr || parseFloat(feeStr) <= 0) {
@@ -1326,8 +1422,6 @@
                 const grossReceive = parseFloat(amountStr) || 0;
                 const netReceive = grossReceive;
                 const toAddr = normalizeAddr(WALLET);
-                const recommendedGasReserveWei = ethers.parseUnits('0.0015', 18);
-                const minimumRequiredWei = feeWei + recommendedGasReserveWei;
                 let preflightWarning = '';
                 bridgeAttemptContext = {
                     attempt_id: (window.crypto?.randomUUID ? window.crypto.randomUUID() : `attempt-${Date.now()}`),
@@ -1392,17 +1486,46 @@
                         throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
                     }
 
+                    // Read allowance up-front so the gas reserve can include
+                    // the approve gas only when an approve will actually be
+                    // submitted, mirroring _estimateCeloBridgeGasReserveWei
+                    // in swap.html.
+                    const preflightAllowance = await gd.allowance(from, XDC_CELO_BRIDGE);
+                    const needsApproveTx = preflightAllowance < amountWei;
+
+                    // Read G$ balance before native-balance check so the
+                    // user gets the most actionable error first ("you don't
+                    // have enough G$" beats "you don't have enough XDC for
+                    // gas" when both are true). Mirrors swap.html.
+                    const gdBalWei = await gd.balanceOf(from);
+                    if (gdBalWei < amountWei) {
+                        const haveGd = parseFloat(ethers.formatUnits(gdBalWei, 18));
+                        throw new Error(
+                            `Not enough G$ on XDC. ` +
+                            `You have ${haveGd.toFixed(2)} G$ but tried to bridge ${parseFloat(amountStr).toFixed(2)} G$.`
+                        );
+                    }
+
+                    const dynamicGasReserveWei = await _estimateXdcBridgeGasReserveWei(
+                        readProvider,
+                        from,
+                        amountWei,
+                        feeWei,
+                        needsApproveTx
+                    );
                     const onchainBalWei = await readProvider.getBalance(from);
-                    if (onchainBalWei < minimumRequiredWei) {
-                        const needXdc  = parseFloat(ethers.formatUnits(minimumRequiredWei, 18));
+                    const liveMinimumRequiredWei = feeWei + dynamicGasReserveWei;
+                    if (onchainBalWei < liveMinimumRequiredWei) {
+                        const needXdc  = parseFloat(ethers.formatUnits(liveMinimumRequiredWei, 18));
                         const hasXdc   = parseFloat(ethers.formatUnits(onchainBalWei, 18));
                         const feeXdcF  = parseFloat(ethers.formatUnits(feeWei, 18));
-                        const gasXdcF  = parseFloat(ethers.formatUnits(recommendedGasReserveWei, 18));
+                        const gasXdcF  = parseFloat(ethers.formatUnits(dynamicGasReserveWei, 18));
                         const shortXdc = Math.max(0, needXdc - hasXdc);
+                        const gasNote  = needsApproveTx ? 'approve + bridge gas' : 'bridge gas';
                         throw new Error(
                             `Not enough XDC for the bridge. ` +
                             `Need ≈ ${needXdc.toFixed(6)} XDC ` +
-                            `(LayerZero fee ${feeXdcF.toFixed(6)} + gas reserve ${gasXdcF.toFixed(6)}), ` +
+                            `(LayerZero fee ${feeXdcF.toFixed(6)} + ${gasNote} ≈ ${gasXdcF.toFixed(6)}), ` +
                             `but wallet has ${hasXdc.toFixed(6)} XDC. ` +
                             `Add about ${shortXdc.toFixed(4)} more XDC and retry.`
                         );
