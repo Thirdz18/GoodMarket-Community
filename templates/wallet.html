@@ -3986,15 +3986,30 @@
             setClaimGasUiState('checking_balance');
 
             try {
-                // The WalletConnect bridge can't introspect the user's local
-                // gas balance the way an injected MetaMask/Trust provider can,
-                // so we treat the WC path as MiniPay-like (skip gas preflight)
-                // — the wallet itself will reject the tx if gas is missing
-                // and the user can use the standard top-up button.
-                const isMiniPayClaim = _isMiniPay() || usingWcBridge;
+                // MiniPay pays gas in stablecoins via CIP-64 fee currencies,
+                // so it doesn't need a CELO gas preflight. The WalletConnect
+                // bridge does — its users were previously getting a misleading
+                // "Gas ready" UI even when their CELO balance was below the
+                // claim threshold (e.g. 0.06 CELO when 0.1 CELO was required),
+                // because we were short-circuiting the preflight here. Now WC
+                // runs the same server-side faucet preflight as injected
+                // wallets — /api/faucet/status + /api/faucet/gas use the
+                // backend's own Celo RPC, so they work regardless of which
+                // provider the user signed in with.
+                const isMiniPayClaim = _isMiniPay();
 
-                // MiniPay / WalletConnect bridge: no preflight gas top-up.
-                if (!isMiniPayClaim) {
+                if (isMiniPayClaim) {
+                    // MiniPay: no CELO gas preflight (paid in stablecoin).
+                    setClaimGasUiState('gas_ready');
+                } else if (usingWcBridge) {
+                    // WalletConnect bridge: skip the wallet-side balance
+                    // snapshot (the bridge uses the dApp's RPC anyway, not
+                    // the user's wallet RPC) and rely on the server faucet
+                    // flow to check + top up gas. Mirrors what the injected
+                    // path falls back to when its local snapshot is short.
+                    setStatus('Checking wallet gas…', 'var(--text-dim)');
+                    await ensureGasReadyBeforeClaim();
+                } else {
                     const gasSnap = await getProviderGasSnapshot(provider);
                     if (!gasSnap.gasReady) {
                         setStatus('Checking wallet gas…', 'var(--text-dim)');
@@ -4002,8 +4017,6 @@
                     } else {
                         setClaimGasUiState('gas_ready');
                     }
-                } else {
-                    setClaimGasUiState('gas_ready');
                 }
 
                 setStatus('Gas ready. Connecting to wallet…', 'var(--text-dim)');
