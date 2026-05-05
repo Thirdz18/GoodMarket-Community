@@ -2106,8 +2106,26 @@
 
                 </div>
                 <div id="wcQrWrap" style="display:none;margin-top:1rem;text-align:center;">
-                    <div id="wcQrCode" style="display:flex;justify-content:center;"></div>
-                    <p style="font-size:0.78rem;color:#6b7280;margin-top:0.55rem;">Scan using GoodWallet, MetaMask, Trust Wallet, Valora, Rainbow, etc.</p>
+                    <button id="wcBackBtn" style="display:none;background:rgba(0,0,0,0.05);border:none;color:#6b7280;padding:0.5rem;border-radius:8px;cursor:pointer;font-size:1.2rem;margin-bottom:0.8rem;transition:all 0.2s;">←</button>
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:0.8rem;" id="wcQrContainer">
+                        <div id="wcQrCode" style="display:flex;justify-content:center;"></div>
+                        <div id="wcCopyBtnContainer" style="width:100%;"></div>
+                    </div>
+                    <p style="font-size:0.78rem;color:#6b7280;margin-top:0.8rem;">Scan using GoodWallet, MetaMask, Trust Wallet, Valora, Rainbow, etc.</p>
+                    <div id="wcInstructions" style="display:none;margin-top:1rem;text-align:left;font-size:0.7rem;line-height:1.6;color:rgba(0,0,0,0.75);">
+                        <div style="margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #e5e7eb;">
+                            <strong style="color:#1f2937;font-size:0.75rem;">1. Trust Wallet</strong><br>
+                            • Open Trust Wallet app<br>
+                            • Tap "Discover" button (bottom right)<br>
+                            • Search for or tap "goodmarket.live"
+                        </div>
+                        <div>
+                            <strong style="color:#1f2937;font-size:0.75rem;">2. MetaMask Mobile</strong><br>
+                            • Open MetaMask wallet app<br>
+                            • Tap "Explore" icon<br>
+                            • Paste https://goodmarket.live
+                        </div>
+                    </div>
                 </div>
 
                 <div id="walletConnectStatus" class="status-message"></div>
@@ -3000,51 +3018,56 @@
         function drawWalletConnectQr(uri) {
             const qrWrap = document.getElementById('wcQrWrap');
             const qrEl = document.getElementById('wcQrCode');
-            if (!qrWrap || !qrEl) return;
+            const copyBtnContainer = document.getElementById('wcCopyBtnContainer');
+            if (!qrWrap || !qrEl || !copyBtnContainer) return;
             setWcQrCompactMode(true);
             qrWrap.style.display = 'block';
             qrEl.innerHTML = '';
+            copyBtnContainer.innerHTML = '';
 
             // Replace raw-URI text dump with a clean "Copy URI" button so
             // the modal looks polished. The URI is still kept on a data
             // attribute for the click handler to read.
-            const stale = document.getElementById('wcQrUriText');
-            if (stale) stale.remove();
-            let copyBtn = document.getElementById('wcCopyUriBtn');
-            if (!copyBtn) {
-                copyBtn = document.createElement('button');
-                copyBtn.id = 'wcCopyUriBtn';
-                copyBtn.type = 'button';
-                // Solid indigo so the button is legible against the
-                // white modal background (the previous semi-transparent
-                // styling vanished against light backgrounds).
-                copyBtn.style.cssText =
-                    'margin-top:10px;padding:9px 16px;border-radius:10px;border:none;' +
-                    'background:#6366f1;color:#ffffff;font-weight:600;font-size:0.9rem;' +
-                    'cursor:pointer;display:inline-flex;align-items:center;gap:6px;' +
-                    'box-shadow:0 2px 6px rgba(99,102,241,0.35);';
-                copyBtn.textContent = '📋 Copy WalletConnect URI';
-                copyBtn.addEventListener('click', function() {
-                    const u = copyBtn.getAttribute('data-wc-uri') || '';
-                    if (!u) return;
-                    const showCopied = function() {
-                        const original = '📋 Copy WalletConnect URI';
-                        copyBtn.textContent = '✅ Copied!';
-                        setTimeout(function() { copyBtn.textContent = original; }, 1800);
-                    };
-                    if (navigator.clipboard && navigator.clipboard.writeText) {
-                        navigator.clipboard.writeText(u).then(showCopied, function() {
-                            // Fallback for older / non-secure contexts.
-                            try {
-                                const ta = document.createElement('textarea');
-                                ta.value = u; ta.setAttribute('readonly', '');
-                                ta.style.position = 'absolute'; ta.style.left = '-9999px';
-                                document.body.appendChild(ta); ta.select();
-                                document.execCommand('copy'); document.body.removeChild(ta);
-                                showCopied();
-                            } catch (_) {}
-                        });
-                    } else {
+            let copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            // Gradient indigo styling to match updated design
+            copyBtn.style.cssText =
+                'padding:0.65rem 1.2rem;border-radius:10px;border:1.5px solid rgba(99,102,241,0.5);' +
+                'background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(99,102,241,0.1));color:#4f46e5;font-weight:600;font-size:0.85rem;' +
+                'cursor:pointer;display:inline-flex;align-items:center;gap:0.5rem;' +
+                'transition:all 0.2s;white-space:nowrap;';
+            copyBtn.textContent = '📋 Copy link';
+            copyBtn.addEventListener('mouseover', function() {
+                this.style.background = 'linear-gradient(135deg,rgba(99,102,241,0.3),rgba(99,102,241,0.15))';
+                this.style.borderColor = 'rgba(99,102,241,0.7)';
+                this.style.transform = 'translateY(-2px)';
+                this.style.boxShadow = '0 4px 12px rgba(99,102,241,0.3)';
+            });
+            copyBtn.addEventListener('mouseout', function() {
+                this.style.background = 'linear-gradient(135deg,rgba(99,102,241,0.2),rgba(99,102,241,0.1))';
+                this.style.borderColor = 'rgba(99,102,241,0.5)';
+                this.style.transform = 'translateY(0)';
+                this.style.boxShadow = 'none';
+            });
+            copyBtn.addEventListener('click', function() {
+                const u = copyBtn.getAttribute('data-wc-uri') || '';
+                if (!u) return;
+                const showCopied = function() {
+                    const original = '📋 Copy link';
+                    copyBtn.textContent = '✓ Copied!';
+                    copyBtn.style.background = 'linear-gradient(135deg,rgba(16,185,129,0.25),rgba(16,185,129,0.1))';
+                    copyBtn.style.borderColor = 'rgba(16,185,129,0.6)';
+                    copyBtn.style.color = '#10b981';
+                    setTimeout(function() { 
+                        copyBtn.textContent = original;
+                        copyBtn.style.background = 'linear-gradient(135deg,rgba(99,102,241,0.2),rgba(99,102,241,0.1))';
+                        copyBtn.style.borderColor = 'rgba(99,102,241,0.5)';
+                        copyBtn.style.color = '#4f46e5';
+                    }, 1800);
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(u).then(showCopied, function() {
+                        // Fallback for older / non-secure contexts.
                         try {
                             const ta = document.createElement('textarea');
                             ta.value = u; ta.setAttribute('readonly', '');
@@ -3053,11 +3076,20 @@
                             document.execCommand('copy'); document.body.removeChild(ta);
                             showCopied();
                         } catch (_) {}
-                    }
-                });
-                qrWrap.appendChild(copyBtn);
-            }
+                    });
+                } else {
+                    try {
+                        const ta = document.createElement('textarea');
+                        ta.value = u; ta.setAttribute('readonly', '');
+                        ta.style.position = 'absolute'; ta.style.left = '-9999px';
+                        document.body.appendChild(ta); ta.select();
+                        document.execCommand('copy'); document.body.removeChild(ta);
+                        showCopied();
+                    } catch (_) {}
+                }
+            });
             copyBtn.setAttribute('data-wc-uri', uri || '');
+            copyBtnContainer.appendChild(copyBtn);
 
             // Smaller QR (180px) keeps the entire compact-mode modal in
             // a single phone viewport without internal scrolling. Still
@@ -3083,6 +3115,33 @@
             qrImg.height = qrPx;
             qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=' + qrPx + 'x' + qrPx + '&data=' + encodeURIComponent(uri);
             qrEl.appendChild(qrImg);
+            
+            // Setup back button to toggle between QR and instructions
+            const backBtn = document.getElementById('wcBackBtn');
+            const qrContainer = document.getElementById('wcQrContainer');
+            const instructions = document.getElementById('wcInstructions');
+            if (backBtn && qrContainer && instructions) {
+                backBtn.style.display = 'block';
+                backBtn.addEventListener('mouseover', function() {
+                    this.style.background = 'rgba(0,0,0,0.1)';
+                });
+                backBtn.addEventListener('mouseout', function() {
+                    this.style.background = 'rgba(0,0,0,0.05)';
+                });
+                let showingInstructions = false;
+                backBtn.addEventListener('click', function() {
+                    showingInstructions = !showingInstructions;
+                    if (showingInstructions) {
+                        qrContainer.style.display = 'none';
+                        instructions.style.display = 'block';
+                        backBtn.textContent = '✕';
+                    } else {
+                        qrContainer.style.display = 'flex';
+                        instructions.style.display = 'none';
+                        backBtn.textContent = '←';
+                    }
+                });
+            }
         }
 
         async function connectWalletConnect() {
