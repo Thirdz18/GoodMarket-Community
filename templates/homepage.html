@@ -2106,6 +2106,12 @@
 
                 </div>
                 <div id="wcQrWrap" style="display:none;margin-top:1rem;text-align:center;">
+                    <div id="wcInstructionsBanner" style="display:none;background:linear-gradient(135deg,#4f46e5,#6366f1);color:white;padding:0.75rem 1rem;border-radius:10px;margin-bottom:1rem;font-size:0.75rem;line-height:1.5;position:relative;text-align:left;">
+                        <button id="wcBannerCloseBtn" style="position:absolute;top:0.5rem;right:0.5rem;background:rgba(255,255,255,0.2);border:none;color:white;cursor:pointer;padding:0.3rem 0.6rem;border-radius:6px;font-size:0.9rem;transition:all 0.2s;">×</button>
+                        <div style="font-weight:600;margin-bottom:0.5rem;padding-right:1.5rem;">💡 Better Experience with Native Wallets</div>
+                        <div style="margin-bottom:0.5rem;"><strong>Trust Wallet:</strong> Discover → goodmarket.live</div>
+                        <div><strong>MetaMask:</strong> Explore → https://goodmarket.live</div>
+                    </div>
                     <button id="wcBackBtn" style="display:none;background:rgba(0,0,0,0.05);border:none;color:#6b7280;padding:0.5rem;border-radius:8px;cursor:pointer;font-size:1.2rem;margin-bottom:0.8rem;transition:all 0.2s;">←</button>
                     <div style="display:flex;flex-direction:column;align-items:center;gap:0.8rem;" id="wcQrContainer">
                         <div id="wcQrCode" style="display:flex;justify-content:center;"></div>
@@ -3141,6 +3147,22 @@
                         backBtn.textContent = '←';
                     }
                 });
+            }
+            
+            // Show instructions banner with auto-hide after 30 seconds
+            const banner = document.getElementById('wcInstructionsBanner');
+            const bannerCloseBtn = document.getElementById('wcBannerCloseBtn');
+            if (banner) {
+                banner.style.display = 'block';
+                let bannerTimeout;
+                
+                const hideBanner = function() {
+                    banner.style.display = 'none';
+                    if (bannerTimeout) clearTimeout(bannerTimeout);
+                };
+                
+                bannerCloseBtn.addEventListener('click', hideBanner);
+                bannerTimeout = setTimeout(hideBanner, 30000);
             }
         }
 
