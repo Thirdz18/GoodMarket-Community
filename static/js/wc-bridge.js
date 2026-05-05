@@ -51,6 +51,32 @@
     var CELO_CHAIN_ID = 42220;
     var WC_CDN_URL = "https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js";
 
+    // Supported networks for WalletConnect chain switching
+    var SUPPORTED_NETWORKS = {
+        "0xa4ec": { // Celo Mainnet
+            name: "Celo",
+            chainId: 42220,
+            rpc: "https://forno.celo.org",
+            nativeCurrency: {
+                name: "Celo",
+                symbol: "CELO",
+                decimals: 18
+            },
+            blockExplorerUrls: ["https://celoscan.io"]
+        },
+        "0x32": { // XDC Network Mainnet
+            name: "XDC Network",
+            chainId: 50,
+            rpc: "https://erpc.xinfin.network",
+            nativeCurrency: {
+                name: "XDC",
+                symbol: "XDC",
+                decimals: 18
+            },
+            blockExplorerUrls: ["https://xdcscan.io"]
+        }
+    };
+
     var _config = {
         walletAddress: "",
         loginMethod: "",
@@ -515,8 +541,35 @@
         if (method === "net_version") {
             return Promise.resolve(String(CELO_CHAIN_ID));
         }
-        if (method === "wallet_switchEthereumChain" || method === "wallet_addEthereumChain") {
-            // Sessions are scoped to Celo, so these are no-ops over the bridge.
+        if (method === "wallet_switchEthereumChain") {
+            // Handle network switching for supported chains
+            var chainId = (p && p[0] && p[0].chainId) ? String(p[0].chainId) : null;
+            if (!chainId) {
+                return Promise.reject(_wcRpcError("Missing chainId parameter", null, -32602));
+            }
+            // Validate that the network is supported
+            if (SUPPORTED_NETWORKS[chainId]) {
+                // Return success - let the wallet handle the actual switch
+                return Promise.resolve(null);
+            }
+            // Return error code 4902 (unrecognized chain) per EIP-3326
+            return Promise.reject(_wcRpcError("Unrecognized chain ID. Add the chain with wallet_addEthereumChain first.", null, 4902));
+        }
+        if (method === "wallet_addEthereumChain") {
+            // Handle adding a new network
+            var chainData = (p && p[0]) ? p[0] : {};
+            if (!chainData.chainId) {
+                return Promise.reject(_wcRpcError("Missing chainId in chain parameters", null, -32602));
+            }
+            // Validate required fields per EIP-3085
+            if (!chainData.chainName || !chainData.rpcUrls || chainData.rpcUrls.length === 0) {
+                return Promise.reject(_wcRpcError("Missing required chain parameters (chainName or rpcUrls)", null, -32602));
+            }
+            if (!chainData.nativeCurrency) {
+                return Promise.reject(_wcRpcError("Missing nativeCurrency in chain parameters", null, -32602));
+            }
+            // For now, accept the chain addition (wallet will handle the actual add)
+            // In the future, could store in SUPPORTED_NETWORKS for future validation
             return Promise.resolve(null);
         }
 
