@@ -341,10 +341,36 @@
                 <strong>Total Saved (history):</strong> <span id="myTotalSaved">0</span>
             </p>
             <p style="font-size:.75rem; color:rgba(255,255,255,.35); margin-bottom:.85rem;">
-                Each row is a unique <strong>(token · lockDays)</strong> slot. Top-ups merge into the same slot and inherit the original unlock date. Withdrawn saves stay listed below for full audit history (rebuilt from on-chain events, so it works on any device).
+                Each row is a unique <strong>(token · lockDays)</strong> slot. Top-ups merge into the same slot and inherit the original unlock date. Already-withdrawn saves are tucked into the collapsible <em>Withdrawn History</em> below — rebuilt from on-chain events, so it works on any device.
             </p>
             <div id="depList" class="dep-list">
                 <div class="empty-state">Loading your saves…</div>
+            </div>
+        </div>
+
+        <!-- Withdrawn history panel — collapsible like the legacy card. Only
+             shown for wallets that have at least one withdrawn save on the
+             v4 contract. Source of truth is on-chain Withdrawn events, not
+             localStorage. -->
+        <div class="card" id="withdrawnCard" style="display:none; margin-top:1.25rem; border-color:rgba(148,163,184,.22); background:rgba(148,163,184,.04);">
+            <button type="button"
+                    id="withdrawnToggle"
+                    onclick="toggleWithdrawn()"
+                    style="width:100%; background:transparent; border:none; padding:0; cursor:pointer; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:.75rem;">
+                <span style="font-size:1.05rem; font-weight:600; color:#f5f5f7;">
+                    📜 Withdrawn History
+                    <span id="withdrawnCount" style="display:inline-block; margin-left:.4rem; padding:.05rem .5rem; background:rgba(148,163,184,.22); color:#cbd5e1; border-radius:999px; font-size:.7rem; font-weight:600;">0</span>
+                    <span style="display:inline-block; margin-left:.35rem; padding:.05rem .45rem; background:rgba(167,139,250,.16); color:#c4b5fd; border-radius:6px; font-size:.62rem; font-weight:700; letter-spacing:.04em; vertical-align:middle;">ON-CHAIN</span>
+                </span>
+                <span id="withdrawnChevron" style="color:rgba(255,255,255,.45); font-size:.9rem;">▾</span>
+            </button>
+            <div id="withdrawnBody" style="display:none; margin-top:.95rem;">
+                <p style="font-size:.74rem; color:rgba(255,255,255,.45); margin-bottom:.7rem;">
+                    Saves you've already withdrawn from the current contract. Each row links to the matching <strong>CeloScan</strong> transaction so the full history is auditable on any device — no browser cache required.
+                </p>
+                <div id="withdrawnList" class="dep-list">
+                    <div class="empty-state">No withdrawn saves yet.</div>
+                </div>
             </div>
         </div>
 
@@ -1699,26 +1725,60 @@
 
         renderTotalSaved(merged);
 
-        // Sort: active (locked / ready) first by oldest first-deposit, then
-        // withdrawn rows by most-recent withdraw at the bottom.
-        const active   = merged.filter(d => d.status !== 'withdrawn').sort((a, b) => (a.deposited_at || 0) - (b.deposited_at || 0));
-        const withdrawn = merged.filter(d => d.status === 'withdrawn').sort((a, b) => (b.withdrawn_at || 0) - (a.withdrawn_at || 0));
-        const rows = [...active, ...withdrawn];
+        // Split into two lists: active (locked / ready) stays in the main
+        // "My Saves" card, withdrawn history goes into its own collapsible
+        // section below. Active list is oldest-first; withdrawn list is
+        // most-recent-first since users care about the latest withdraw.
+        const active = merged
+            .filter(d => d.status !== 'withdrawn')
+            .sort((a, b) => (a.deposited_at || 0) - (b.deposited_at || 0));
+        const withdrawn = merged
+            .filter(d => d.status === 'withdrawn')
+            .sort((a, b) => (b.withdrawn_at || 0) - (a.withdrawn_at || 0));
 
-        if (rows.length === 0) {
-            container.innerHTML = '<div class="empty-state">No saves yet. Go to "Save" to start.</div>';
-            if (!onchain) {
-                showAlert('depositsAlert', 'warn', '⚠️ Could not reach Celo RPC for full history. Active saves are still shown above.');
+        // Active saves panel.
+        if (active.length === 0) {
+            container.innerHTML = '<div class="empty-state">No active saves yet. Go to "Save" to start.</div>';
+        } else {
+            container.innerHTML = '';
+            for (const d of active) {
+                container.appendChild(buildDepCard(d));
             }
-            return;
         }
-        container.innerHTML = '';
-        for (const d of rows) {
-            container.appendChild(buildDepCard(d));
-        }
+
+        // Withdrawn-history panel (collapsible, only rendered when there's
+        // at least one withdrawn row).
+        renderWithdrawnHistory(withdrawn);
+
         if (!onchain) {
             showAlert('depositsAlert', 'warn', '⚠️ Could not reach Celo RPC to load full withdrawn history. Showing active saves only.');
         }
+    }
+
+    function renderWithdrawnHistory(rows) {
+        const card    = document.getElementById('withdrawnCard');
+        const list    = document.getElementById('withdrawnList');
+        const countEl = document.getElementById('withdrawnCount');
+        if (!rows || rows.length === 0) {
+            card.style.display = 'none';
+            list.innerHTML = '<div class="empty-state">No withdrawn saves yet.</div>';
+            countEl.textContent = '0';
+            return;
+        }
+        card.style.display = 'block';
+        countEl.textContent = String(rows.length);
+        list.innerHTML = '';
+        for (const d of rows) {
+            list.appendChild(buildDepCard(d));
+        }
+    }
+
+    function toggleWithdrawn() {
+        const body = document.getElementById('withdrawnBody');
+        const chev = document.getElementById('withdrawnChevron');
+        const open = body.style.display === 'block';
+        body.style.display = open ? 'none' : 'block';
+        chev.textContent   = open ? '▾' : '▴';
     }
 
     function renderTotalSaved(merged) {
