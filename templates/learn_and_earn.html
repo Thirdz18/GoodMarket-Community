@@ -28,6 +28,10 @@
             color: #ffffff;
             position: relative;
             overflow-x: hidden;
+            transform: scale(0.7);
+            transform-origin: top center;
+            width: 142.857%;
+            margin-left: -21.4285%;
         }
 
         @keyframes gradientShift {
@@ -1372,7 +1376,7 @@
         </div>
 
         <!-- Achievement Card Sales History -->
-        <div class="quiz-history" id="card-sale-section" style="margin-top: 12px; display: none;">
+        <div class="quiz-history" id="card-sale-section" style="margin-top: 12px; display: none !important;">
             <h2><i class="fas fa-receipt"></i> Achievement Card Sales</h2>
             <div id="card-sale-history-content">
                 <table class="history-table" id="card-sale-table">
@@ -1393,7 +1397,7 @@
         </div>
 
         <!-- NFT Marketplace Section -->
-        <div id="nft-marketplace-section" style="margin-top: 16px; background: linear-gradient(135deg, rgba(124,58,237,0.15), rgba(79,70,229,0.15)); border: 2px solid rgba(124,58,237,0.4); border-radius: 14px; padding: 14px 12px; backdrop-filter: blur(10px);">
+        <div id="nft-marketplace-section" style="margin-top: 16px; background: linear-gradient(135deg, rgba(124,58,237,0.15), rgba(79,70,229,0.15)); border: 2px solid rgba(124,58,237,0.4); border-radius: 14px; padding: 14px 12px; backdrop-filter: blur(10px); display: none !important;">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
                 <div>
                     <h2 style="margin: 0; color: white; font-size: 1rem; font-weight: 800;">🎨 NFT Achievement Marketplace</h2>
@@ -2845,13 +2849,13 @@
 
                     <!-- Action Buttons -->
                     <div id="share-description" style="padding: 14px 12px; background: linear-gradient(135deg, #f8f9fa, #e9ecef); text-align: center;">
-                        <p style="margin: 0 0 10px 0; color: #495057; font-size: 0.85rem; font-weight: 600;">🎉 Congratulations! Mint your Achievement NFT!</p>
+                        <p style="margin: 0 0 10px 0; color: #495057; font-size: 0.85rem; font-weight: 600;">🎉 Congratulations! Share your achievement!</p>
                         <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
                             ${soldInfo && soldInfo.not_eligible
-                                ? `<button id="mint-nft-btn-modal" disabled style="padding: 9px 16px; background: #6b2020; color: #fca5a5; border: none; border-radius: 10px; font-weight: 700; cursor: not-allowed; opacity: 0.85; font-size: 0.82rem;">🚫 Not Eligible (Before Feb 11, 2026)</button>`
+                                ? `<button id="mint-nft-btn-modal" disabled style="padding: 9px 16px; background: #6b2020; color: #fca5a5; border: none; border-radius: 10px; font-weight: 700; cursor: not-allowed; opacity: 0.85; font-size: 0.82rem; display: none !important;">🚫 Not Eligible (Before Feb 11, 2026)</button>`
                                 : soldInfo && soldInfo.already_minted
-                                    ? `<button id="mint-nft-btn-modal" disabled style="padding: 9px 16px; background: #4b5563; color: #9ca3af; border: none; border-radius: 10px; font-weight: 700; cursor: not-allowed; opacity: 0.75; font-size: 0.82rem;">✅ Already Minted${soldInfo.minted_token_id ? ' #' + soldInfo.minted_token_id : ''}</button>`
-                                    : `<button id="mint-nft-btn-modal" style="padding: 9px 16px; background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 3px 8px rgba(124,58,237,0.4); font-size: 0.82rem;">🎨 Mint as NFT</button>`
+                                    ? `<button id="mint-nft-btn-modal" disabled style="padding: 9px 16px; background: #4b5563; color: #9ca3af; border: none; border-radius: 10px; font-weight: 700; cursor: not-allowed; opacity: 0.75; font-size: 0.82rem; display: none !important;">✅ Already Minted${soldInfo.minted_token_id ? ' #' + soldInfo.minted_token_id : ''}</button>`
+                                    : `<button id="mint-nft-btn-modal" style="padding: 9px 16px; background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; box-shadow: 0 3px 8px rgba(124,58,237,0.4); font-size: 0.82rem; display: none !important;">🎨 Mint as NFT</button>`
                             }
                             <button id="download-btn-modal" style="padding: 9px 16px; background: linear-gradient(135deg, #28a745, #20c997); color: white; border: none; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 0.82rem;">
                                 📥 Download
