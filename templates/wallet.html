@@ -1415,10 +1415,13 @@
             <div style="margin-top:0.8rem;">
                 <button class="btn-primary" id="dc-checkin-btn" onclick="dailyCheckinClaim()">Check-in Today (+0.01 CELO)</button>
             </div>
+            <div style="margin-top:0.6rem;">
+                <button class="btn-secondary" id="dc-withdraw-btn" onclick="dailyCheckinWithdrawWeekly()" style="display:none;">Withdraw Weekly Bonus (+0.1 CELO)</button>
+            </div>
             <div style="margin-top:0.7rem;font-size:0.82rem;line-height:1.45;color:rgba(255,255,255,0.8);background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.22);border-radius:10px;padding:0.65rem 0.75rem;">
                 Daily reward: <strong>0.01 CELO</strong> per check-in.<br>
                 Weekly streak bonus: <strong>0.1 CELO every 7 days</strong> (equivalent to about <strong>0.0143 CELO/day</strong> over the streak).<br>
-                Rewards are sent automatically every 7 days. To qualify, make sure you do not skip a day—complete your check-in every day to receive the 0.1 CELO weekly reward.
+                Weekly bonus becomes withdrawable after 7 straight check-ins. If you miss a day, your streak resets and the Withdraw button will be hidden until you complete 7 straight days again.
             </div>
             <div style="margin-top:1rem;">
                 <strong>History (last 20)</strong>
@@ -4585,6 +4588,8 @@
             if(!st.ok){document.getElementById('dc-status').innerText = data.message || data.error || 'Unavailable'; return;}
             document.getElementById('dc-status').innerText = `Streak: ${data.current_streak}/7 | ${data.can_checkin ? 'Available now (UTC)' : 'Already checked in today (UTC)'}`;
             document.getElementById('dc-checkin-btn').disabled = !data.can_checkin;
+            const wb = document.getElementById('dc-withdraw-btn');
+            if (wb) wb.style.display = data.can_withdraw_weekly_bonus ? '' : 'none';
             const h = await fetch('/daily-checkin/api/history');
             const hd = await h.json();
             const ul = document.getElementById('dc-history');
@@ -4604,6 +4609,13 @@
         const r = await fetch('/daily-checkin/api/checkin', {method:'POST'});
         const d = await r.json();
         alert(d.success ? '✅ Check-in success' : '❌ ' + (d.error || 'Failed'));
+        loadDailyCheckin();
+    }
+
+    async function dailyCheckinWithdrawWeekly(){
+        const r = await fetch('/daily-checkin/api/withdraw-weekly', {method:'POST'});
+        const d = await r.json();
+        alert(d.success ? '✅ Weekly bonus withdrawn!' : '❌ ' + (d.error || d.message || 'Failed'));
         loadDailyCheckin();
     }
 

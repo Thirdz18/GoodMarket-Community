@@ -46,6 +46,18 @@ def checkin():
     return jsonify(result), (200 if result.get('success') else 400)
 
 
+@daily_checkin_bp.route('/api/withdraw-weekly', methods=['POST'])
+def withdraw_weekly():
+    m = maintenance_service.get_maintenance_status('daily_checkin')
+    if m.get('is_maintenance'):
+        return jsonify({'success': False, 'maintenance': True, 'message': m.get('message')}), 503
+    wallet = _auth_wallet()
+    if not wallet:
+        return jsonify({'success': False, 'error': 'Verification required'}), 401
+    result = daily_checkin_manager.withdraw_weekly_bonus(wallet)
+    return jsonify(result), (200 if result.get('success') else 400)
+
+
 @daily_checkin_bp.route('/api/history')
 def history():
     wallet = _auth_wallet()
