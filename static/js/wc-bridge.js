@@ -248,6 +248,8 @@
         var existing = document.getElementById("__gmWcModal");
         if (existing) existing.remove();
 
+        var showInstructions = false; // Track which view is displayed
+        
         var modal = document.createElement("div");
         modal.id = "__gmWcModal";
         modal.setAttribute("role", "dialog");
@@ -278,6 +280,20 @@
             "display:flex;align-items:center;justify-content:center;transition:all 0.2s;";
         backBtn.addEventListener("mouseover", function() { this.style.background = "rgba(255,255,255,0.1)"; });
         backBtn.addEventListener("mouseout", function() { this.style.background = "rgba(255,255,255,0.05)"; });
+        backBtn.addEventListener("click", function() {
+            showInstructions = !showInstructions;
+            if (showInstructions) {
+                // Show instructions view
+                qrButtonContainer.style.display = "none";
+                subtitle.textContent = "Better experience on native wallets";
+                instructionsContainer.style.display = "block";
+            } else {
+                // Show QR view
+                qrButtonContainer.style.display = "flex";
+                subtitle.textContent = "Scan this code with your phone";
+                instructionsContainer.style.display = "none";
+            }
+        });
 
         var closeBtn = document.createElement("button");
         closeBtn.innerHTML = "✕";
@@ -381,9 +397,36 @@
         qrButtonContainer.appendChild(qrContainer);
         qrButtonContainer.appendChild(copyBtn);
 
+        // Instructions Container
+        var instructionsContainer = document.createElement("div");
+        instructionsContainer.style.cssText =
+            "display:none;text-align:left;font-size:0.7rem;line-height:1.6;color:rgba(248,250,252,0.8);";
+
+        var trustWalletSection = document.createElement("div");
+        trustWalletSection.style.cssText = "margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid rgba(124,58,237,0.2);";
+        trustWalletSection.innerHTML =
+            "<strong style='color:#e0e7ff;font-size:0.75rem;'>1. Trust Wallet</strong><br>" +
+            "• Open Trust Wallet app<br>" +
+            "• Tap \"Discover\" button (bottom right)<br>" +
+            "• Search for or tap \"goodmarket.live\"<br>" +
+            "• Better transaction experience";
+
+        var metamaskSection = document.createElement("div");
+        metamaskSection.style.cssText = "margin-bottom:0.5rem;";
+        metamaskSection.innerHTML =
+            "<strong style='color:#e0e7ff;font-size:0.75rem;'>2. MetaMask Mobile</strong><br>" +
+            "• Open MetaMask wallet app<br>" +
+            "• Tap \"Explore\" icon<br>" +
+            "• Paste https://goodmarket.live<br>" +
+            "• Better transaction experience";
+
+        instructionsContainer.appendChild(trustWalletSection);
+        instructionsContainer.appendChild(metamaskSection);
+
         card.appendChild(header);
         card.appendChild(subtitle);
         card.appendChild(qrButtonContainer);
+        card.appendChild(instructionsContainer);
         modal.appendChild(card);
         document.body.appendChild(modal);
     }
