@@ -62,6 +62,20 @@ def api_deposits():
     return jsonify({"deposits": deposits})
 
 
+@savings_bp.route("/api/history")
+def api_history():
+    wallet, verified = _require_auth()
+    requested_wallet = request.args.get("wallet", "").strip()
+    target = requested_wallet or wallet
+    if not target:
+        return jsonify({"error": "Unauthorized"}), 401
+    if verified is not True and not requested_wallet:
+        return jsonify({"error": "Unauthorized"}), 401
+    if requested_wallet and wallet and requested_wallet.lower() != wallet.lower():
+        return jsonify({"error": "Wallet mismatch"}), 403
+    return jsonify({"history": svc.get_user_savings_history(target)})
+
+
 @savings_bp.route("/api/allowance")
 def api_allowance():
     """Backwards-compatible: G$ allowance only."""

@@ -572,8 +572,8 @@
     // Cache of user's existing slots, keyed by `${tokenKey}|${lockDays}`.
     let __mySlotsByKey = {};
     function historyStorageKey() { return `gm_savings_history_v3:${(WALLET || '').toLowerCase()}`; }
-    function loadWithdrawnHistory() { try { return JSON.parse(localStorage.getItem(historyStorageKey()) || '{}'); } catch (_) { return {}; } }
-    function saveWithdrawnHistory(m) { try { localStorage.setItem(historyStorageKey(), JSON.stringify(m || {})); } catch (_) {} }
+    function loadWithdrawnHistory() { return {}; }
+    function saveWithdrawnHistory(_m) {}
     function slotKeyByTokenAddress(tokenAddr, lockDays) { return `${String(tokenAddr || '').toLowerCase()}|${Number(lockDays)}`; }
 
     // ── Tabs ──
@@ -1321,26 +1321,13 @@
         try {
             const args = [tokenAddr, BigInt(lockDays)];
             const fn   = "function withdraw(address token, uint256 lockDays) external";
-            const tokenSym = (Object.values(TOKENS).find(t => t.address.toLowerCase() === String(tokenAddr).toLowerCase()) || {}).symbol || 'Token';
-            const keyTk = symbolToKey(tokenSym);
-            const prior = keyTk ? (__mySlotsByKey[`${keyTk}|${lockDays}`] || {}) : {};
-            const recordWithdrawnHistory = () => {
-                const history = loadWithdrawnHistory();
-                history[slotKeyByTokenAddress(tokenAddr, lockDays)] = {
-                    token: tokenAddr, token_symbol: tokenSym, lock_days: Number(lockDays),
-                    amount_h: Number(prior.amount_h || 0), withdrawn_at: Math.floor(Date.now() / 1000), status: 'withdrawn'
-                };
-                saveWithdrawnHistory(history);
-            };
-
             if (window.useServerSigning) {
                 showAlert('depositsAlert', 'info', '<span class="spinner"></span> Signing withdrawal server-side…');
                 const txHash = await serverSignedTx(SAVINGS_CONTRACT, fn, args);
                 showAlert('depositsAlert', 'success',
                     `✅ Withdrawn! <a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
                 );
-                recordWithdrawnHistory();
-                loadDeposits(); loadStats(); refreshMySlots();
+                    loadDeposits(); loadStats(); refreshMySlots();
                 return;
             }
 
@@ -1350,8 +1337,7 @@
                 showAlert('depositsAlert', 'success',
                     `✅ Withdrawn successfully! <a href="https://celoscan.io/tx/${txHash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
                 );
-                recordWithdrawnHistory();
-                loadDeposits(); loadStats(); refreshMySlots();
+                    loadDeposits(); loadStats(); refreshMySlots();
                 return;
             }
 
@@ -1367,7 +1353,6 @@
             showAlert('depositsAlert', 'success',
                 `✅ Withdrawn successfully! <a href="https://celoscan.io/tx/${receipt.hash}" target="_blank" style="color:#86efac;">View on CeloScan ↗</a>`
             );
-            recordWithdrawnHistory();
             loadDeposits();
             loadStats();
             refreshMySlots();
@@ -1417,7 +1402,9 @@
             const res = await fetch('/savings/api/deposits');
             const data = await res.json();
             const deps = data.deposits || [];
-            const history = loadWithdrawnHistory();
+            const historyRes = await fetch('/savings/api/history');
+            const historyData = await historyRes.json();
+            const history = historyData.history || [];
 
             // Refresh local cache (used by Save tab to detect existing slots).
             __mySlotsByKey = {};
@@ -1426,15 +1413,10 @@
                 if (tk) __mySlotsByKey[`${tk}|${d.lock_days}`] = d;
             }
             checkExistingSlot();
-            const activeKeys = new Set(deps.map(d => slotKeyByTokenAddress(d.token, d.lock_days)));
-            for (const [k, rec] of Object.entries(history)) {
-                if (!activeKeys.has(k)) rec.status = 'withdrawn';
-            }
-            saveWithdrawnHistory(history);
             renderWithdrawnHistory(history);
-            renderTotalSaved(deps, history);
+            renderTotalSaved(history);
 
-            const withdrawnRows = Object.values(history || {}).filter(x => x.status === 'withdrawn');
+            const withdrawnRows = (history || []).filter(x => x.status === 'withdrawn');
             if (deps.length === 0 && withdrawnRows.length === 0) {
                 container.innerHTML = '<div class="empty-state">No saves yet. Go to "Save" to start.</div>';
                 return;
@@ -1449,11 +1431,10 @@
         }
     }
 
-    function renderTotalSaved(activeDeps, historyMap) {
+    function renderTotalSaved(historyRows) {
         const totalEl = document.getElementById('myTotalSaved');
         let total = 0;
-        for (const d of activeDeps || []) total += Number(d.amount_h || 0);
-        for (const v of Object.values(historyMap || {})) total += Number(v.amount_h || 0);
+        for (const d of historyRows || []) total += Number(d.amount_h || 0);
         totalEl.textContent = `${fmtAmt(total, 'combined')} (active + withdrawn)`;
     }
 

@@ -55,6 +55,32 @@ def _token_meta(addr):
 
 
 SAVINGS_ABI = [
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": True, "internalType": "address", "name": "token", "type": "address"},
+            {"indexed": True, "internalType": "uint256", "name": "lockDays", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "newTotal", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "unlocksAt", "type": "uint256"},
+            {"indexed": False, "internalType": "bool", "name": "isTopUp", "type": "bool"},
+        ],
+        "name": "Saved",
+        "type": "event",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "internalType": "address", "name": "user", "type": "address"},
+            {"indexed": True, "internalType": "address", "name": "token", "type": "address"},
+            {"indexed": True, "internalType": "uint256", "name": "lockDays", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "principal", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "when", "type": "uint256"},
+        ],
+        "name": "Withdrawn",
+        "type": "event",
+    },
     # ── Constructor ──────────────────────────────────────────────────────
     {
         "inputs": [
@@ -258,6 +284,144 @@ LEGACY_V2_ABI = [
         "type": "function",
     },
 ]
+
+
+def _to_block_id(value):
+    try:
+        return int(value)
+    except Exception:
+        return "earliest"
+
+
+def _fetch_logs_paginated(w3, params, step_blocks=60000):
+    """Fetch logs in block windows to avoid RPC/provider limits."""
+    latest = w3.eth.block_number
+    from_block = _to_block_id(params.get("fromBlock", "earliest"))
+    if from_block == "earliest":
+        from_block = 0
+    out = []
+    while from_block <= latest:
+        to_block = min(from_block + step_blocks - 1, latest)
+        p = dict(params)
+        p["fromBlock"] = from_block
+        p["toBlock"] = to_block
+        out.extend(w3.eth.get_logs(p))
+        from_block = to_block + 1
+    return out
+
+
+def get_user_savings_history(wallet_address):
+    """Unified on-chain savings history (v4 + legacy v2), no local cache assumptions."""
+    try:
+        w3 = get_w3()
+        wallet = Web3.to_checksum_address(wallet_address)
+        now_ts = int(w3.eth.get_block("latest")["timestamp"])
+        savings = get_savings_contract(w3)
+        history = []
+
+        # V4 active/ready slots from state.
+        for d in get_user_deposits(wallet_address):
+            history.append({
+                "version": "v4",
+                "token": d["token"],
+                "token_symbol": d["token_symbol"],
+                "lock_days": int(d["lock_days"]),
+                "amount": str(d["amount"]),
+                "amount_h": float(d["amount_h"]),
+                "deposited_at": None,
+                "unlocks_at": int(d["unlocks_at"]),
+                "status": "ready" if bool(d["is_unlocked"]) else "locked",
+                "withdrawn_at": None,
+                "tx_hash": None,
+            })
+
+        # V4 historical withdrawn slots from events.
+        saved_topic = w3.keccak(text="Saved(address,address,uint256,uint256,uint256,uint256,bool)").hex()
+        withdrawn_topic = w3.keccak(text="Withdrawn(address,address,uint256,uint256,uint256)").hex()
+        addr_topic = "0x" + wallet.lower().replace("0x", "").rjust(64, "0")
+        common = {
+            "address": Web3.to_checksum_address(SAVINGS_CONTRACT_ADDRESS),
+            "topics": [[saved_topic, withdrawn_topic], addr_topic],
+            "fromBlock": 0,
+            "toBlock": "latest",
+        }
+        logs = _fetch_logs_paginated(w3, common)
+        first_by_slot = {}
+        withdrawn_by_slot = {}
+        for lg in logs:
+            topic0 = lg["topics"][0].hex()
+            topic2 = int(lg["topics"][2].hex(), 16)  # lockDays
+            token = Web3.to_checksum_address("0x" + lg["topics"][1].hex()[-40:])
+            slot = f"{token.lower()}|{topic2}"
+            tx_hash = lg["transactionHash"].hex()
+            block = w3.eth.get_block(lg["blockNumber"])
+            ts = int(block["timestamp"])
+            if topic0 == saved_topic:
+                payload = savings.events.Saved().process_log(lg)["args"]
+                prev = first_by_slot.get(slot)
+                if prev is None or ts < prev["deposited_at"]:
+                    first_by_slot[slot] = {
+                        "token": token,
+                        "lock_days": int(payload["lockDays"]),
+                        "amount": str(int(payload["newTotal"])),
+                        "deposited_at": ts,
+                        "unlocks_at": int(payload["unlocksAt"]),
+                        "token_symbol": _token_meta(token)["symbol"],
+                    }
+            elif topic0 == withdrawn_topic:
+                payload = savings.events.Withdrawn().process_log(lg)["args"]
+                withdrawn_by_slot[slot] = {
+                    "token": token,
+                    "lock_days": int(payload["lockDays"]),
+                    "amount": str(int(payload["principal"])),
+                    "deposited_at": first_by_slot.get(slot, {}).get("deposited_at"),
+                    "unlocks_at": first_by_slot.get(slot, {}).get("unlocks_at", ts),
+                    "status": "withdrawn",
+                    "withdrawn_at": ts,
+                    "tx_hash": tx_hash,
+                    "token_symbol": _token_meta(token)["symbol"],
+                }
+
+        for _, rec in withdrawn_by_slot.items():
+            rec["amount_h"] = float(Web3.from_wei(int(rec["amount"]), "ether"))
+            rec["version"] = "v4"
+            history.append(rec)
+
+        # Legacy v2 (read from chain state, includes withdrawn/ready/locked).
+        for dep in get_user_legacy_deposits(wallet_address):
+            status = "withdrawn" if dep["withdrawn"] else ("ready" if dep["is_unlocked"] else "locked")
+            history.append({
+                "version": "v2",
+                "token": GD_TOKEN_ADDRESS,
+                "token_symbol": "G$",
+                "lock_days": int(dep["lock_days"]),
+                "amount": str(dep["amount"]),
+                "amount_h": float(dep["amount_gd"]),
+                "deposited_at": int(dep["deposited_at"]),
+                "unlocks_at": int(dep["unlocks_at"]),
+                "status": status,
+                "withdrawn_at": int(dep["unlocks_at"]) if dep["withdrawn"] else None,
+                "tx_hash": None,
+                "legacy_id": int(dep["id"]),
+            })
+
+        # Normalize inferred statuses for v4 rows without explicit status.
+        for row in history:
+            if row.get("status") in ("locked", "ready", "withdrawn"):
+                continue
+            row["status"] = "ready" if (row.get("unlocks_at") and row["unlocks_at"] <= now_ts) else "locked"
+
+        history.sort(
+            key=lambda r: (
+                0 if r.get("status") != "withdrawn" else 1,
+                -(int(r.get("unlocks_at") or 0)),
+                -(int(r.get("withdrawn_at") or 0)),
+            )
+        )
+        return history
+    except Exception as e:
+        logger.error(f"get_user_savings_history error: {e}")
+        return []
 
 ERC20_ABI = [
     {
