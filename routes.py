@@ -6824,7 +6824,9 @@ def xdc_wallet_page():
                            login_method=login_method, use_server_signing=use_server_signing,
                            xdc_bridge_contract=xdc_bridge_contract,
                            xdc_gd_token_contract=xdc_gd_token_contract,
-                           celo_chain_id=celo_chain_id)
+                           celo_chain_id=celo_chain_id,
+                           walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+                           walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled())
 
 
 @routes.route("/api/xdc/balances", methods=["GET"])
