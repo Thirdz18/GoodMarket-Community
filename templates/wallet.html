@@ -4599,7 +4599,16 @@
             ul.innerHTML = '';
             (hd.history || []).forEach(row => {
                 const li = document.createElement('li');
-                li.innerText = `${row.event_type}: ${row.amount_celo} CELO`;
+                li.textContent = `${row.event_type}: ${row.amount_celo} CELO`;
+                if (row.tx_hash) {
+                    const txLink = document.createElement('a');
+                    txLink.href = `https://celoscan.io/tx/${row.tx_hash}`;
+                    txLink.target = '_blank';
+                    txLink.rel = 'noopener noreferrer';
+                    txLink.textContent = ' TX';
+                    txLink.style.marginLeft = '0.35rem';
+                    li.appendChild(txLink);
+                }
                 ul.appendChild(li);
             });
         }catch(_){
