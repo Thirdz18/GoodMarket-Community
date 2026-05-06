@@ -989,7 +989,8 @@ class SupabaseLogger:
             # User ACTUALLY completed GoodDollar face verification
             try:
                 user_row = self.client.table("user_data")\
-                    .select("first_seen_unverified, verified_after_goodmarket")\
+                    .select("first_seen_unverified, verified_after_goodmarket, "
+                            "first_login, created_at, face_verified_at")\
                     .ilike("wallet_address", wallet_address)\
                     .execute()
 
@@ -1002,13 +1003,39 @@ class SupabaseLogger:
 
                 if user_row.data:
                     row = user_row.data[0]
-                    # Credit GoodMarket for this face verification.
-                    # face_verified=True is ONLY passed from /fv-callback — meaning GoodMarket
-                    # generated the FV link and received the callback. That alone is sufficient
-                    # proof of attribution, regardless of whether first_seen_unverified was set.
+                    # Strict attribution: only credit GoodMarket when the on-chain
+                    # ``lastAuthenticated`` actually falls within this GoodMarket
+                    # session (within STRICT_ATTRIBUTION_WINDOW_SECONDS of "now")
+                    # AND the user came to GoodMarket BEFORE verifying. Without
+                    # this guard, /fv-callback flips the flag for users who
+                    # verified months ago elsewhere and just round-tripped
+                    # through GoodMarket's FV button — see the audit summary in
+                    # GOODMARKET_ATTRIBUTION_AUDIT.md (only 2/123 of the rows
+                    # under the old code actually verified through GoodMarket).
                     if not row.get("verified_after_goodmarket"):
-                        update_payload["verified_after_goodmarket"] = True
-                        logger.info(f"🏆 GoodMarket-attributed face verification for wallet: {wallet_address}")
+                        try:
+                            from goodmarket_attribution_backfill import (
+                                is_attributable_to_goodmarket,
+                            )
+                            decision = is_attributable_to_goodmarket(wallet_address, row)
+                        except Exception as attr_err:  # noqa: BLE001
+                            logger.warning(
+                                f"⚠️ Attribution check failed for {wallet_address}: {attr_err}"
+                            )
+                            decision = {"attributable": False, "reason": "helper_error"}
+
+                        if decision.get("attributable"):
+                            update_payload["verified_after_goodmarket"] = True
+                            logger.info(
+                                f"🏆 GoodMarket-attributed face verification for wallet: "
+                                f"{wallet_address} (delta={decision.get('delta_seconds')}s)"
+                            )
+                        else:
+                            logger.info(
+                                f"ℹ️ /fv-callback fired for {wallet_address} but "
+                                f"attribution not credited "
+                                f"(reason={decision.get('reason')})"
+                            )
                     # Also backfill first_seen_unverified if it was never recorded
                     if not row.get("first_seen_unverified"):
                         update_payload["first_seen_unverified"] = datetime.now().isoformat()

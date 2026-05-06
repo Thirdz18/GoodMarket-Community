@@ -2207,6 +2207,69 @@ def admin_backfill_gm_attribution():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/admin/attribution-correct", methods=["POST", "GET"])
+@admin_required
+def admin_attribution_correct():
+    """Admin: re-evaluate every ``user_data`` row that currently has
+    ``verified_after_goodmarket = TRUE`` against the strict attribution rule
+    and unset the flag where it no longer qualifies.
+
+    Use this once after deploying the strict-attribution change to clean up
+    rows that the legacy "any whitelisted user counts" code wrote. NEVER
+    auto-runs — admin must explicitly trigger.
+
+    Query params (also accepts JSON body):
+        * ``dry_run`` — defaults to TRUE. Pass ``false`` / ``0`` to actually
+          write the corrections. Always start with a dry run to preview.
+        * ``limit``   — cap rows examined (defaults to MAX_WALLETS_PER_RUN).
+
+    Returns a structured summary including a ``cleared_sample`` of wallets
+    that were (or would be) un-attributed, with per-wallet reasons.
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        raw_dry = (request.args.get("dry_run") or body.get("dry_run"))
+        if raw_dry is None or str(raw_dry).strip() == "":
+            dry_run = True  # Safe default — never silently mutate.
+        else:
+            dry_run = str(raw_dry).strip().lower() in ("1", "true", "yes", "on")
+
+        raw_limit = request.args.get("limit") or body.get("limit")
+        limit = None
+        if raw_limit is not None and str(raw_limit).strip() != "":
+            try:
+                limit = max(1, int(raw_limit))
+            except (TypeError, ValueError):
+                return jsonify({
+                    "success": False,
+                    "error": "limit must be an integer"
+                }), 400
+
+        from goodmarket_attribution_backfill import correct_false_attributions
+        summary = correct_false_attributions(dry_run=dry_run, limit=limit)
+
+        try:
+            admin_wallet = session.get("wallet")
+            log_admin_action(
+                admin_wallet=admin_wallet,
+                action_type="attribution_correct",
+                action_details={
+                    "dry_run": dry_run,
+                    "limit": limit,
+                    "examined": summary.get("examined"),
+                    "cleared": summary.get("cleared"),
+                    "kept_genuine": summary.get("kept_genuine"),
+                },
+            )
+        except Exception as audit_err:
+            logger.warning(f"[gm-attribution-correct] admin audit log skipped: {audit_err}")
+
+        return jsonify(summary), (200 if summary.get("success") else 500)
+    except Exception as e:
+        logger.error(f"[gm-attribution-correct] admin endpoint error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @routes.route("/api/admin/users", methods=["GET"])
 @admin_required
 def get_all_users():
