@@ -1,0 +1,249 @@
+{# Reusable "How to connect" banner for the homepage.
+   Include with: {% include "_wallet_guide_banner.html" %}
+   Renders a dismissible banner that points new visitors to the smoothest
+   onboarding path for their wallet of choice. Three tabs:
+   • MetaMask Mobile  → use the in-wallet "Explore" browser
+   • Trust Wallet     → use the in-wallet "Discover" browser
+   • GoodWallet       → stay on the regular browser, use WalletConnect
+   Dismissed state is persisted in localStorage so returning users only
+   see this once. Self-contained styles so it stays readable on the dark
+   gradient homepage and on any future light theme. #}
+<style>
+    .gm-wg-banner {
+        position: relative;
+        margin: 14px auto 0;
+        max-width: 720px;
+        padding: 16px 44px 16px 18px;
+        background: linear-gradient(135deg, #0f766e 0%, #0d9488 50%, #14b8a6 100%);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 12px;
+        color: #ecfeff;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 6px 18px rgba(13, 148, 136, 0.25);
+    }
+    .gm-wg-banner-close {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        background: rgba(255, 255, 255, 0.14);
+        border: none;
+        font-size: 18px;
+        line-height: 1;
+        color: #ffffff;
+        cursor: pointer;
+        padding: 4px 9px;
+        border-radius: 6px;
+        transition: background 0.15s;
+    }
+    .gm-wg-banner-close:hover { background: rgba(255, 255, 255, 0.28); }
+
+    .gm-wg-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 4px;
+    }
+    .gm-wg-subtitle {
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: rgba(236, 254, 255, 0.92);
+        margin-bottom: 12px;
+    }
+
+    .gm-wg-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+    }
+    .gm-wg-tab {
+        flex: 1 1 auto;
+        min-width: 110px;
+        padding: 7px 10px;
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        color: #f0fdfa;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+    .gm-wg-tab:hover {
+        background: rgba(0, 0, 0, 0.32);
+        border-color: rgba(255, 255, 255, 0.32);
+    }
+    .gm-wg-tab.active {
+        background: #ffffff;
+        color: #0f766e;
+        border-color: #ffffff;
+    }
+
+    .gm-wg-panel {
+        display: none;
+        background: rgba(0, 0, 0, 0.22);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px 14px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: #f0fdfa;
+    }
+    .gm-wg-panel.active { display: block; }
+    .gm-wg-panel ol {
+        list-style: decimal;
+        padding-left: 20px;
+        margin: 4px 0 8px;
+    }
+    .gm-wg-panel li { margin-bottom: 3px; }
+    .gm-wg-panel li strong { color: #ffffff; font-weight: 700; }
+    .gm-wg-panel code {
+        background: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 11.5px;
+    }
+    .gm-wg-panel .gm-wg-note {
+        margin-top: 6px;
+        font-size: 11.5px;
+        color: rgba(236, 254, 255, 0.8);
+        font-style: italic;
+    }
+    .gm-wg-panel .gm-wg-cta {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 6px 12px;
+        background: #ffffff;
+        color: #0f766e;
+        border: none;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .gm-wg-panel .gm-wg-cta:hover { background: #f0fdfa; }
+
+    @media (max-width: 480px) {
+        .gm-wg-banner { padding: 14px 40px 14px 14px; }
+        .gm-wg-title { font-size: 13px; }
+        .gm-wg-subtitle, .gm-wg-panel { font-size: 12px; }
+        .gm-wg-tab { font-size: 11.5px; min-width: 0; }
+    }
+</style>
+<div class="gm-wg-banner" id="gmWgBanner" role="region" aria-label="How to connect your wallet">
+    <button class="gm-wg-banner-close" type="button" id="gmWgBannerClose" aria-label="Dismiss">&times;</button>
+    <div class="gm-wg-title">
+        <span aria-hidden="true">📱</span>
+        <span>First time on GoodMarket? Pick the smoothest path for your wallet.</span>
+    </div>
+    <p class="gm-wg-subtitle">
+        For mobile wallets, opening GoodMarket inside your wallet's built-in browser avoids most connection errors. If you already use <strong>GoodWallet</strong> for G$ claims, stay on this page and use WalletConnect.
+    </p>
+
+    <div class="gm-wg-tabs" role="tablist">
+        <button class="gm-wg-tab active" type="button" role="tab" aria-selected="true" data-gm-wg-tab="metamask">
+            <span aria-hidden="true">🦊</span> MetaMask Mobile
+        </button>
+        <button class="gm-wg-tab" type="button" role="tab" aria-selected="false" data-gm-wg-tab="trust">
+            <span aria-hidden="true">🛡️</span> Trust Wallet
+        </button>
+        <button class="gm-wg-tab" type="button" role="tab" aria-selected="false" data-gm-wg-tab="goodwallet">
+            <span aria-hidden="true">💚</span> GoodWallet (existing G$)
+        </button>
+    </div>
+
+    <div class="gm-wg-panel active" data-gm-wg-panel="metamask" role="tabpanel">
+        <ol>
+            <li>Open your <strong>MetaMask</strong> mobile app.</li>
+            <li>Tap <strong>Explore</strong> on the bottom bar.</li>
+            <li>Type or paste <code>https://goodmarket.live</code> in the search bar.</li>
+            <li>Tap <strong>Get Started</strong> on this page and choose <strong>Injected Wallet</strong>.</li>
+        </ol>
+        <p class="gm-wg-note">Loading GoodMarket inside MetaMask's in-app browser gives the most reliable claim &amp; save experience.</p>
+    </div>
+
+    <div class="gm-wg-panel" data-gm-wg-panel="trust" role="tabpanel">
+        <ol>
+            <li>Open your <strong>Trust Wallet</strong> mobile app.</li>
+            <li>Tap <strong>Discover</strong> on the bottom bar.</li>
+            <li>Type or paste <code>https://goodmarket.live</code> in the search bar.</li>
+            <li>Tap <strong>Get Started</strong> on this page and choose <strong>Injected Wallet</strong>.</li>
+        </ol>
+        <p class="gm-wg-note">Trust Wallet's Discover browser handles Celo transactions natively — fewer prompts, no chain-switch errors.</p>
+    </div>
+
+    <div class="gm-wg-panel" data-gm-wg-panel="goodwallet" role="tabpanel">
+        <ol>
+            <li>Stay on this page in your normal mobile/desktop browser.</li>
+            <li>Tap <strong>Get Started</strong> at the top.</li>
+            <li>Choose <strong>Wallet Connect</strong> → <strong>WalletConnect</strong>.</li>
+            <li>Either <strong>scan the QR code</strong> with GoodWallet, or tap <strong>Copy URI</strong> and paste it inside GoodWallet.</li>
+        </ol>
+        <p class="gm-wg-note">Already claiming G$ in GoodWallet? Keep using it — WalletConnect lets you sign GoodMarket transactions without switching wallets.</p>
+        <button type="button" class="gm-wg-cta" id="gmWgOpenModal">Open Get Started →</button>
+    </div>
+</div>
+<script>
+    (function () {
+        var KEY = 'gm_wallet_guide_banner_dismissed_v1';
+        var el = document.getElementById('gmWgBanner');
+        if (!el) return;
+        try {
+            if (localStorage.getItem(KEY) === '1') {
+                el.style.display = 'none';
+                return;
+            }
+        } catch (_) { /* localStorage unavailable; banner shows every load */ }
+
+        // Tab switching.
+        var tabs = el.querySelectorAll('[data-gm-wg-tab]');
+        var panels = el.querySelectorAll('[data-gm-wg-panel]');
+        function activate(name) {
+            tabs.forEach(function (t) {
+                var on = t.getAttribute('data-gm-wg-tab') === name;
+                t.classList.toggle('active', on);
+                t.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            panels.forEach(function (p) {
+                p.classList.toggle('active', p.getAttribute('data-gm-wg-panel') === name);
+            });
+        }
+        tabs.forEach(function (t) {
+            t.addEventListener('click', function () {
+                activate(t.getAttribute('data-gm-wg-tab'));
+            });
+        });
+
+        // Dismiss.
+        var closeBtn = document.getElementById('gmWgBannerClose');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function () {
+                try { localStorage.setItem(KEY, '1'); } catch (_) {}
+                el.style.display = 'none';
+            });
+        }
+
+        // CTA on the GoodWallet panel: open the existing wallet modal so
+        // users don't have to scroll up to find the "Get Started" button.
+        var cta = document.getElementById('gmWgOpenModal');
+        if (cta) {
+            cta.addEventListener('click', function () {
+                if (typeof window.openWalletModal === 'function') {
+                    window.openWalletModal();
+                }
+            });
+        }
+    })();
+</script>
