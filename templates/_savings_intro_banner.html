@@ -1,0 +1,278 @@
+{# Reusable "What is Savings?" intro banner for wallet.html.
+   Include with: {% include "_savings_intro_banner.html" %}
+   Renders a dismissible educational banner that explains the GoodMarket
+   Savings feature to users who haven't tried it yet. Three tabs:
+   • What is Savings? — quick explainer of the feature
+   • Why it's safe   — non-custodial, audited contract, on-chain
+   • Why save        — benefits & bonuses
+   Dismissed state is persisted in localStorage so returning users only
+   see this once. Self-contained styles — does not depend on the
+   surrounding page CSS. #}
+<style>
+    .gm-svg-banner {
+        position: relative;
+        margin: 12px auto 4px;
+        max-width: 720px;
+        padding: 16px 44px 16px 18px;
+        background: linear-gradient(135deg, #065f46 0%, #047857 50%, #10b981 100%);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 12px;
+        color: #ecfdf5;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        box-shadow: 0 6px 18px rgba(5, 150, 105, 0.28);
+    }
+    .gm-svg-banner-close {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        background: rgba(255, 255, 255, 0.14);
+        border: none;
+        font-size: 18px;
+        line-height: 1;
+        color: #ffffff;
+        cursor: pointer;
+        padding: 4px 9px;
+        border-radius: 6px;
+        transition: background 0.15s;
+    }
+    .gm-svg-banner-close:hover { background: rgba(255, 255, 255, 0.28); }
+
+    .gm-svg-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        color: #ffffff;
+        margin-bottom: 4px;
+    }
+    .gm-svg-subtitle {
+        font-size: 12.5px;
+        line-height: 1.45;
+        color: rgba(236, 253, 245, 0.92);
+        margin-bottom: 12px;
+    }
+
+    .gm-svg-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+    }
+    .gm-svg-tab {
+        flex: 1 1 auto;
+        min-width: 110px;
+        padding: 7px 10px;
+        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 8px;
+        color: #ecfdf5;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+    .gm-svg-tab:hover {
+        background: rgba(0, 0, 0, 0.32);
+        border-color: rgba(255, 255, 255, 0.32);
+    }
+    .gm-svg-tab.active {
+        background: #ffffff;
+        color: #065f46;
+        border-color: #ffffff;
+    }
+
+    .gm-svg-panel {
+        display: none;
+        background: rgba(0, 0, 0, 0.22);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        padding: 12px 14px;
+        font-size: 12.5px;
+        line-height: 1.6;
+        color: #ecfdf5;
+    }
+    .gm-svg-panel.active { display: block; }
+    .gm-svg-panel ul {
+        list-style: none;
+        padding-left: 0;
+        margin: 4px 0 8px;
+    }
+    .gm-svg-panel ul li {
+        padding-left: 22px;
+        position: relative;
+        margin-bottom: 5px;
+    }
+    .gm-svg-panel ul li::before {
+        content: '✓';
+        position: absolute;
+        left: 4px;
+        top: 0;
+        color: #6ee7b7;
+        font-weight: 700;
+    }
+    .gm-svg-panel li strong { color: #ffffff; font-weight: 700; }
+    .gm-svg-panel p { margin-bottom: 6px; }
+    .gm-svg-panel code {
+        background: rgba(255, 255, 255, 0.16);
+        color: #ffffff;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 11.5px;
+    }
+    .gm-svg-panel .gm-svg-note {
+        margin-top: 6px;
+        font-size: 11.5px;
+        color: rgba(236, 253, 245, 0.8);
+        font-style: italic;
+    }
+    .gm-svg-panel .gm-svg-cta {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 7px 14px;
+        background: #ffffff;
+        color: #065f46;
+        border: none;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    .gm-svg-panel .gm-svg-cta:hover { background: #ecfdf5; }
+
+    @media (max-width: 480px) {
+        .gm-svg-banner { padding: 14px 40px 14px 14px; }
+        .gm-svg-title { font-size: 13px; }
+        .gm-svg-subtitle, .gm-svg-panel { font-size: 12px; }
+        .gm-svg-tab { font-size: 11.5px; min-width: 0; }
+    }
+</style>
+<div class="gm-svg-banner" id="gmSvgBanner" role="region" aria-label="What is Savings?">
+    <button class="gm-svg-banner-close" type="button" id="gmSvgBannerClose" aria-label="Dismiss">&times;</button>
+    <div class="gm-svg-title">
+        <span aria-hidden="true">🏦</span>
+        <span>New to Savings? Lock your G$, CELO, or cUSD and earn bonuses — fully on-chain.</span>
+    </div>
+    <p class="gm-svg-subtitle">
+        GoodMarket Savings lets you set aside tokens for a fixed lock period and earn extra G$ rewards. Your funds stay in your wallet — only you can withdraw.
+    </p>
+
+    <div class="gm-svg-tabs" role="tablist">
+        <button class="gm-svg-tab active" type="button" role="tab" aria-selected="true" data-gm-svg-tab="what">
+            <span aria-hidden="true">💎</span> What is Savings?
+        </button>
+        <button class="gm-svg-tab" type="button" role="tab" aria-selected="false" data-gm-svg-tab="safe">
+            <span aria-hidden="true">🛡️</span> Why it's safe
+        </button>
+        <button class="gm-svg-tab" type="button" role="tab" aria-selected="false" data-gm-svg-tab="why">
+            <span aria-hidden="true">🌱</span> Why save
+        </button>
+    </div>
+
+    <div class="gm-svg-panel active" data-gm-svg-panel="what" role="tabpanel">
+        <p>Savings is a simple way to <strong>lock your tokens for a chosen period</strong> (e.g. 30, 90, or 180 days) and earn a bonus reward when the lock ends.</p>
+        <ul>
+            <li>Pick a token: <strong>G$</strong>, <strong>CELO</strong>, or <strong>cUSD</strong>.</li>
+            <li>Pick a lock duration — longer locks earn higher bonuses.</li>
+            <li>Top-ups merge into the same slot and inherit the original unlock date.</li>
+            <li>When the lock ends, withdraw your principal back to your wallet anytime.</li>
+        </ul>
+        <p class="gm-svg-note">Think of it like a digital piggy bank that pays you back a little extra for waiting.</p>
+        <button type="button" class="gm-svg-cta" id="gmSvgOpenSavings">Try a save →</button>
+    </div>
+
+    <div class="gm-svg-panel" data-gm-svg-panel="safe" role="tabpanel">
+        <ul>
+            <li><strong>Non-custodial.</strong> Tokens are locked in the GoodMarket Savings smart contract on Celo — GoodMarket cannot move, freeze, or take them.</li>
+            <li><strong>Only you can withdraw.</strong> Withdrawals are signed by your own wallet; no admin override.</li>
+            <li><strong>On-chain transparent.</strong> Every deposit and withdrawal is a public Celo transaction you can verify on <strong>CeloScan</strong> from any device.</li>
+            <li><strong>No surprise unlocks.</strong> Lock period is enforced by the contract — once set, only time can unlock it.</li>
+        </ul>
+        <p class="gm-svg-note">Not financial advice. Smart contracts always carry residual risk; only save what you are comfortable locking for the chosen period.</p>
+    </div>
+
+    <div class="gm-svg-panel" data-gm-svg-panel="why" role="tabpanel">
+        <ul>
+            <li><strong>Earn extra G$.</strong> Lock-period bonuses pay out on top of your principal.</li>
+            <li><strong>Predictable rewards.</strong> The bonus rate is set when you deposit — no surprises.</li>
+            <li><strong>Build a habit.</strong> Locking helps you avoid spending impulses and grow your G$ stack over time.</li>
+            <li><strong>Top-up anytime.</strong> Add more to the same slot whenever you have spare tokens — same unlock date applies.</li>
+        </ul>
+        <p class="gm-svg-note">Tip: even a small lock of <code>100 G$</code> for 30 days lets you try Savings risk-free before committing larger amounts.</p>
+        <button type="button" class="gm-svg-cta" id="gmSvgOpenSavings2">Start saving →</button>
+    </div>
+</div>
+<script>
+    (function () {
+        var KEY = 'gm_savings_intro_banner_dismissed_v1';
+        var el = document.getElementById('gmSvgBanner');
+        if (!el) return;
+        try {
+            if (localStorage.getItem(KEY) === '1') {
+                el.style.display = 'none';
+                return;
+            }
+        } catch (_) { /* localStorage unavailable; banner shows every load */ }
+
+        // Tab switching.
+        var tabs = el.querySelectorAll('[data-gm-svg-tab]');
+        var panels = el.querySelectorAll('[data-gm-svg-panel]');
+        function activate(name) {
+            tabs.forEach(function (t) {
+                var on = t.getAttribute('data-gm-svg-tab') === name;
+                t.classList.toggle('active', on);
+                t.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            panels.forEach(function (p) {
+                p.classList.toggle('active', p.getAttribute('data-gm-svg-panel') === name);
+            });
+        }
+        tabs.forEach(function (t) {
+            t.addEventListener('click', function () {
+                activate(t.getAttribute('data-gm-svg-tab'));
+            });
+        });
+
+        // Dismiss.
+        var closeBtn = document.getElementById('gmSvgBannerClose');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function () {
+                try { localStorage.setItem(KEY, '1'); } catch (_) {}
+                el.style.display = 'none';
+            });
+        }
+
+        // CTAs: if we're already on the savings page, jump to the Save tab
+        // and scroll it into view. Otherwise, fall back to navigating to
+        // /savings (so the same banner can be reused elsewhere later).
+        function goToSavings() {
+            var onSavingsPage = typeof window.switchTab === 'function'
+                && document.getElementById('tab-save');
+            if (onSavingsPage) {
+                try { window.switchTab('save'); } catch (_) {}
+                var target = document.getElementById('tab-save');
+                if (target && target.scrollIntoView) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+            }
+            if (typeof window.navigateWithFeedback === 'function') {
+                window.navigateWithFeedback('/savings', 'Opening Savings…');
+            } else {
+                window.location.href = '/savings';
+            }
+        }
+        var cta1 = document.getElementById('gmSvgOpenSavings');
+        var cta2 = document.getElementById('gmSvgOpenSavings2');
+        if (cta1) cta1.addEventListener('click', goToSavings);
+        if (cta2) cta2.addEventListener('click', goToSavings);
+    })();
+</script>
