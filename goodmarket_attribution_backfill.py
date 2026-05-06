@@ -95,6 +95,24 @@ AUTO_RUN_BOOT_DELAY_SECONDS = int(
     os.getenv("GOODMARKET_ATTRIBUTION_BACKFILL_BOOT_DELAY_SECONDS", "30")
 )
 
+# Window (seconds) for the strict attribution rule. The on-chain
+# ``lastAuthenticated`` timestamp must fall within this many seconds of when
+# GoodMarket's ``/fv-callback`` recorded ``face_verified_at`` (or of "now" for
+# live writes) for the attribution to count. Any wider gap means the wallet
+# was almost certainly verified through a different dApp and just round-tripped
+# back through GoodMarket's FV button afterwards. Tunable via env var so we
+# can loosen it without a redeploy if RPC indexing latency ever spikes.
+STRICT_ATTRIBUTION_WINDOW_SECONDS = int(
+    os.getenv("GOODMARKET_ATTRIBUTION_STRICT_WINDOW_SECONDS", str(30 * 60))
+)
+
+# Master switch for the strict attribution rule. Default ON. Flip to "0" to
+# fall back to the old "any whitelisted user counts" behaviour without needing
+# a redeploy (e.g. if a buggy on-chain RPC is causing every write to skip).
+STRICT_ATTRIBUTION_ENABLED = os.getenv(
+    "GOODMARKET_ATTRIBUTION_STRICT_ENABLED", "1"
+).strip().lower() in ("1", "true", "yes", "on")
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -153,6 +171,177 @@ def _is_face_verified_on_chain(wallet_address: str) -> Optional[bool]:
             f"{(wallet_address or '')[:10]}...: {exc}"
         )
         return None
+
+
+def _get_on_chain_last_authenticated(wallet_address: str) -> Optional[int]:
+    """Return the on-chain ``lastAuthenticated`` unix timestamp, or None on RPC error.
+
+    Re-uses the 5-minute cache inside ``blockchain.get_identity_expiry`` so
+    callers can poll cheaply. Returns ``0`` if the wallet has *never* been
+    authenticated on-chain (the contract returns 0).
+    """
+    try:
+        from blockchain import get_identity_expiry
+        result = get_identity_expiry(wallet_address)
+        if not isinstance(result, dict):
+            return None
+        if not result.get("success"):
+            return None
+        # ``date_authenticated`` is the unix timestamp of the most recent
+        # on-chain authentication tx (lastAuthenticated, with a fallback to
+        # dateAuthenticated for older deployments). 0 means never authenticated.
+        return int(result.get("date_authenticated", 0) or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            f"[gm-attribution] get_identity_expiry failed for "
+            f"{(wallet_address or '')[:10]}...: {exc}"
+        )
+        return None
+
+
+def _parse_iso_to_unix(value: Any) -> Optional[int]:
+    """Parse an ISO-8601 timestamp string to a unix-seconds int. ``None`` on failure."""
+    if not value:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if not isinstance(value, str):
+        return None
+    try:
+        # Tolerate trailing "Z" (UTC) and missing tz (assume UTC).
+        normalised = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalised)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def is_attributable_to_goodmarket(
+    wallet_address: str,
+    sb_row: Optional[Dict[str, Any]] = None,
+    *,
+    reference_unix: Optional[int] = None,
+    window_seconds: Optional[int] = None,
+    on_chain_last_auth: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Strict attribution check used by every write path.
+
+    Returns a structured decision dict so callers can both branch on the
+    boolean ``attributable`` field AND log/persist the reason. The dict is
+    intentionally easy to JSON-serialize for the admin correction endpoint.
+
+    The two conditions for a TRUE attribution:
+
+    1. The wallet's on-chain ``lastAuthenticated`` timestamp is **after** the
+       row's ``first_login`` (the user came to GoodMarket *before* they
+       verified anywhere). If ``first_login`` is missing we fall back to
+       ``first_seen_unverified`` and then ``created_at``; if all three are
+       missing we cannot prove attribution and reject.
+
+    2. The on-chain ``lastAuthenticated`` falls within
+       ``STRICT_ATTRIBUTION_WINDOW_SECONDS`` of ``reference_unix`` (defaults
+       to ``face_verified_at`` for already-written rows, or ``time.time()``
+       for live ``/fv-callback`` writes). This excludes the "verified weeks
+       ago elsewhere, just now round-tripped through GM's FV button" pattern.
+
+    When ``STRICT_ATTRIBUTION_ENABLED`` is False we fall back to the legacy
+    "is whitelisted on-chain" rule so operators can disable the strict check
+    via env var without a redeploy.
+
+    Args:
+        wallet_address: Wallet to check. Will be checksum-normalised.
+        sb_row: The ``user_data`` row dict (must contain ``first_login``,
+            ``first_seen_unverified``, ``face_verified_at``, ``created_at``).
+            Pass ``None`` to skip the timing comparison entirely (useful for
+            unit tests or pre-DB code paths).
+        reference_unix: Override the "now" reference for the closeness check.
+            Defaults to ``face_verified_at`` (if present) or current time.
+        window_seconds: Override ``STRICT_ATTRIBUTION_WINDOW_SECONDS``.
+        on_chain_last_auth: Override the on-chain lookup. When None the
+            function performs a fresh ``get_identity_expiry`` call.
+
+    Returns:
+        ``{
+            "attributable": bool,
+            "reason": str,                 # short machine-readable code
+            "last_authenticated_unix": int | None,
+            "first_login_unix": int | None,
+            "reference_unix": int | None,
+            "delta_seconds": int | None,   # |last_auth - reference|
+        }``
+    """
+    out: Dict[str, Any] = {
+        "attributable": False,
+        "reason": "unknown",
+        "last_authenticated_unix": None,
+        "first_login_unix": None,
+        "reference_unix": None,
+        "delta_seconds": None,
+    }
+
+    if not STRICT_ATTRIBUTION_ENABLED:
+        # Legacy permissive behaviour — anyone whitelisted on-chain is OK.
+        verified = _is_face_verified_on_chain(wallet_address)
+        if verified is None:
+            out["reason"] = "on_chain_check_unavailable"
+            return out
+        if not verified:
+            out["reason"] = "not_face_verified_on_chain"
+            return out
+        out["attributable"] = True
+        out["reason"] = "strict_disabled_legacy_pass"
+        return out
+
+    last_auth = on_chain_last_auth
+    if last_auth is None:
+        last_auth = _get_on_chain_last_authenticated(wallet_address)
+    out["last_authenticated_unix"] = last_auth
+
+    if last_auth is None:
+        out["reason"] = "on_chain_check_unavailable"
+        return out
+    if last_auth <= 0:
+        out["reason"] = "never_authenticated_on_chain"
+        return out
+
+    row = sb_row or {}
+
+    first_login_unix = (
+        _parse_iso_to_unix(row.get("first_login"))
+        or _parse_iso_to_unix(row.get("first_seen_unverified"))
+        or _parse_iso_to_unix(row.get("created_at"))
+    )
+    out["first_login_unix"] = first_login_unix
+
+    if first_login_unix is None:
+        out["reason"] = "no_first_login_timestamp"
+        return out
+
+    if last_auth < first_login_unix:
+        out["reason"] = "verified_before_first_login"
+        return out
+
+    # Closeness check.
+    if reference_unix is None:
+        reference_unix = (
+            _parse_iso_to_unix(row.get("face_verified_at"))
+            or int(time.time())
+        )
+    out["reference_unix"] = reference_unix
+
+    delta = abs(last_auth - reference_unix)
+    out["delta_seconds"] = delta
+
+    window = int(window_seconds if window_seconds is not None else STRICT_ATTRIBUTION_WINDOW_SECONDS)
+    if delta > window:
+        out["reason"] = "verification_outside_goodmarket_session"
+        return out
+
+    out["attributable"] = True
+    out["reason"] = "ok"
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +404,8 @@ def mark_verified_via_goodmarket(
     try:
         row_resp = sb.table("user_data")\
             .select("wallet_address, verified_after_goodmarket, "
-                    "first_seen_unverified, ubi_verified, face_verified")\
+                    "first_seen_unverified, ubi_verified, face_verified, "
+                    "face_verified_at, first_login, created_at")\
             .ilike("wallet_address", checksum)\
             .limit(1)\
             .execute()
@@ -237,24 +427,21 @@ def mark_verified_via_goodmarket(
     if row.get("verified_after_goodmarket") is True:
         return {"status": "already", "reason": "already_attributed", "source": source}
 
-    # 3. Confirm the user really is face-verified before flipping the flag.
-    #    We TRUST face_verified=true in user_data (set previously by
-    #    /fv-callback) but still verify on-chain when required, so a stale
-    #    DB row can never produce a false positive.
+    # 3. Strict attribution check. Replaces the prior "is whitelisted on-chain?"
+    #    check, which was producing false positives — anyone whitelisted who
+    #    later round-tripped through GoodMarket's FV button would get the flag
+    #    even if their actual face verification happened months earlier on a
+    #    different dApp. ``is_attributable_to_goodmarket`` enforces both
+    #    "came to GM before verifying" AND "verified during this GM session"
+    #    (within STRICT_ATTRIBUTION_WINDOW_SECONDS of the reference timestamp).
     if require_on_chain_check:
-        on_chain = _is_face_verified_on_chain(checksum)
-        if on_chain is None:
-            # RPC failed — don't risk false-positive, just skip this round.
+        decision = is_attributable_to_goodmarket(checksum, row)
+        if not decision["attributable"]:
             return {
                 "status": "skipped",
-                "reason": "on_chain_check_unavailable",
+                "reason": decision["reason"],
                 "source": source,
-            }
-        if on_chain is False:
-            return {
-                "status": "skipped",
-                "reason": "not_face_verified_on_chain",
-                "source": source,
+                "attribution_decision": decision,
             }
 
     # 4. Flip the flag. Also backfill ``first_seen_unverified`` if missing
@@ -385,8 +572,10 @@ def run_full_backfill(dry_run: bool = False, limit: Optional[int] = None) -> Dic
     skipped_no_user = 0
     skipped_not_verified = 0
     skipped_rpc = 0
+    skipped_not_attributable = 0
     errors = 0
     updated_sample: List[str] = []
+    skipped_attribution_reasons: Dict[str, int] = {}
 
     for wallet in candidates:
         examined += 1
@@ -394,7 +583,8 @@ def run_full_backfill(dry_run: bool = False, limit: Optional[int] = None) -> Dic
             # Read current state.
             row_resp = sb.table("user_data")\
                 .select("wallet_address, verified_after_goodmarket, "
-                        "first_seen_unverified, ubi_verified, face_verified")\
+                        "first_seen_unverified, ubi_verified, face_verified, "
+                        "face_verified_at, first_login, created_at")\
                 .ilike("wallet_address", wallet)\
                 .limit(1)\
                 .execute()
@@ -407,12 +597,18 @@ def run_full_backfill(dry_run: bool = False, limit: Optional[int] = None) -> Dic
                 already += 1
                 continue
 
-            on_chain = _is_face_verified_on_chain(wallet)
-            if on_chain is None:
-                skipped_rpc += 1
-                continue
-            if on_chain is False:
-                skipped_not_verified += 1
+            decision = is_attributable_to_goodmarket(wallet, row)
+            if not decision["attributable"]:
+                reason = decision.get("reason", "unknown")
+                if reason == "on_chain_check_unavailable":
+                    skipped_rpc += 1
+                elif reason in ("not_face_verified_on_chain", "never_authenticated_on_chain"):
+                    skipped_not_verified += 1
+                else:
+                    skipped_not_attributable += 1
+                skipped_attribution_reasons[reason] = (
+                    skipped_attribution_reasons.get(reason, 0) + 1
+                )
                 continue
 
             if dry_run:
@@ -464,6 +660,8 @@ def run_full_backfill(dry_run: bool = False, limit: Optional[int] = None) -> Dic
         "skipped_no_user_row": skipped_no_user,
         "skipped_not_face_verified": skipped_not_verified,
         "skipped_rpc_error": skipped_rpc,
+        "skipped_not_attributable": skipped_not_attributable,
+        "skipped_attribution_reasons": skipped_attribution_reasons,
         "errors": errors,
         "updated_sample": updated_sample,
         "duration_seconds": duration_seconds,
@@ -594,3 +792,120 @@ def init_attribution_backfill(app: Any = None) -> bool:
     except Exception as exc:  # noqa: BLE001
         logger.error(f"[gm-backfill] failed to start auto-run thread: {exc}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Strict-rule correction for already-stored false positives
+# ---------------------------------------------------------------------------
+
+def correct_false_attributions(
+    dry_run: bool = True,
+    limit: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Re-evaluate every ``user_data`` row that currently has
+    ``verified_after_goodmarket = TRUE`` against the strict attribution rule
+    and unset the flag where the row no longer qualifies.
+
+    Designed to be invoked manually via the admin endpoint
+    ``/api/admin/attribution-correct`` (dry-run by default). It NEVER auto-runs.
+    Stricter than ``run_full_backfill`` because here we *remove* attributions
+    that were granted under the old loose rule, so we want a human in the loop.
+
+    Returns a summary identical in shape to ``run_full_backfill`` for
+    consistency, plus a ``cleared_sample`` list of wallets that were (or
+    would be) unset.
+    """
+    started_at = time.time()
+    sb, client_kind = _get_sb_client()
+    if sb is None:
+        return {
+            "success": False,
+            "error": "no_supabase_client",
+            "dry_run": dry_run,
+        }
+
+    cap = min(int(limit), MAX_WALLETS_PER_RUN) if limit else MAX_WALLETS_PER_RUN
+
+    try:
+        rows_resp = sb.table("user_data")\
+            .select("wallet_address, verified_after_goodmarket, "
+                    "first_seen_unverified, ubi_verified, face_verified, "
+                    "face_verified_at, first_login, created_at")\
+            .eq("verified_after_goodmarket", True)\
+            .limit(cap)\
+            .execute()
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "success": False,
+            "error": f"read_failed: {exc}",
+            "dry_run": dry_run,
+        }
+
+    rows = list(rows_resp.data or [])
+    examined = 0
+    cleared = 0
+    kept = 0
+    skipped_rpc = 0
+    cleared_sample: List[Dict[str, Any]] = []
+    reasons: Dict[str, int] = {}
+
+    for row in rows:
+        examined += 1
+        wallet_raw = (row or {}).get("wallet_address")
+        wallet = _to_checksum(wallet_raw) or wallet_raw
+        if not wallet:
+            continue
+
+        decision = is_attributable_to_goodmarket(wallet, row)
+        if decision["attributable"]:
+            kept += 1
+            continue
+
+        reason = decision.get("reason", "unknown")
+        reasons[reason] = reasons.get(reason, 0) + 1
+        if reason == "on_chain_check_unavailable":
+            # Don't clear when the RPC is sad — could come back True next time.
+            skipped_rpc += 1
+            continue
+
+        if dry_run:
+            cleared += 1
+            if len(cleared_sample) < 100:
+                cleared_sample.append({"wallet": wallet, "reason": reason,
+                                       "decision": decision})
+            continue
+
+        try:
+            sb.table("user_data")\
+                .update({"verified_after_goodmarket": False})\
+                .ilike("wallet_address", wallet)\
+                .execute()
+            cleared += 1
+            if len(cleared_sample) < 100:
+                cleared_sample.append({"wallet": wallet, "reason": reason,
+                                       "decision": decision})
+            logger.info(
+                f"[gm-attribution] cleared false-positive attribution "
+                f"for {wallet[:10]}... reason={reason}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"[gm-attribution] failed to clear {wallet[:10]}...: {exc}"
+            )
+
+        if RPC_THROTTLE_MS > 0:
+            time.sleep(RPC_THROTTLE_MS / 1000.0)
+
+    duration_seconds = round(time.time() - started_at, 2)
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "client": client_kind,
+        "examined": examined,
+        "cleared": cleared,
+        "kept_genuine": kept,
+        "skipped_rpc_unavailable": skipped_rpc,
+        "reasons": reasons,
+        "cleared_sample": cleared_sample,
+        "duration_seconds": duration_seconds,
+    }
