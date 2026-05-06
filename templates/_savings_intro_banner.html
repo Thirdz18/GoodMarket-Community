@@ -186,7 +186,7 @@
             <li>When the lock ends, withdraw your principal back to your wallet anytime.</li>
         </ul>
         <p class="gm-svg-note">Think of it like a digital piggy bank that pays you back a little extra for waiting.</p>
-        <button type="button" class="gm-svg-cta" id="gmSvgOpenSavings">Open Savings →</button>
+        <button type="button" class="gm-svg-cta" id="gmSvgOpenSavings">Try a save →</button>
     </div>
 
     <div class="gm-svg-panel" data-gm-svg-panel="safe" role="tabpanel">
@@ -250,9 +250,20 @@
             });
         }
 
-        // CTAs: navigate to /savings using the page's existing nav helper if
-        // available (so the loading-overlay matches the rest of wallet.html).
+        // CTAs: if we're already on the savings page, jump to the Save tab
+        // and scroll it into view. Otherwise, fall back to navigating to
+        // /savings (so the same banner can be reused elsewhere later).
         function goToSavings() {
+            var onSavingsPage = typeof window.switchTab === 'function'
+                && document.getElementById('tab-save');
+            if (onSavingsPage) {
+                try { window.switchTab('save'); } catch (_) {}
+                var target = document.getElementById('tab-save');
+                if (target && target.scrollIntoView) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+            }
             if (typeof window.navigateWithFeedback === 'function') {
                 window.navigateWithFeedback('/savings', 'Opening Savings…');
             } else {
