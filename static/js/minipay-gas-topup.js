@@ -46,6 +46,12 @@
     // even at high gas prices while staying low-cost (~$0.05 at $0.6/CELO).
     const TOPUP_AMOUNT_CELO_STR = '0.1';
 
+    // MiniPay needs a small stablecoin balance to pay fee-currency gas.
+    const STABLECOIN_GAS_MIN_USD = 0.05;
+    const CELO_GAS_FAUCET_MIN_CELO = 0.1;
+    const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
+    const CELO_FAUCET_ENDPOINT = '/api/faucet/gas';
+
     // Minimum CELO balance required to attempt a top-up. Needs enough for
     // both the swap output and the swap's own gas + approve gas.
     const MIN_CELO_TO_TOPUP = 0.15;
@@ -144,14 +150,20 @@
         return { celo: celo, cusd: cusd, usdt: usdt, usdc: usdc };
     }
 
+    function _stablecoinUsdTotal(balances) {
+        if (!balances) return 0;
+        return (Number(balances.cusd || 0n) / 1e18)
+            + (Number(balances.usdt || 0n) / 1e6)
+            + (Number(balances.usdc || 0n) / 1e6);
+    }
+
+    function hasStablecoinGasBalance(balances) {
+        return _stablecoinUsdTotal(balances) >= STABLECOIN_GAS_MIN_USD;
+    }
+
     function needsTopUpFromBalances(balances) {
         const celoMinWei = BigInt(Math.floor(MIN_CELO_TO_TOPUP * 1e18));
-        const cusdDustWei = BigInt(Math.floor(STABLECOIN_DUST_USD * 1e18));
-        const stable6Dust = BigInt(Math.floor(STABLECOIN_DUST_USD * 1e6));
-        return balances.celo > celoMinWei
-            && balances.cusd < cusdDustWei
-            && balances.usdt < stable6Dust
-            && balances.usdc < stable6Dust;
+        return balances.celo > celoMinWei && !hasStablecoinGasBalance(balances);
     }
 
     // ─── UI: styles + modals + banner ─────────────────────────────────────
@@ -229,13 +241,13 @@
         });
     }
 
-    function _showProgressModal(initialText) {
+    function _showProgressModal(initialText, title) {
         _injectStyles();
         const overlay = document.createElement('div');
         overlay.className = 'mp-gtu-overlay';
         overlay.innerHTML = ''
             + '<div class="mp-gtu-card">'
-            + '<div class="mp-gtu-title">⛽ Converting CELO → cUSD</div>'
+            + '<div class="mp-gtu-title">' + (title || '⛽ Converting CELO → cUSD') + '</div>'
             + '<div class="mp-gtu-status" id="mp-gtu-progress-text">'
             + (initialText || 'Preparing swap…') + '</div>'
             + '<div class="mp-gtu-actions">'
@@ -276,6 +288,66 @@
         if (err.code === 4001) return true;
         const msg = String((err && (err.message || err.shortMessage)) || '').toLowerCase();
         return /reject|denied|user denied|user rejected/.test(msg);
+    }
+
+    function _sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function _jsonHeaders() {
+        return { 'Content-Type': 'application/json' };
+    }
+
+    async function _postJson(url, payload) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: _jsonHeaders(),
+            credentials: 'same-origin',
+            body: JSON.stringify(payload || {}),
+        });
+        let data = {};
+        try { data = await res.json(); } catch (_) { data = {}; }
+        if (!res.ok && !data.error && !data.reason) {
+            data.error = 'Request failed with HTTP ' + res.status;
+        }
+        data.http_status = res.status;
+        return data;
+    }
+
+    async function _ensureCeloGasFaucet(walletAddr, balances, progress) {
+        const nativeMinWei = BigInt(Math.floor(CELO_GAS_FAUCET_MIN_CELO * 1e18));
+        if (!balances || balances.celo >= nativeMinWei) {
+            return { skipped: true, reason: 'celo-gas-ready' };
+        }
+        if (progress) progress.update('Step 1/3 — requesting CELO faucet because balance is below 0.1 CELO…');
+        try {
+            return await _postJson(CELO_FAUCET_ENDPOINT, { wallet: walletAddr });
+        } catch (err) {
+            console.warn('[MPGasTopUp] CELO gas faucet request failed:', err);
+            return { success: false, error: (err && err.message) || 'CELO faucet request failed' };
+        }
+    }
+
+    async function _ensureCusdFaucet(walletAddr, progress) {
+        if (progress) progress.update('Step 2/3 — sending ~$0.05 cUSD gas budget to your MiniPay wallet…');
+        try {
+            return await _postJson(CUSD_FAUCET_ENDPOINT, { wallet: walletAddr });
+        } catch (err) {
+            console.warn('[MPGasTopUp] cUSD faucet request failed:', err);
+            return { success: false, error: (err && err.message) || 'cUSD faucet request failed' };
+        }
+    }
+
+    async function _waitForStablecoin(walletAddr, attempts, progress) {
+        const maxAttempts = attempts || 30;
+        let latest = null;
+        for (let i = 0; i < maxAttempts; i++) {
+            latest = await getBalances(walletAddr);
+            if (hasStablecoinGasBalance(latest)) return latest;
+            if (progress) progress.update('Step 3/3 — waiting for cUSD to arrive… (' + (i + 1) + '/' + maxAttempts + ')');
+            await _sleep(2000);
+        }
+        return latest || await getBalances(walletAddr);
     }
 
     // ─── Swap execution: Uniswap V3 exactInputSingle CELO -> cUSD ─────────
@@ -377,15 +449,58 @@
             return { proceed: true, skipped: true, reason: 'balance-probe-failed' };
         }
 
-        if (!needsTopUpFromBalances(balances)) {
-            return { proceed: true, skipped: true, reason: 'has-stablecoins-or-no-celo' };
+        const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
+        let faucetResult = null;
+
+        if (startedWithoutStableGas) {
+            const progress = _showProgressModal(
+                'Preparing MiniPay gas faucet…',
+                '⛽ Preparing MiniPay stablecoin gas'
+            );
+            try {
+                await _ensureCeloGasFaucet(walletAddr, balances, progress);
+                faucetResult = await _ensureCusdFaucet(walletAddr, progress);
+                if (!faucetResult.success
+                    && faucetResult.status !== 'stable_ready'
+                    && faucetResult.status !== 'recent_refill') {
+                    const msg = faucetResult.error || faucetResult.reason || 'MiniPay cUSD faucet failed.';
+                    progress.close();
+                    if (typeof global.alert === 'function') {
+                        global.alert('MiniPay cUSD faucet failed: ' + msg);
+                    }
+                    return { proceed: false, error: msg, faucetResult: faucetResult };
+                }
+                balances = await _waitForStablecoin(walletAddr, 30, progress);
+                progress.close();
+                if (!hasStablecoinGasBalance(balances)) {
+                    const msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
+                    if (typeof global.alert === 'function') global.alert(msg);
+                    return { proceed: false, error: msg, faucetResult: faucetResult };
+                }
+            } catch (err) {
+                progress.close();
+                const msg = (err && err.message) || 'MiniPay stablecoin faucet failed.';
+                console.warn('[MPGasTopUp] stablecoin faucet pre-flight failed:', err);
+                return { proceed: false, error: msg, faucetResult: faucetResult };
+            }
+        }
+
+        const shouldPromptSwap = startedWithoutStableGas || needsTopUpFromBalances(balances);
+        const celoMinWei = BigInt(Math.floor(MIN_CELO_TO_TOPUP * 1e18));
+        if (!shouldPromptSwap || balances.celo <= celoMinWei) {
+            return {
+                proceed: true,
+                skipped: true,
+                reason: hasStablecoinGasBalance(balances) ? 'stablecoin-gas-ready' : 'no-celo-to-swap',
+                stableFaucet: faucetResult,
+            };
         }
 
         const confirmed = await _showConfirmModal({
             body: opts.body
-                || 'You\'re doing an action that needs gas. MiniPay pays gas in '
-                + 'stablecoin (cUSD/USDT/USDC), but you only have CELO right now. '
-                + 'Convert a small amount to cUSD first?',
+                || (startedWithoutStableGas
+                    ? 'We sent a small cUSD gas budget to your MiniPay wallet. Now convert some CELO to cUSD so future MiniPay transactions can keep paying gas in stablecoin.'
+                    : 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin (cUSD/USDT/USDC), but you only have CELO right now. Convert a small amount to cUSD first?'),
             amountCelo: TOPUP_AMOUNT_CELO_STR,
             celoFmt: _formatCelo(balances.celo),
         });
@@ -486,6 +601,7 @@
         isMiniPay: _isMiniPay,
         getBalances: getBalances,
         needsTopUpFromBalances: needsTopUpFromBalances,
+        hasStablecoinGasBalance: hasStablecoinGasBalance,
         ensureToppedUp: ensureToppedUp,
         runWithGasTopUp: runWithGasTopUp,
         maybeShowBanner: maybeShowBanner,
@@ -493,6 +609,7 @@
             CELO: CELO, CUSD: CUSD, USDT: USDT, USDC: USDC,
             UNISWAP_ROUTER: UNISWAP_ROUTER,
             TOPUP_AMOUNT_CELO_STR: TOPUP_AMOUNT_CELO_STR,
+            STABLECOIN_GAS_MIN_USD: STABLECOIN_GAS_MIN_USD,
         },
     };
 })(typeof window !== 'undefined' ? window : globalThis);

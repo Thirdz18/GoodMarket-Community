@@ -7557,6 +7557,7 @@ def admin_treasury_distribute():
 # successful refill request (API or on-chain).
 _faucet_recent_refill: dict = {}
 _faucet_api_pending: dict = {}
+_minipay_cusd_recent_refill: dict = {}
 # Track force_onchain attempts: wallet_address -> list of timestamps
 _force_onchain_attempts: dict = {}
 _faucet_lock = threading.Lock()
@@ -7590,6 +7591,17 @@ FAUCET_PENDING_TTL_SECONDS = int(os.getenv("FAUCET_PENDING_TTL_SECONDS", "180"))
 FAUCET_ONCHAIN_MAX_ATTEMPTS = max(1, int(os.getenv("FAUCET_ONCHAIN_MAX_ATTEMPTS", "3")))
 FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR = int(os.getenv("FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR", "2"))
 FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
+MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.05"))
+MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.05"))
+MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS = int(os.getenv("MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS", "86400"))
+MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT = int(os.getenv("MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT", "120"))
+MINIPAY_CUSD_CONTRACT = os.getenv("CUSD_CONTRACT", "0x765DE816845861e75A25fCA122bb6898B8B1282a")
+MINIPAY_USDT_CONTRACT = os.getenv("USDT_CONTRACT", "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e")
+MINIPAY_USDC_CONTRACT = os.getenv("USDC_CONTRACT", "0xcebA9300f2b948710d2653dD7B07f33A8B32118C")
+_MINIPAY_ERC20_ABI = [
+    {"constant": True, "inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
+    {"constant": False, "inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "transfer", "outputs": [{"name": "", "type": "bool"}], "type": "function"},
+]
 GOODDOLLAR_FAUCET_CONTRACT = os.getenv(
     "GOODDOLLAR_FAUCET_CONTRACT",
     "0x4F93Fa058b03953C851eFaA2e4FC5C34afDFAb84"
@@ -7813,6 +7825,194 @@ def _get_api_pending(checksum_wallet: str):
 def _clear_api_pending(checksum_wallet: str):
     with _faucet_lock:
         _faucet_api_pending.pop(checksum_wallet.lower(), None)
+
+
+def _decimal_to_token_units(amount: Decimal, decimals: int) -> int:
+    return int((amount * (Decimal(10) ** decimals)).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _token_units_to_decimal(raw: int, decimals: int) -> Decimal:
+    return Decimal(int(raw)) / (Decimal(10) ** decimals)
+
+
+def _get_minipay_stablecoin_balances(w3, checksum_wallet: str) -> dict:
+    """Read MiniPay fee-currency balances used to decide if cUSD faucet is needed."""
+    tokens = {
+        "cusd": (MINIPAY_CUSD_CONTRACT, 18),
+        "usdt": (MINIPAY_USDT_CONTRACT, 6),
+        "usdc": (MINIPAY_USDC_CONTRACT, 6),
+    }
+    balances = {}
+    total_usd = Decimal("0")
+    for symbol, (token_addr, decimals) in tokens.items():
+        try:
+            contract = w3.eth.contract(
+                address=Web3.to_checksum_address(token_addr),
+                abi=_MINIPAY_ERC20_ABI,
+            )
+            raw = int(contract.functions.balanceOf(checksum_wallet).call())
+        except Exception as exc:
+            logger.warning(
+                f"⚠️ MiniPay stablecoin balance read failed wallet={checksum_wallet.lower()} "
+                f"token={symbol} error={exc}"
+            )
+            raw = 0
+        amount = _token_units_to_decimal(raw, decimals)
+        balances[symbol] = {
+            "raw": str(raw),
+            "balance": float(amount),
+            "decimals": decimals,
+            "contract": token_addr,
+        }
+        total_usd += amount
+    return {
+        "balances": balances,
+        "total_usd": float(total_usd),
+        "total_usd_exact": str(total_usd),
+        "stable_ready": total_usd >= MINIPAY_STABLECOIN_MIN_USD,
+        "required_usd": float(MINIPAY_STABLECOIN_MIN_USD),
+    }
+
+
+def _has_recent_minipay_cusd_refill(checksum_wallet: str) -> tuple:
+    now = time.time()
+    with _faucet_lock:
+        entry = _minipay_cusd_recent_refill.get(checksum_wallet.lower()) or {}
+    last = float(entry.get("timestamp", 0) or 0)
+    if now - last < MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS:
+        remaining = int(MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS - (now - last))
+        return True, max(1, remaining), entry
+    return False, 0, None
+
+
+def _record_minipay_cusd_refill(checksum_wallet: str, tx_hash: str, amount_cusd: Decimal):
+    with _faucet_lock:
+        _minipay_cusd_recent_refill[checksum_wallet.lower()] = {
+            "timestamp": time.time(),
+            "tx_hash": tx_hash,
+            "amount_cusd": str(amount_cusd),
+        }
+    logger.info(
+        f"🧾 MiniPay cUSD faucet cooldown recorded wallet={checksum_wallet.lower()} "
+        f"amount={amount_cusd} tx={tx_hash or 'n/a'}"
+    )
+
+
+def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd: Decimal, correlation_id: str = "n/a") -> dict:
+    """Send cUSD directly from TOPWALLET_KEY to a MiniPay wallet."""
+    from blockchain import CELO_CHAIN_ID
+    from eth_account import Account
+
+    topwallet_key = (os.getenv("TOPWALLET_KEY") or "").strip()
+    if not topwallet_key:
+        return {
+            "success": False,
+            "status": "cusd_faucet_failed",
+            "reason": "not_configured",
+            "error": "MiniPay cUSD faucet not configured (missing TOPWALLET_KEY)",
+        }
+
+    key = topwallet_key if topwallet_key.startswith("0x") else "0x" + topwallet_key
+    signer = Account.from_key(key)
+    signer_masked = _mask_wallet(signer.address)
+    cusd_contract = w3.eth.contract(
+        address=Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT),
+        abi=_MINIPAY_ERC20_ABI,
+    )
+    amount_raw = _decimal_to_token_units(amount_cusd, 18)
+
+    try:
+        signer_cusd_raw = int(cusd_contract.functions.balanceOf(signer.address).call())
+    except Exception as exc:
+        return {
+            "success": False,
+            "status": "cusd_faucet_failed",
+            "reason": "signer_balance_check_failed",
+            "error": str(exc),
+        }
+    if signer_cusd_raw < amount_raw:
+        return {
+            "success": False,
+            "status": "cusd_faucet_failed",
+            "reason": "signer_insufficient_cusd",
+            "error": "MiniPay cUSD faucet signer has insufficient cUSD",
+            "signer_cusd_raw": str(signer_cusd_raw),
+            "required_cusd_raw": str(amount_raw),
+        }
+
+    nonce = w3.eth.get_transaction_count(signer.address, "pending")
+    tx_builder = cusd_contract.functions.transfer(checksum_wallet, amount_raw)
+    try:
+        gas_est = tx_builder.estimate_gas({"from": signer.address})
+    except Exception:
+        gas_est = 120000
+    gas_price = int(w3.eth.gas_price * 1.2)
+    tx = tx_builder.build_transaction({
+        "chainId": CELO_CHAIN_ID,
+        "from": signer.address,
+        "nonce": nonce,
+        "gasPrice": gas_price,
+        "gas": int(gas_est * 1.2),
+        "value": 0,
+    })
+
+    signer_balance_wei = int(w3.eth.get_balance(signer.address))
+    estimated_tx_cost_wei = int(tx["gas"] * tx["gasPrice"])
+    if signer_balance_wei < estimated_tx_cost_wei:
+        return {
+            "success": False,
+            "status": "cusd_faucet_failed",
+            "reason": "signer_insufficient_gas",
+            "error": "MiniPay cUSD faucet signer has insufficient CELO for transfer gas",
+            "signer_balance_wei": str(signer_balance_wei),
+            "estimated_tx_cost_wei": str(estimated_tx_cost_wei),
+            "shortfall_wei": str(estimated_tx_cost_wei - signer_balance_wei),
+        }
+
+    logger.info(
+        f"🖊️ MiniPay cUSD faucet signer wallet={checksum_wallet.lower()} signer={signer_masked} "
+        f"amount={amount_cusd} correlation_id={correlation_id}"
+    )
+    try:
+        signed = signer.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        tx_hash_hex = tx_hash.hex()
+        if not tx_hash_hex.startswith("0x"):
+            tx_hash_hex = "0x" + tx_hash_hex
+        receipt = w3.eth.wait_for_transaction_receipt(
+            tx_hash, timeout=MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT
+        )
+    except Exception as exc:
+        err = str(exc)
+        reason = "rpc_error"
+        if "insufficient funds for gas" in err.lower():
+            reason = "signer_insufficient_gas"
+        return {
+            "success": False,
+            "status": "cusd_faucet_failed",
+            "reason": reason,
+            "error": err,
+            "signer_balance_wei": str(signer_balance_wei),
+            "estimated_tx_cost_wei": str(estimated_tx_cost_wei),
+        }
+
+    if receipt and receipt.get("status") == 1:
+        _record_minipay_cusd_refill(checksum_wallet, tx_hash_hex, amount_cusd)
+        return {
+            "success": True,
+            "status": "cusd_sent",
+            "tx_hash": tx_hash_hex,
+            "amount_cusd": float(amount_cusd),
+            "amount_cusd_raw": str(amount_raw),
+        }
+
+    return {
+        "success": False,
+        "status": "cusd_faucet_failed",
+        "reason": "tx_failed",
+        "error": "MiniPay cUSD faucet transaction failed",
+        "tx_hash": tx_hash_hex,
+    }
 
 
 def _poll_balance_increase(w3, checksum_wallet: str, pre_balance_wei: int, wait_seconds: int, interval_seconds: int = 5):
@@ -8403,6 +8603,83 @@ def faucet_gas():
     except Exception as e:
         logger.error(f"faucet_gas error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+@routes.route("/api/minipay/stablecoin-faucet", methods=["POST"])
+@auth_required
+def minipay_stablecoin_faucet():
+    """Send a tiny cUSD gas budget to MiniPay users before CELO -> cUSD swap UX."""
+    try:
+        data = request.get_json(silent=True) or {}
+        correlation_id = _get_faucet_correlation_id(data)
+        checksum_wallet, err_resp, status_code = _validate_and_authorize_wallet(data)
+        if err_resp:
+            return err_resp, status_code
+
+        from blockchain import CELO_RPC
+        w3 = Web3(Web3.HTTPProvider(CELO_RPC, request_kwargs={"timeout": 15}))
+        stable_before = _get_minipay_stablecoin_balances(w3, checksum_wallet)
+        if stable_before["stable_ready"]:
+            return jsonify({
+                "success": True,
+                "status": "stable_ready",
+                "wallet": checksum_wallet.lower(),
+                "topped_up": False,
+                "stable_ready": True,
+                "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
+                "correlation_id": correlation_id,
+                "stablecoin_status": stable_before,
+            })
+
+        recent_refill, seconds_remaining, recent_entry = _has_recent_minipay_cusd_refill(checksum_wallet)
+        if recent_refill:
+            return jsonify({
+                "success": True,
+                "status": "recent_refill",
+                "wallet": checksum_wallet.lower(),
+                "topped_up": False,
+                "stable_ready": False,
+                "reason": f"Recent MiniPay cUSD faucet refill detected. Retry after ~{seconds_remaining}s.",
+                "recent_refill_cooldown_seconds": seconds_remaining,
+                "recent_refill": recent_entry,
+                "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
+                "correlation_id": correlation_id,
+                "stablecoin_status": stable_before,
+            })
+
+        transfer_result = _execute_minipay_cusd_faucet_transfer(
+            w3, checksum_wallet, MINIPAY_CUSD_FAUCET_AMOUNT, correlation_id=correlation_id
+        )
+        status_code = 200 if transfer_result.get("success") else 502
+        if transfer_result.get("reason") == "not_configured":
+            status_code = 503
+        stable_after = stable_before
+        if transfer_result.get("success"):
+            try:
+                stable_after = _get_minipay_stablecoin_balances(w3, checksum_wallet)
+            except Exception:
+                stable_after = stable_before
+        return jsonify({
+            "success": bool(transfer_result.get("success")),
+            "status": transfer_result.get("status") or "cusd_faucet_failed",
+            "wallet": checksum_wallet.lower(),
+            "topped_up": bool(transfer_result.get("success")),
+            "stable_ready": bool(stable_after.get("stable_ready")),
+            "topup_source": "topwallet_key_cusd" if transfer_result.get("success") else None,
+            "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
+            "correlation_id": correlation_id,
+            "transfer_result": transfer_result,
+            "tx_hash": transfer_result.get("tx_hash"),
+            "reason": transfer_result.get("reason"),
+            "error": transfer_result.get("error"),
+            "stablecoin_status_before": stable_before,
+            "stablecoin_status": stable_after,
+        }), status_code
+    except Exception as exc:
+        logger.error(f"minipay_stablecoin_faucet error: {exc}")
+        return jsonify({"success": False, "status": "error", "error": str(exc)}), 500
+
 
 
 # Backward-compat endpoint used by existing clients.
