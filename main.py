@@ -1537,38 +1537,20 @@ def debug_session():
         logger.error(f"❌ Session debug error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-_REFERRER_AMOUNT = 1000.0
-_REFEREE_AMOUNT = 500.0
+def _process_referral_disbursement(referral_blockchain_service, referral_service,
+                                   referrer_wallet, referee_wallet, referral_code):
+    """Thin wrapper that delegates to ReferralService.process_referral_disbursement.
 
-def _process_referral_disbursement(referral_blockchain_service, referral_service, referrer_wallet, referee_wallet, referral_code):
-    """Disburse referral rewards to referrer (1000 G$) and referee (500 G$)."""
-    try:
-        referrer_result = referral_blockchain_service.disburse_referral_reward_sync(
-            referrer_wallet, _REFERRER_AMOUNT, 'referrer')
-        referee_result = referral_blockchain_service.disburse_referral_reward_sync(
-            referee_wallet, _REFEREE_AMOUNT, 'referee')
-
-        # Determine final status based on success and pending balance checks
-        referrer_status = 'completed' if referrer_result.get('success') else ('pending_disbursed' if referrer_result.get('pending') else 'failed')
-        referee_status = 'completed' if referee_result.get('success') else ('pending_disbursed' if referee_result.get('pending') else 'failed')
-
-        referral_service.log_reward(referrer_wallet, _REFERRER_AMOUNT, 'referrer',
-                                    referral_code, referrer_result.get('tx_hash'), referrer_status)
-        referral_service.log_reward(referee_wallet, _REFEREE_AMOUNT, 'referee',
-                                    referral_code, referee_result.get('tx_hash'), referee_status)
-
-        if referrer_result.get('success') and referee_result.get('success'):
-            referral_service.update_referral_status(referee_wallet, 'completed')
-            referral_service.increment_referrer_stats(referrer_wallet, _REFERRER_AMOUNT)
-            logger.info(f"✅ Referral rewards disbursed: {referral_code} | referrer={referrer_wallet[:8]}...")
-        elif referrer_result.get('pending') or referee_result.get('pending'):
-            referral_service.update_referral_status(referee_wallet, 'pending_disbursed', 'Insufficient REFERRAL_KEY balance')
-            logger.warning(f"⚠️ Referral reward pending disbursement (insufficient balance) for {referral_code}")
-        else:
-            referral_service.update_referral_status(referee_wallet, 'failed', f"Referrer: {referrer_result.get('error', 'unknown')} | Referee: {referee_result.get('error', 'unknown')}")
-            logger.error(f"❌ Referral reward disbursement failed for {referral_code}")
-    except Exception as e:
-        logger.error(f"❌ Referral disbursement error: {e}")
+    The blockchain service argument is kept for backward-compatibility with
+    existing call sites; the service method imports it on its own so the
+    parameter is intentionally unused here.
+    """
+    del referral_blockchain_service  # imported inside the service method
+    return referral_service.process_referral_disbursement(
+        referrer_wallet=referrer_wallet,
+        referee_wallet=referee_wallet,
+        referral_code=referral_code,
+    )
 
 
 @app.route('/verify-identity', methods=['POST'])
