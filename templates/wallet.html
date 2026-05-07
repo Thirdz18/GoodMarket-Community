@@ -4125,14 +4125,15 @@
             // MiniPay-only pre-flight: if the user holds CELO but has zero
             // stablecoin balance, MiniPay's CIP-64 fee abstraction has
             // nothing to deduct gas from and the claim tx will fail. Offer
-            // a tiny CELO -> cUSD swap first, then resume the claim.
+            // to convert the CELO above the 0.09 CELO reserve to cUSD, then
+            // resume the claim.
             // No-op outside MiniPay or when stablecoins are already present.
             if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET, {
                         body: 'You\'re about to claim G$. MiniPay pays gas in '
                             + 'stablecoin (cUSD / USDT / USDC), but you only have '
-                            + 'CELO right now. Convert a small amount to cUSD first '
+                            + 'CELO right now. Convert the available CELO above the 0.09 CELO reserve to cUSD first '
                             + 'so the claim transaction can pay gas?',
                     });
                     if (!r.proceed) return; // user cancelled or swap failed

@@ -2655,8 +2655,9 @@
             // MiniPay-only pre-flight: if the user holds CELO but has zero
             // stablecoin balance, MiniPay's CIP-64 fee abstraction has
             // nothing to deduct gas from and the swap tx will fail with a
-            // wallet-side "no fee currency available" error. Offer a tiny
-            // CELO -> cUSD swap first, then resume the user's intended swap.
+            // wallet-side "no fee currency available" error. Offer to convert
+            // the CELO above the 0.09 CELO reserve to cUSD first, then resume
+            // the user's intended swap.
             // Skipped when:
             //   - user is not in MiniPay (browser/MetaMask/etc. pay gas in CELO)
             //   - user is already swapping CELO -> cUSD (redundant; if it
@@ -2669,8 +2670,8 @@
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
                         body: 'You\'re about to swap. MiniPay pays gas in '
                             + 'stablecoin (cUSD / USDT / USDC), but you only '
-                            + 'have CELO right now. Convert a small amount of '
-                            + 'CELO to cUSD first so the swap transaction can '
+                            + 'have CELO right now. Convert the available CELO above '
+                            + 'the 0.09 CELO reserve to cUSD first so the swap transaction can '
                             + 'pay gas?',
                     });
                     if (!r.proceed) return; // user cancelled or pre-swap failed
@@ -3517,16 +3518,17 @@
 
             // MiniPay-only pre-flight: same rationale as startSwap() — if
             // the user has CELO but no stablecoin, the reserve swap tx will
-            // fail because MiniPay can't pay gas. Offer a tiny CELO -> cUSD
-            // top-up first. Skipped when not in MiniPay or when the user
+            // fail because MiniPay can't pay gas. Offer to convert the CELO
+            // above the 0.09 CELO reserve to cUSD first. Skipped when not in
+            // MiniPay or when the user
             // is already buying with cUSD (they obviously have stablecoin).
             if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
                         body: 'You\'re about to swap on GoodReserve. MiniPay '
                             + 'pays gas in stablecoin (cUSD / USDT / USDC), but '
-                            + 'you only have CELO right now. Convert a small '
-                            + 'amount to cUSD first so this swap can pay gas?',
+                            + 'you only have CELO right now. Convert the available CELO above '
+                            + 'the 0.09 CELO reserve to cUSD first so this swap can pay gas?',
                     });
                     if (!r.proceed) return; // user cancelled
                 } catch (e) {

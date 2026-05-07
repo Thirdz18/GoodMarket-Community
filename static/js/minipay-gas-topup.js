@@ -7,10 +7,9 @@
  * (claim, swap, send, bridge, etc.).
  *
  * Flow:
- *   1) Detect: isMiniPay() + CELO > threshold + zero stablecoins
- *   2) Confirm modal: "Convert ~0.1 CELO -> cUSD now? (~$0.05)"
- *   3) Run Uniswap V3 exactInputSingle CELO -> cUSD with feeCurrency
- *      defaulted to CELO native (the swap pays its own gas).
+ *   1) Detect: isMiniPay() + CELO above 0.09 reserve + zero stablecoins
+ *   2) Confirm modal: convert all CELO above the MiniPay reserve to cUSD
+ *   3) Run Uniswap V3 exactInputSingle CELO -> cUSD, leaving 0.09 CELO.
  *   4) Resume the original action via runWithGasTopUp(wallet, action).
  *
  * Constraint: every on-chain tx still requires user signature inside
@@ -42,19 +41,17 @@
 
     const ETHERS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js';
 
-    // Default top-up amount in CELO. Sized to cover dozens of MiniPay txs
-    // even at high gas prices while staying low-cost (~$0.05 at $0.6/CELO).
-    const TOPUP_AMOUNT_CELO_STR = '0.1';
+    // MiniPay gas is paid from stablecoins, not CELO. When a MiniPay user
+    // has CELO but no stablecoin gas budget, convert every spendable CELO
+    // unit above this reserve so the wallet keeps a small native balance.
+    const CELO_RESERVE_AFTER_TOPUP_WEI = 90000000000000000n; // 0.09 CELO
+    const CELO_RESERVE_AFTER_TOPUP_STR = '0.09';
 
     // MiniPay needs a small stablecoin balance to pay fee-currency gas.
     const STABLECOIN_GAS_MIN_USD = 0.05;
     const CELO_GAS_FAUCET_MIN_CELO = 0.1;
     const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
     const CELO_FAUCET_ENDPOINT = '/api/faucet/gas';
-
-    // Minimum CELO balance required to attempt a top-up. Needs enough for
-    // both the swap output and the swap's own gas + approve gas.
-    const MIN_CELO_TO_TOPUP = 0.15;
 
     // Stablecoin "dust" threshold below which we treat the user as having
     // effectively zero stablecoin gas budget. Approx $0.005.
@@ -161,9 +158,15 @@
         return _stablecoinUsdTotal(balances) >= STABLECOIN_GAS_MIN_USD;
     }
 
+    function getAutoSwapAmountWei(balances) {
+        if (!balances || !balances.celo || balances.celo <= CELO_RESERVE_AFTER_TOPUP_WEI) {
+            return 0n;
+        }
+        return balances.celo - CELO_RESERVE_AFTER_TOPUP_WEI;
+    }
+
     function needsTopUpFromBalances(balances) {
-        const celoMinWei = BigInt(Math.floor(MIN_CELO_TO_TOPUP * 1e18));
-        return balances.celo > celoMinWei && !hasStablecoinGasBalance(balances);
+        return getAutoSwapAmountWei(balances) > 0n && !hasStablecoinGasBalance(balances);
     }
 
     // ─── UI: styles + modals + banner ─────────────────────────────────────
@@ -220,7 +223,7 @@
                 + '<div class="mp-gtu-body">' + (opts.body || '') + '</div>'
                 + '<div class="mp-gtu-status">'
                 + 'Convert <strong>~' + opts.amountCelo + ' CELO</strong> → <strong>cUSD</strong> now? '
-                + 'Current CELO balance: ' + opts.celoFmt + '. The swap itself uses a tiny bit of CELO for gas.'
+                + 'Current CELO balance: ' + opts.celoFmt + '. We will leave about ' + (opts.reserveCelo || CELO_RESERVE_AFTER_TOPUP_STR) + ' CELO untouched.'
                 + '</div>'
                 + '<div class="mp-gtu-actions">'
                 + '<button class="mp-gtu-btn mp-gtu-btn-secondary" data-action="cancel">Cancel</button>'
@@ -486,8 +489,8 @@
         }
 
         const shouldPromptSwap = startedWithoutStableGas || needsTopUpFromBalances(balances);
-        const celoMinWei = BigInt(Math.floor(MIN_CELO_TO_TOPUP * 1e18));
-        if (!shouldPromptSwap || balances.celo <= celoMinWei) {
+        const amountWei = getAutoSwapAmountWei(balances);
+        if (!shouldPromptSwap || amountWei <= 0n) {
             return {
                 proceed: true,
                 skipped: true,
@@ -499,16 +502,16 @@
         const confirmed = await _showConfirmModal({
             body: opts.body
                 || (startedWithoutStableGas
-                    ? 'We sent a small cUSD gas budget to your MiniPay wallet. Now convert some CELO to cUSD so future MiniPay transactions can keep paying gas in stablecoin.'
-                    : 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin (cUSD/USDT/USDC), but you only have CELO right now. Convert a small amount to cUSD first?'),
-            amountCelo: TOPUP_AMOUNT_CELO_STR,
+                    ? 'We sent a small cUSD gas budget to your MiniPay wallet. Now convert the available CELO above the 0.09 CELO reserve to cUSD so future MiniPay transactions can keep paying gas in stablecoin.'
+                    : 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin (cUSD/USDT/USDC), but you only have CELO right now. Convert the available CELO above the 0.09 CELO reserve to cUSD first?'),
+            amountCelo: _formatCelo(amountWei),
+            reserveCelo: CELO_RESERVE_AFTER_TOPUP_STR,
             celoFmt: _formatCelo(balances.celo),
         });
         if (!confirmed) return { proceed: false, cancelled: true };
 
         const progress = _showProgressModal('Preparing swap…');
         try {
-            const amountWei = BigInt(Math.floor(parseFloat(TOPUP_AMOUNT_CELO_STR) * 1e18));
             const txHash = await _swapCeloForCusd(walletAddr, amountWei, progress);
             progress.update('Swap confirmed ✓ — waiting a moment for balances to settle…');
             await new Promise((r) => setTimeout(r, 3000));
@@ -580,7 +583,7 @@
             + 'Most actions in MiniPay pay gas in stablecoin (cUSD / USDT / USDC).'
             + '</div>'
             + '<button class="mp-gtu-banner-btn" id="mp-gtu-banner-btn">'
-            + 'Convert ~' + TOPUP_AMOUNT_CELO_STR + ' CELO → cUSD'
+            + 'Convert available CELO → cUSD'
             + '</button>';
 
         if (opts.insertBefore && container.contains(opts.insertBefore)) {
@@ -608,7 +611,7 @@
         constants: {
             CELO: CELO, CUSD: CUSD, USDT: USDT, USDC: USDC,
             UNISWAP_ROUTER: UNISWAP_ROUTER,
-            TOPUP_AMOUNT_CELO_STR: TOPUP_AMOUNT_CELO_STR,
+            CELO_RESERVE_AFTER_TOPUP_STR: CELO_RESERVE_AFTER_TOPUP_STR,
             STABLECOIN_GAS_MIN_USD: STABLECOIN_GAS_MIN_USD,
         },
     };
