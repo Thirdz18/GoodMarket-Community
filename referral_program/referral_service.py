@@ -428,6 +428,124 @@ class ReferralService:
             "rewards": rewards[:10]
         }
 
+    def process_referral_disbursement(self, referrer_wallet: str, referee_wallet: str,
+                                      referral_code: str) -> dict:
+        """
+        Single source of truth for disbursing a referral's rewards.
+
+        Sends REFERRER_REWARD G$ to the referrer and REFEREE_REWARD G$ to the
+        referee, logs both rewards to referral_rewards_log with proper status,
+        updates the referrals row to a terminal/queue state, and increments
+        the referrer's lifetime stats whenever the referrer was actually paid
+        on-chain (independent of the referee outcome).
+
+        Status mapping per side:
+            disburse success         -> 'completed'
+            insufficient balance     -> 'pending_disbursed'
+            other failure            -> 'failed'
+
+        Referrals row final state:
+            both completed           -> 'completed'
+            any pending_disbursed    -> 'pending_disbursed'
+            otherwise                -> 'failed'
+
+        Reliability:
+            The full flow is wrapped in try/except. If anything raises before
+            a terminal status is written, the referrals row would otherwise be
+            stuck in the intermediate 'disbursing' state forever. The except
+            branch reverts the row back to 'pending_face_verification' so the
+            next /fv-callback (or admin replay) can claim and retry it.
+        """
+        from referral_program.blockchain import referral_blockchain_service
+
+        try:
+            referrer_result = referral_blockchain_service.disburse_referral_reward_sync(
+                wallet_address=referrer_wallet,
+                amount=REFERRER_REWARD,
+                reward_type='referrer'
+            )
+            referee_result = referral_blockchain_service.disburse_referral_reward_sync(
+                wallet_address=referee_wallet,
+                amount=REFEREE_REWARD,
+                reward_type='referee'
+            )
+
+            def _status_for(result):
+                if result.get('success'):
+                    return 'completed'
+                if result.get('pending'):
+                    return 'pending_disbursed'
+                return 'failed'
+
+            referrer_status = _status_for(referrer_result)
+            referee_status = _status_for(referee_result)
+
+            self.log_reward(referrer_wallet, REFERRER_REWARD, 'referrer',
+                            referral_code, referrer_result.get('tx_hash'), referrer_status)
+            self.log_reward(referee_wallet, REFEREE_REWARD, 'referee',
+                            referral_code, referee_result.get('tx_hash'), referee_status)
+
+            if referrer_result.get('success') and referee_result.get('success'):
+                self.update_referral_status(referee_wallet, 'completed')
+                logger.info(
+                    f"✅ Referral rewards disbursed: {referral_code} | "
+                    f"referrer={referrer_wallet[:8]}... referee={referee_wallet[:8]}..."
+                )
+            elif referrer_result.get('pending') or referee_result.get('pending'):
+                self.update_referral_status(
+                    referee_wallet, 'pending_disbursed',
+                    'Insufficient REFERRAL_KEY balance'
+                )
+                logger.warning(
+                    f"⚠️ Referral reward pending disbursement (insufficient balance) "
+                    f"for {referral_code} | referrer_status={referrer_status} "
+                    f"referee_status={referee_status}"
+                )
+            else:
+                self.update_referral_status(
+                    referee_wallet, 'failed',
+                    f"Referrer: {referrer_result.get('error', 'unknown')} | "
+                    f"Referee: {referee_result.get('error', 'unknown')}"
+                )
+                logger.error(f"❌ Referral reward disbursement failed for {referral_code}")
+
+            # Whenever the referrer was actually paid on-chain, reflect that in
+            # their lifetime stats — even if the referee leg failed. Otherwise
+            # the on-chain G$ payment exists with no DB tracking on the inviter.
+            if referrer_result.get('success'):
+                self.increment_referrer_stats(referrer_wallet, REFERRER_REWARD)
+
+            return {
+                "success": referrer_result.get('success') and referee_result.get('success'),
+                "referrer_status": referrer_status,
+                "referee_status": referee_status,
+                "referrer_tx": referrer_result.get('tx_hash'),
+                "referee_tx": referee_result.get('tx_hash'),
+            }
+        except Exception as e:
+            # Uncaught exception in the middle of disbursement leaves the row
+            # in 'disbursing' forever. Reset to pending_face_verification so a
+            # future trigger can retry cleanly.
+            logger.error(
+                f"❌ Referral disbursement crashed for {referral_code}: {e}",
+                exc_info=True
+            )
+            try:
+                self.update_referral_status(
+                    referee_wallet, 'pending_face_verification',
+                    f"Disbursement crashed and was reset: {e}"
+                )
+                logger.info(
+                    f"↩️ Reset referral {referral_code} to pending_face_verification "
+                    f"after disbursement crash so it can be retried."
+                )
+            except Exception as reset_err:
+                logger.error(
+                    f"❌ Could not reset referral status after crash for "
+                    f"{referral_code}: {reset_err}"
+                )
+            return {"success": False, "error": str(e)}
+
     def process_pending_disbursements(self) -> dict:
         """
         Attempt to disburse all pending_disbursed referral rewards.

@@ -1542,67 +1542,18 @@ def verify_ubi_page():
 
 def _disburse_referral_rewards(referral_blockchain_service, referral_service,
                                referrer_wallet, referee_wallet, referral_code):
+    """Thin wrapper that delegates to ReferralService.process_referral_disbursement.
+
+    The blockchain service argument is kept for backward-compatibility with
+    existing call sites; the service method imports it on its own so the
+    parameter is intentionally unused here.
     """
-    Disburse referral rewards: 1000 G$ to referrer, 500 G$ to referee.
-    If REFERRAL_KEY has insufficient funds, logs rewards as pending and marks
-    referral as pending_disbursed for automatic retry when funds are added.
-    """
-    REFERRER_AMOUNT = 1000.0
-    REFEREE_AMOUNT = 500.0
-
-    referrer_result = referral_blockchain_service.disburse_referral_reward_sync(
-        wallet_address=referrer_wallet,
-        amount=REFERRER_AMOUNT,
-        reward_type='referrer'
-    )
-
-    referee_result = referral_blockchain_service.disburse_referral_reward_sync(
-        wallet_address=referee_wallet,
-        amount=REFEREE_AMOUNT,
-        reward_type='referee'
-    )
-
-    referrer_pending = referrer_result.get('pending', False) and not referrer_result.get('success')
-    referee_pending = referee_result.get('pending', False) and not referee_result.get('success')
-    any_pending = referrer_pending or referee_pending
-    both_success = referrer_result.get('success') and referee_result.get('success')
-
-    referral_service.log_reward(
-        wallet_address=referrer_wallet,
-        amount=REFERRER_AMOUNT,
-        reward_type='referrer',
+    del referral_blockchain_service  # imported inside the service method
+    return referral_service.process_referral_disbursement(
+        referrer_wallet=referrer_wallet,
+        referee_wallet=referee_wallet,
         referral_code=referral_code,
-        tx_hash=referrer_result.get('tx_hash'),
-        status='completed' if referrer_result.get('success') else 'pending'
     )
-
-    referral_service.log_reward(
-        wallet_address=referee_wallet,
-        amount=REFEREE_AMOUNT,
-        reward_type='referee',
-        referral_code=referral_code,
-        tx_hash=referee_result.get('tx_hash'),
-        status='completed' if referee_result.get('success') else 'pending'
-    )
-
-    if both_success:
-        referral_service.update_referral_status(referee_wallet, 'completed')
-        referral_service.increment_referrer_stats(referrer_wallet, REFERRER_AMOUNT)
-        logger.info(
-            f"Referral rewards fully disbursed: {REFERRER_AMOUNT} G$ to {referrer_wallet[:8]}... "
-            f"and {REFEREE_AMOUNT} G$ to {referee_wallet[:8]}..."
-        )
-    elif any_pending:
-        referral_service.update_referral_status(referee_wallet, 'pending_disbursed',
-                                                 error_message='Insufficient REFERRAL_KEY balance')
-        logger.warning(
-            f"Referral rewards pending (insufficient balance): "
-            f"referrer={referrer_wallet[:8]}... referee={referee_wallet[:8]}..."
-        )
-    else:
-        referral_service.update_referral_status(referee_wallet, 'failed',
-                                                 error_message='Disbursement failed')
-        logger.error(f"Referral reward disbursement failed for referee {referee_wallet[:8]}...")
 
 
 @routes.route("/verify-ubi", methods=["POST"])
