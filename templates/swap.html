@@ -1237,6 +1237,14 @@
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="/static/js/tx-preview.js?v={{ ASSET_VERSION }}"></script>
     <script src="/static/js/tx-error.js?v={{ ASSET_VERSION }}"></script>
+    <!--
+        MiniPay gas top-up: detect users with CELO but no stablecoin and
+        auto-prompt a CELO -> cUSD swap before swap-bound actions so
+        MiniPay's CIP-64 fee abstraction has a stablecoin balance to
+        deduct gas from. No-op outside MiniPay or when the swap is itself
+        already CELO -> cUSD (would be redundant).
+    -->
+    <script src="/static/js/minipay-gas-topup.js?v={{ ASSET_VERSION }}"></script>
     <script>
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
@@ -2643,6 +2651,41 @@
             clearAlert();
             const from  = TOKENS[fromToken];
             const to    = TOKENS[toToken];
+
+            // MiniPay-only pre-flight: if the user holds CELO but has zero
+            // stablecoin balance, MiniPay's CIP-64 fee abstraction has
+            // nothing to deduct gas from and the swap tx will fail with a
+            // wallet-side "no fee currency available" error. Offer a tiny
+            // CELO -> cUSD swap first, then resume the user's intended swap.
+            // Skipped when:
+            //   - user is not in MiniPay (browser/MetaMask/etc. pay gas in CELO)
+            //   - user is already swapping CELO -> cUSD (redundant; if it
+            //     succeeds the user will have stablecoin gas anyway)
+            const isCeloToCusdSwap = fromToken === "CELO" && toToken === "CUSD";
+            if (!isCeloToCusdSwap
+                && window.MPGasTopUp
+                && window.MPGasTopUp.isMiniPay()) {
+                try {
+                    const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
+                        body: 'You\'re about to swap. MiniPay pays gas in '
+                            + 'stablecoin (cUSD / USDT / USDC), but you only '
+                            + 'have CELO right now. Convert a small amount of '
+                            + 'CELO to cUSD first so the swap transaction can '
+                            + 'pay gas?',
+                    });
+                    if (!r.proceed) return; // user cancelled or pre-swap failed
+                    if (r.swapped) {
+                        // Refresh balances after the pre-swap so the main swap
+                        // sees the new stablecoin balance and the existing
+                        // CELO gas-buffer logic uses post-swap CELO balance.
+                        try { await loadBalances(); } catch (_) {}
+                    }
+                } catch (e) {
+                    console.warn('[swap] gas-top-up pre-flight error:', e);
+                    // Continue with the original swap; MiniPay will surface
+                    // its own gas error if it can't pay.
+                }
+            }
             const stepIndicators = document.getElementById("stepIndicators");
             const step1 = document.getElementById("step1");
             const step2 = document.getElementById("step2");
@@ -3471,6 +3514,26 @@
                 return;
             }
             clearReserveAlert();
+
+            // MiniPay-only pre-flight: same rationale as startSwap() — if
+            // the user has CELO but no stablecoin, the reserve swap tx will
+            // fail because MiniPay can't pay gas. Offer a tiny CELO -> cUSD
+            // top-up first. Skipped when not in MiniPay or when the user
+            // is already buying with cUSD (they obviously have stablecoin).
+            if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
+                try {
+                    const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
+                        body: 'You\'re about to swap on GoodReserve. MiniPay '
+                            + 'pays gas in stablecoin (cUSD / USDT / USDC), but '
+                            + 'you only have CELO right now. Convert a small '
+                            + 'amount to cUSD first so this swap can pay gas?',
+                    });
+                    if (!r.proceed) return; // user cancelled
+                } catch (e) {
+                    console.warn('[reserve] gas-top-up pre-flight error:', e);
+                }
+            }
+
             const stepIndicators = document.getElementById("reserveStepIndicators");
             const step1 = document.getElementById("reserveStep1");
             const step2 = document.getElementById("reserveStep2");
