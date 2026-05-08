@@ -1232,7 +1232,27 @@
 </script>
 
     <div class="container">
-        <a href="/overview" class="back-btn">← Back to Overview</a>
+        <a href="/overview" class="back-btn" id="backBtn">← Back to Overview</a>
+<script>
+    (function() {
+        try {
+            var params = new URLSearchParams(window.location.search);
+            var from = (params.get('from') || '').toLowerCase();
+            var btn = document.getElementById('backBtn');
+            if (!btn) return;
+            var routes = {
+                wallet:    { href: '/wallet',    label: '← Back to Wallet' },
+                dashboard: { href: '/dashboard', label: '← Back to Dashboard' },
+                overview:  { href: '/overview',  label: '← Back to Overview' }
+            };
+            var target = routes[from];
+            if (target) {
+                btn.setAttribute('href', target.href);
+                btn.textContent = target.label;
+            }
+        } catch (_) { /* keep default */ }
+    })();
+</script>
 
         <div class="header">
             <h1><i class="fas fa-graduation-cap"></i> Learn & Earn</h1>
