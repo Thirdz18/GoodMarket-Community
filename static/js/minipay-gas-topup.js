@@ -218,6 +218,38 @@
         } catch (_) { return '?'; }
     }
 
+    // Humanize remaining cooldown seconds for user-facing copy. Server returns
+    // raw seconds in `recent_refill_cooldown_seconds`; raw "129600s" is useless
+    // to a user, "~36 hours" is actionable.
+    function _humanizeCooldownSeconds(secs) {
+        const n = Number(secs);
+        if (!n || n <= 0 || !isFinite(n)) return null;
+        if (n < 60) return Math.max(1, Math.round(n)) + 's';
+        if (n < 3600) return Math.round(n / 60) + ' min';
+        if (n < 86400) {
+            const hours = Math.round(n / 3600);
+            return hours + (hours === 1 ? ' hour' : ' hours');
+        }
+        const days = Math.round(n / 86400);
+        return days + (days === 1 ? ' day' : ' days');
+    }
+
+    // Return a localized "ready at" timestamp for the cooldown copy, e.g.
+    // "May 9, 10:30 AM". Best-effort — falls back to null on Intl errors.
+    function _formatCooldownReadyAt(secs) {
+        const n = Number(secs);
+        if (!n || n <= 0 || !isFinite(n)) return null;
+        try {
+            const d = new Date(Date.now() + (n * 1000));
+            return d.toLocaleString(undefined, {
+                hour: '2-digit', minute: '2-digit',
+                month: 'short', day: 'numeric',
+            });
+        } catch (_) {
+            return null;
+        }
+    }
+
     function _showConfirmModal(opts) {
         _injectStyles();
         return new Promise((resolve) => {
@@ -462,6 +494,8 @@
 
         const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
         let faucetResult = null;
+        let cooldownActive = false;
+        let cooldownSeconds = 0;
 
         if (startedWithoutStableGas) {
             const progress = _showProgressModal(
@@ -471,6 +505,12 @@
             try {
                 await _ensureCeloGasFaucet(walletAddr, balances, progress);
                 faucetResult = await _ensureCusdFaucet(walletAddr, progress);
+
+                cooldownActive = !!(faucetResult
+                    && faucetResult.status === 'recent_refill');
+                cooldownSeconds = (faucetResult
+                    && Number(faucetResult.recent_refill_cooldown_seconds)) || 0;
+
                 if (!faucetResult.success
                     && faucetResult.status !== 'stable_ready'
                     && faucetResult.status !== 'recent_refill') {
@@ -481,12 +521,43 @@
                     }
                     return { proceed: false, error: msg, faucetResult: faucetResult };
                 }
-                balances = await _waitForStablecoin(walletAddr, 30, progress);
-                progress.close();
-                if (!hasStablecoinGasBalance(balances)) {
-                    const msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
-                    if (typeof global.alert === 'function') global.alert(msg);
-                    return { proceed: false, error: msg, faucetResult: faucetResult };
+
+                if (cooldownActive) {
+                    // No cUSD will arrive — server explicitly told us the per-wallet
+                    // refill cooldown is still active. Skip the 60s _waitForStablecoin
+                    // poll (would just stall the UI for nothing) and decide between
+                    // the swap path (user has CELO) or a clear cooldown notice.
+                    progress.close();
+                    try { balances = await getBalances(walletAddr); } catch (_) { /* keep stale balances */ }
+
+                    if (getAutoSwapAmountWei(balances) <= 0n
+                        && !hasStablecoinGasBalance(balances)) {
+                        const human = _humanizeCooldownSeconds(cooldownSeconds) || 'a few hours';
+                        const readyAt = _formatCooldownReadyAt(cooldownSeconds);
+                        const tail = readyAt ? ' (until ' + readyAt + ')' : '';
+                        const msg = '⏳ MiniPay cUSD faucet is on cooldown\n\n'
+                            + 'You received the gas budget recently. Wait ~' + human + tail
+                            + ' or send a small amount of cUSD / USDT / USDC to your '
+                            + 'MiniPay wallet from another source to claim sooner.';
+                        if (typeof global.alert === 'function') global.alert(msg);
+                        return {
+                            proceed: false,
+                            cooldown: true,
+                            cooldownSeconds: cooldownSeconds,
+                            faucetResult: faucetResult,
+                        };
+                    }
+                    // User has CELO available — fall through to the swap-prompt
+                    // branch below; the modal copy is adjusted to explain the
+                    // cooldown context.
+                } else {
+                    balances = await _waitForStablecoin(walletAddr, 30, progress);
+                    progress.close();
+                    if (!hasStablecoinGasBalance(balances)) {
+                        const msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
+                        if (typeof global.alert === 'function') global.alert(msg);
+                        return { proceed: false, error: msg, faucetResult: faucetResult };
+                    }
                 }
             } catch (err) {
                 progress.close();
@@ -507,11 +578,26 @@
             };
         }
 
+        let _modalBody;
+        if (opts.body) {
+            _modalBody = opts.body;
+        } else if (cooldownActive) {
+            const human = _humanizeCooldownSeconds(cooldownSeconds) || 'some time';
+            _modalBody = 'The cUSD gas faucet is on cooldown for another ~' + human + '. '
+                + 'You have CELO — convert the amount above the 0.09 CELO reserve to cUSD '
+                + 'so you can pay gas in stablecoin and continue.';
+        } else if (startedWithoutStableGas) {
+            _modalBody = 'We sent a small cUSD gas budget to your MiniPay wallet — Program by Betz Team. '
+                + 'Now convert the available CELO above the 0.09 CELO reserve to cUSD so future '
+                + 'MiniPay transactions can keep paying gas in stablecoin.';
+        } else {
+            _modalBody = 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin '
+                + '(cUSD/USDT/USDC), but you only have CELO right now. Convert the available '
+                + 'CELO above the 0.09 CELO reserve to cUSD first?';
+        }
+
         const confirmed = await _showConfirmModal({
-            body: opts.body
-                || (startedWithoutStableGas
-                    ? 'We sent a small cUSD gas budget to your MiniPay wallet — Program by Betz Team. Now convert the available CELO above the 0.09 CELO reserve to cUSD so future MiniPay transactions can keep paying gas in stablecoin.'
-                    : 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin (cUSD/USDT/USDC), but you only have CELO right now. Convert the available CELO above the 0.09 CELO reserve to cUSD first?'),
+            body: _modalBody,
             amountCelo: _formatCelo(amountWei),
             reserveCelo: CELO_RESERVE_AFTER_TOPUP_STR,
             celoFmt: _formatCelo(balances.celo),
