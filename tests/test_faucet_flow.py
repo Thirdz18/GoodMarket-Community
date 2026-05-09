@@ -560,11 +560,12 @@ class FaucetFlowTests(unittest.TestCase):
                 "required_usd": 0.05,
             },
         ]
+        import routes as _routes_mod
         mock_transfer.return_value = {
             "success": True,
             "status": "cusd_sent",
             "tx_hash": "0xcusd",
-            "amount_cusd": 0.05,
+            "amount_cusd": float(_routes_mod.MINIPAY_CUSD_FAUCET_AMOUNT),
         }
 
         resp = self.client.post(
@@ -578,6 +579,8 @@ class FaucetFlowTests(unittest.TestCase):
         self.assertEqual(body["topup_source"], "topwallet_key_cusd")
         self.assertEqual(body["tx_hash"], "0xcusd")
         mock_transfer.assert_called_once()
+        self.assertEqual(mock_transfer.call_args.args[2], _routes_mod.MINIPAY_CUSD_FAUCET_AMOUNT)
+        self.assertEqual(body["faucet_amount_cusd"], float(_routes_mod.MINIPAY_CUSD_FAUCET_AMOUNT))
 
     @patch("routes.Web3", new=FakeWeb3)
     @patch("routes._execute_minipay_cusd_faucet_transfer")

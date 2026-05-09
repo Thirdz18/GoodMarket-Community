@@ -7594,10 +7594,10 @@ FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
 # Faucet amount tuned to typical Celo claim() gas cost in cUSD-equivalent.
 # Empirical reading (May 2026 peak congestion @ ~200 gwei): claim() costs
 # ~$0.006 in cUSD via the fee-currency adapter. At normal gas (5–25 gwei)
-# it's ~$0.0007–$0.002. $0.01 covers ~99% of conditions including current
-# peak gas with ~1.7x buffer, and is 5x more cost-efficient than $0.05.
+# it's ~$0.0007–$0.002. $0.025 covers higher-fee claim windows with
+# additional buffer while staying more cost-efficient than $0.05.
 # Operators can override via env if conditions change.
-MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.01"))
+MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.025"))
 MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz Team"
 # Threshold below which we treat the user as needing a stablecoin gas top-up.
 # Must be <= MINIPAY_CUSD_FAUCET_AMOUNT so the user graduates to "stable_ready"

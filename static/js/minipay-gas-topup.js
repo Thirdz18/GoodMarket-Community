@@ -50,8 +50,10 @@
     // MiniPay needs a small stablecoin balance to pay fee-currency gas.
     // Tuned to match the server-side MINIPAY_STABLECOIN_MIN_USD threshold.
     // A typical claim() costs ~$0.006 cUSD at current Celo peak congestion
-    // and ~$0.001-$0.002 at normal gas, so $0.01 is sufficient.
+    // and ~$0.001-$0.002 at normal gas. Keep this threshold below the
+    // server faucet amount (currently 0.025 cUSD) so one refill can clear it.
     const STABLECOIN_GAS_MIN_USD = 0.01;
+    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.025';
     const CELO_GAS_FAUCET_MIN_CELO = 0.1;
     const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
     const CELO_FAUCET_ENDPOINT = '/api/faucet/gas';
@@ -207,7 +209,13 @@
             + '.mp-gtu-banner-text{flex:1;min-width:200px;line-height:1.4;}'
             + '.mp-gtu-banner-btn{background:linear-gradient(135deg,#7c3aed,#6d28d9);'
             + 'color:#fff;border:none;border-radius:8px;padding:.45rem .9rem;'
-            + 'cursor:pointer;font-size:.82rem;font-weight:600;white-space:nowrap;}';
+            + 'cursor:pointer;font-size:.82rem;font-weight:600;white-space:nowrap;}'
+            + '.mp-gtu-toast{position:fixed;left:50%;top:calc(1rem + env(safe-area-inset-top,0px));'
+            + 'transform:translateX(-50%);z-index:100000;max-width:min(92vw,420px);'
+            + 'background:#06281f;color:#dcfce7;border:1px solid rgba(34,197,94,.45);'
+            + 'box-shadow:0 16px 40px rgba(0,0,0,.35);border-radius:14px;'
+            + 'padding:.85rem 1rem;font-size:.86rem;line-height:1.45;font-weight:600;'
+            + 'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;text-align:left;}';
         document.head.appendChild(style);
     }
 
@@ -310,6 +318,22 @@
         };
     }
 
+
+    function _showAutoHideToast(message, durationMs) {
+        _injectStyles();
+        const toast = document.createElement('div');
+        toast.className = 'mp-gtu-toast';
+        toast.setAttribute('role', 'status');
+        toast.setAttribute('aria-live', 'polite');
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        const hideAfter = Number(durationMs) > 0 ? Number(durationMs) : 5000;
+        global.setTimeout(() => {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, hideAfter);
+    }
+
     // ─── Tx helpers ───────────────────────────────────────────────────────
     async function _waitForReceipt(provider, txHash, attempts) {
         for (let i = 0; i < attempts; i++) {
@@ -371,7 +395,7 @@
     }
 
     async function _ensureCusdFaucet(walletAddr, progress) {
-        if (progress) progress.update('Step 2/3 — sending ~$0.01 cUSD gas budget to your MiniPay wallet… ' + CUSD_FAUCET_PROGRAM_LABEL + '.');
+        if (progress) progress.update('Step 2/3 — sending ~' + CUSD_FAUCET_DISPLAY_AMOUNT + ' cUSD gas budget to your MiniPay wallet… ' + CUSD_FAUCET_PROGRAM_LABEL + '.');
         try {
             return await _postJson(CUSD_FAUCET_ENDPOINT, { wallet: walletAddr });
         } catch (err) {
@@ -557,6 +581,12 @@
                         const msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
                         if (typeof global.alert === 'function') global.alert(msg);
                         return { proceed: false, error: msg, faucetResult: faucetResult };
+                    }
+                    if (faucetResult && faucetResult.status === 'cusd_sent') {
+                        _showAutoHideToast(
+                            "✅ GoodMarket gas received. Don\'t transfer this cUSD to another wallet to avoid next-claim errors.",
+                            5000
+                        );
                     }
                 }
             } catch (err) {
