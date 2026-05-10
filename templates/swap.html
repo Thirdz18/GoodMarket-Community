@@ -2669,10 +2669,13 @@
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
                         body: 'You\'re about to swap. MiniPay pays gas in '
-                            + 'stablecoin (cUSD / USDT / USDC), but you only '
-                            + 'have CELO right now. Convert the available CELO above '
-                            + 'the 0.09 CELO reserve to cUSD first so the swap transaction can '
-                            + 'pay gas?',
+                            + '<strong>stablecoin (cUSD/USDT/USDC), not in CELO</strong> — '
+                            + 'you need to convert your CELO to cUSD first to pay for gas.'
+                            + '<br><br>'
+                            + 'You\'ll sign the swap inside MiniPay. We\'ll keep ~0.09 CELO untouched '
+                            + 'as your MiniPay reserve. '
+                            + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
+                            + 'it\'s needed as gas for your next transactions.',
                     });
                     if (!r.proceed) return; // user cancelled or pre-swap failed
                     if (r.swapped) {
@@ -3525,10 +3528,14 @@
             if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
-                        body: 'You\'re about to swap on GoodReserve. MiniPay '
-                            + 'pays gas in stablecoin (cUSD / USDT / USDC), but '
-                            + 'you only have CELO right now. Convert the available CELO above '
-                            + 'the 0.09 CELO reserve to cUSD first so this swap can pay gas?',
+                        body: 'You\'re about to swap on GoodReserve. MiniPay pays gas in '
+                            + '<strong>stablecoin (cUSD/USDT/USDC), not in CELO</strong> — '
+                            + 'you need to convert your CELO to cUSD first to pay for gas.'
+                            + '<br><br>'
+                            + 'You\'ll sign the swap inside MiniPay. We\'ll keep ~0.09 CELO untouched '
+                            + 'as your MiniPay reserve. '
+                            + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
+                            + 'it\'s needed as gas for your next transactions.',
                     });
                     if (!r.proceed) return; // user cancelled
                 } catch (e) {

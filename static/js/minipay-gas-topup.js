@@ -265,11 +265,11 @@
             overlay.className = 'mp-gtu-overlay';
             overlay.innerHTML = ''
                 + '<div class="mp-gtu-card" role="dialog" aria-modal="true">'
-                + '<div class="mp-gtu-title">⛽ Stablecoin gas needed</div>'
+                + '<div class="mp-gtu-title">⛽ Confirm swap to claim G$</div>'
                 + '<div class="mp-gtu-body">' + (opts.body || '') + '</div>'
                 + '<div class="mp-gtu-status">'
                 + 'Convert <strong>~' + opts.amountCelo + ' CELO</strong> → <strong>cUSD</strong> now? '
-                + 'Current CELO balance: ' + opts.celoFmt + '. We will leave about ' + (opts.reserveCelo || CELO_RESERVE_AFTER_TOPUP_STR) + ' CELO untouched.'
+                + 'Current CELO balance: ' + opts.celoFmt + '. We\'ll leave about ' + (opts.reserveCelo || CELO_RESERVE_AFTER_TOPUP_STR) + ' CELO untouched as your MiniPay reserve.'
                 + '</div>'
                 + '<div class="mp-gtu-actions">'
                 + '<button class="mp-gtu-btn mp-gtu-btn-secondary" data-action="cancel">Cancel</button>'
@@ -615,15 +615,25 @@
             const human = _humanizeCooldownSeconds(cooldownSeconds) || 'some time';
             _modalBody = 'The cUSD gas faucet is on cooldown for another ~' + human + '. '
                 + 'You have CELO — convert the amount above the 0.09 CELO reserve to cUSD '
-                + 'so you can pay gas in stablecoin and continue.';
+                + 'so you can pay gas and continue. '
+                + '<br><br>⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
+                + 'it\'s needed as gas for your next claims.';
         } else if (startedWithoutStableGas) {
-            _modalBody = 'We sent a small cUSD gas budget to your MiniPay wallet — Program by Betz Team. '
-                + 'Now convert the available CELO above the 0.09 CELO reserve to cUSD so future '
-                + 'MiniPay transactions can keep paying gas in stablecoin.';
+            _modalBody = '✅ We sent a small cUSD gas budget to your MiniPay wallet — '
+                + '<em>Program by Betz Team.</em>'
+                + '<br><br>'
+                + 'Next, convert your CELO to cUSD. <strong>MiniPay does not use CELO for gas</strong> — '
+                + 'stablecoin (cUSD/USDT/USDC) is needed for your next claims. '
+                + 'You\'ll sign the swap inside MiniPay; we\'ll keep ~0.09 CELO as your MiniPay reserve. '
+                + '<br><br>⚠️ <strong>Do not transfer the cUSD to another wallet.</strong>';
         } else {
-            _modalBody = 'You\'re doing an action that needs gas. MiniPay pays gas in stablecoin '
-                + '(cUSD/USDT/USDC), but you only have CELO right now. Convert the available '
-                + 'CELO above the 0.09 CELO reserve to cUSD first?';
+            _modalBody = 'You\'re doing an action that needs gas. MiniPay pays gas in '
+                + '<strong>stablecoin (cUSD/USDT/USDC), not in CELO</strong> — '
+                + 'you need to convert your CELO to cUSD first to pay for gas.'
+                + '<br><br>'
+                + 'You\'ll sign the swap inside MiniPay. We\'ll keep ~0.09 CELO untouched as your MiniPay reserve. '
+                + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
+                + 'it\'s needed as gas for your next claims.';
         }
 
         const confirmed = await _showConfirmModal({
