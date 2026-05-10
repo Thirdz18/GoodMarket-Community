@@ -51,6 +51,18 @@
     var DEFAULT_CHAIN_ID = 42220;
     var WC_CDN_URL = "https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js";
 
+    // Featured wallet shown at the top of the WalletConnect QR modal.
+    // The id matches the New GoodWallet entry in the Reown/WalletConnect
+    // Cloud Explorer (queried via /v3/wallets?search=goodwallet); the logo
+    // image is served by the same explorer-api.
+    var FEATURED_WALLET = {
+        id: "132fe7fba900c4772d39c15f02ec134461fa5d680be76b1767c2d0a15055b7a1",
+        name: "New GoodWallet",
+        homepage: "https://goodwallet.xyz",
+        logo: "https://explorer-api.walletconnect.com/v3/logo/md/c0758978-765a-4a61-8203-36a30d980d00",
+        tagline: "Sign in with Google / Facebook / SMS, then paste the link",
+    };
+
     // Supported networks for WalletConnect chain switching
     var SUPPORTED_NETWORKS = {
         "0xa4ec": { // Celo Mainnet
@@ -342,7 +354,7 @@
             } else {
                 // Show QR view
                 qrButtonContainer.style.display = "flex";
-                subtitle.textContent = "Scan this code with your phone";
+                subtitle.textContent = "Scan the code or open with " + FEATURED_WALLET.name;
                 instructionsContainer.style.display = "none";
             }
         });
@@ -363,8 +375,98 @@
         header.appendChild(closeBtn);
 
         var subtitle = document.createElement("div");
-        subtitle.textContent = "Scan this code with your phone";
+        subtitle.textContent = "Scan the code or open with New GoodWallet";
         subtitle.style.cssText = "font-size:0.75rem;line-height:1.4;color:rgba(248,250,252,0.6);margin-bottom:1.2rem;";
+
+        // Featured wallet section — prominent CTA for users who want to
+        // approve the WalletConnect session inside New GoodWallet (web wallet
+        // with social login, no QR scanning needed).
+        var featuredSection = document.createElement("div");
+        featuredSection.style.cssText =
+            "display:flex;flex-direction:column;align-items:stretch;gap:0.6rem;" +
+            "padding:0.85rem 0.95rem;border-radius:14px;margin-bottom:1.1rem;" +
+            "background:linear-gradient(135deg,rgba(34,197,94,0.18),rgba(16,185,129,0.10));" +
+            "border:1px solid rgba(34,197,94,0.35);";
+
+        var featuredHeader = document.createElement("div");
+        featuredHeader.style.cssText = "display:flex;align-items:center;gap:0.7rem;text-align:left;";
+
+        var featuredLogo = document.createElement("img");
+        featuredLogo.alt = FEATURED_WALLET.name + " logo";
+        featuredLogo.src = FEATURED_WALLET.logo + (_config.projectId ? ("?projectId=" + encodeURIComponent(_config.projectId)) : "");
+        featuredLogo.width = 36;
+        featuredLogo.height = 36;
+        featuredLogo.style.cssText = "width:36px;height:36px;border-radius:9px;flex:0 0 auto;background:#fff;";
+        featuredLogo.addEventListener("error", function () {
+            // Fall back to a generic emoji if the explorer-api logo URL fails
+            // (e.g. projectId missing or rate-limited).
+            var fallback = document.createElement("div");
+            fallback.textContent = "\uD83D\uDC9A";
+            fallback.style.cssText =
+                "width:36px;height:36px;border-radius:9px;flex:0 0 auto;" +
+                "display:flex;align-items:center;justify-content:center;" +
+                "background:rgba(34,197,94,0.18);font-size:1.4rem;";
+            this.replaceWith(fallback);
+        });
+
+        var featuredText = document.createElement("div");
+        featuredText.style.cssText = "flex:1 1 auto;min-width:0;";
+        var featuredName = document.createElement("div");
+        featuredName.textContent = FEATURED_WALLET.name;
+        featuredName.style.cssText = "font-weight:700;font-size:0.92rem;color:#f0fdf4;line-height:1.2;";
+        var featuredTagline = document.createElement("div");
+        featuredTagline.textContent = FEATURED_WALLET.tagline;
+        featuredTagline.style.cssText = "font-size:0.7rem;color:rgba(220,252,231,0.7);margin-top:0.15rem;line-height:1.35;";
+        featuredText.appendChild(featuredName);
+        featuredText.appendChild(featuredTagline);
+
+        featuredHeader.appendChild(featuredLogo);
+        featuredHeader.appendChild(featuredText);
+
+        var featuredBtn = document.createElement("button");
+        featuredBtn.type = "button";
+        featuredBtn.innerHTML = "\uD83D\uDD17 Open in " + FEATURED_WALLET.name;
+        featuredBtn.style.cssText =
+            "display:flex;align-items:center;justify-content:center;gap:0.4rem;" +
+            "padding:0.6rem 1rem;border-radius:10px;border:1px solid rgba(34,197,94,0.55);" +
+            "background:linear-gradient(135deg,rgba(34,197,94,0.35),rgba(16,185,129,0.22));" +
+            "color:#f0fdf4;font-weight:600;font-size:0.85rem;cursor:pointer;" +
+            "transition:all 0.2s;";
+        featuredBtn.addEventListener("mouseover", function () {
+            this.style.background = "linear-gradient(135deg,rgba(34,197,94,0.5),rgba(16,185,129,0.3))";
+            this.style.transform = "translateY(-1px)";
+            this.style.boxShadow = "0 4px 12px rgba(34,197,94,0.25)";
+        });
+        featuredBtn.addEventListener("mouseout", function () {
+            this.style.background = "linear-gradient(135deg,rgba(34,197,94,0.35),rgba(16,185,129,0.22))";
+            this.style.transform = "translateY(0)";
+            this.style.boxShadow = "none";
+        });
+        featuredBtn.addEventListener("click", function () {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(uri);
+                } else {
+                    var ta = document.createElement("textarea");
+                    ta.value = uri;
+                    ta.style.position = "fixed";
+                    ta.style.left = "-9999px";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                }
+            } catch (_) { /* clipboard unavailable — user can still copy via the QR section */ }
+            try {
+                window.open(FEATURED_WALLET.homepage, "_blank", "noopener,noreferrer");
+            } catch (_) { /* popup blocked */ }
+            var origText = featuredBtn.innerHTML;
+            featuredBtn.innerHTML = "\u2713 Link copied \u2014 paste in " + FEATURED_WALLET.name;
+            setTimeout(function () { featuredBtn.innerHTML = origText; }, 2200);
+        });
+
+        featuredSection.appendChild(featuredHeader);
+        featuredSection.appendChild(featuredBtn);
 
         // QR and Button Container
         var qrButtonContainer = document.createElement("div");
@@ -464,7 +566,7 @@
             "• Better transaction experience";
 
         var metamaskSection = document.createElement("div");
-        metamaskSection.style.cssText = "margin-bottom:0.5rem;";
+        metamaskSection.style.cssText = "margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid rgba(124,58,237,0.2);";
         metamaskSection.innerHTML =
             "<strong style='color:#e0e7ff;font-size:0.75rem;'>2. MetaMask Mobile</strong><br>" +
             "• Open MetaMask wallet app<br>" +
@@ -472,11 +574,22 @@
             "• Paste https://goodmarket.live<br>" +
             "• Better transaction experience";
 
+        var goodWalletSection = document.createElement("div");
+        goodWalletSection.style.cssText = "margin-bottom:0.5rem;";
+        goodWalletSection.innerHTML =
+            "<strong style='color:#e0e7ff;font-size:0.75rem;'>3. " + FEATURED_WALLET.name + "</strong><br>" +
+            "• Tap \"Open in " + FEATURED_WALLET.name + "\" above<br>" +
+            "• Sign in with Google / Facebook / SMS<br>" +
+            "• Paste the link inside the WalletConnect input<br>" +
+            "• Approve the session in " + FEATURED_WALLET.name;
+
         instructionsContainer.appendChild(trustWalletSection);
         instructionsContainer.appendChild(metamaskSection);
+        instructionsContainer.appendChild(goodWalletSection);
 
         card.appendChild(header);
         card.appendChild(subtitle);
+        card.appendChild(featuredSection);
         card.appendChild(qrButtonContainer);
         card.appendChild(instructionsContainer);
         modal.appendChild(card);
