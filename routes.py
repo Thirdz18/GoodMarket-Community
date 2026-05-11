@@ -3252,26 +3252,6 @@ def set_learn_earn_maintenance():
         logger.error(f"❌ Error setting maintenance status: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@routes.route("/api/admin/maintenance/daily-checkin", methods=["GET"])
-@admin_required
-def get_daily_checkin_maintenance():
-    from maintenance_service import maintenance_service
-    return jsonify(maintenance_service.get_maintenance_status('daily_checkin'))
-
-
-@routes.route("/api/admin/maintenance/daily-checkin", methods=["POST"])
-@admin_required
-def set_daily_checkin_maintenance():
-    from maintenance_service import maintenance_service
-    data = request.get_json() or {}
-    is_maintenance = data.get('is_maintenance', False)
-    message = data.get('message', '').strip()
-    if is_maintenance and not message:
-        return jsonify({"success": False, "error": "Custom message is required when enabling maintenance mode"}), 400
-    result = maintenance_service.set_maintenance_status('daily_checkin', is_maintenance, message, session.get('wallet'))
-    return jsonify(result), (200 if result.get('success') else 500)
-
-
 @routes.route("/api/admin/maintenance/minigames", methods=["GET"])
 @admin_required
 def get_minigames_maintenance():

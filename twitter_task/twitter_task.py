@@ -40,12 +40,6 @@ class TwitterTaskService:
             "Ready to earn G$?.",
             "Discover new opportunities.",
             "Join thousands earning G$ daily.",
-            # Daily check-in & CELO rewards
-            "Did you know you can earn CELO just by checking in daily on GoodMarket?",
-            "Daily check-ins on GoodMarket now reward you with CELO.",
-            "Show up every day and get rewarded with CELO on GoodMarket.",
-            "Consistent daily check-ins on GoodMarket = CELO rewards in your wallet.",
-            "Your daily routine just got more rewarding — check in on GoodMarket and earn CELO.",
             # Claim daily G$
             "Claim your daily G$ and keep your streak alive on GoodMarket.",
             "Your daily G$ is waiting — claim it now on GoodMarket.",
@@ -65,17 +59,11 @@ class TwitterTaskService:
             "Explore goodmarket.live today and join the movement for a more equitable future.",
             "Start your earning routine at goodmarket.live with fun educational tasks.",
             "Navigate to goodmarket.live & unlock multiple pathways to earn G$ rewards.",
-            # Daily check-in & CELO rewards
-            "Go to goodmarket.live, do your daily check-in, and earn CELO rewards straight to your wallet.",
-            "Check in daily at goodmarket.live to collect CELO and support the GoodDollar community.",
-            "Visit goodmarket.live every day for your CELO check-in reward — it only takes seconds.",
-            "Daily check-ins at goodmarket.live are your easiest path to earning CELO in the GoodDollar ecosystem.",
-            "Head to goodmarket.live to complete your daily check-in and receive CELO as a reward.",
             # Claim daily G$
             "Claim your free daily G$ at goodmarket.live — a small action that compounds into real crypto income.",
             "Your daily G$ claim at goodmarket.live takes under a minute and grows your GoodDollar balance.",
             "Visit goodmarket.live to claim your daily G$ and stay active in the GoodDollar community.",
-            "Claim daily G$ at goodmarket.live and combine it with tasks, quizzes, and check-in rewards.",
+            "Claim daily G$ at goodmarket.live and combine it with tasks, quizzes, and community rewards.",
             "Go to goodmarket.live now, claim your daily G$, and see how fast your balance grows.",
         ]
 
