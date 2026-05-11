@@ -192,7 +192,6 @@ The WalletConnect sidecar (`wc_service.js`) is started automatically by the Flas
 | `LEARN_EARN_CONTRACT_ADDRESS` | Learn & Earn smart contract address |
 | `DAILY_TASK_CONTRACT_ADDRESS` | Daily Task smart contract address (legacy — no longer used at runtime; kept for the historical deploy script) |
 | `DAILYTASK_KEY` | Private key for the wallet that pays Twitter / Telegram daily-task rewards via direct G$ ERC-20 transfers |
-| `CHECKIN_KEY` | Private key for the wallet that pays daily-checkin weekly CELO bonuses |
 | `COMMUNITY_KEY` | Private key for community stories rewards |
 | `GAMES_KEY` | Private key for minigame transactions |
 | `REFERRAL_KEY` | Private key for referral rewards |

@@ -592,13 +592,6 @@ if init_minigames(app):
 else:
     logger.error("❌ Minigames initialization failed")
 
-# Initialize Daily Check-in System
-logger.info("📅 Initializing Daily Check-in system...")
-from daily_checkin import init_daily_checkin
-if init_daily_checkin(app):
-    logger.info("✅ Daily Check-in system initialized")
-else:
-    logger.error("❌ Daily Check-in initialization failed")
 
 # Register Telegram bot blueprint
 from telegram_bot import telegram_bot
