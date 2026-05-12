@@ -7604,7 +7604,7 @@ FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
 # it's ~$0.0007–$0.002. $0.10 covers higher-fee claim windows with
 # extra buffer while staying small enough for a gas-only top-up.
 # Operators can override via env if conditions change.
-MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.1"))
+MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.05"))
 MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # Threshold below which we treat the user as needing a stablecoin gas top-up.
 # Must be <= MINIPAY_CUSD_FAUCET_AMOUNT so the user graduates to "stable_ready"
