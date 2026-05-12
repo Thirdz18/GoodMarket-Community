@@ -51,9 +51,9 @@
     // Tuned to match the server-side MINIPAY_STABLECOIN_MIN_USD threshold.
     // A typical claim() costs ~$0.006 cUSD at current Celo peak congestion
     // and ~$0.001-$0.002 at normal gas. Keep this threshold below the
-    // server faucet amount (currently 0.025 cUSD) so one refill can clear it.
+    // server faucet amount (currently 0.1 cUSD) so one refill can clear it.
     const STABLECOIN_GAS_MIN_USD = 0.01;
-    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.025';
+    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.1';
     const CELO_GAS_FAUCET_MIN_CELO = 0.1;
     const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
     const CELO_FAUCET_ENDPOINT = '/api/faucet/gas';
