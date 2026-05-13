@@ -3191,13 +3191,18 @@
                 fuse: { icon: '🔥', name: 'Fuse', hint: 'Shown for MetaMask/injected and compatible WalletConnect users only.' },
                 xdc:  { icon: '💠', name: 'XDC',  hint: 'Advanced route; best with wallets that reliably support XDC network prompts.' },
             }[network];
-            const canClaim = !!(info && info.can_claim);
-            const supported = network === 'celo' || (network === 'fuse' ? caps.supportsFuse : caps.supportsXdc);
+            const isAvailable = !(info && info.is_available === false);
+            const canClaim = isAvailable && !!(info && info.can_claim);
+            const supported = isAvailable && (network === 'celo' || (network === 'fuse' ? caps.supportsFuse : caps.supportsXdc));
             const amount = info && (info.claimable_formatted || info.entitlement_formatted || (info.claimable ? Number(info.claimable).toFixed(2) : '0.00'));
             let statusText = 'Claimed';
             let statusClass = 'claimed';
             let hint = meta.hint;
-            if (canClaim && supported) {
+            if (!isAvailable) {
+                statusText = 'Not Available';
+                statusClass = 'warning';
+                hint = info.error || `${meta.name} claiming is temporarily not available.`;
+            } else if (canClaim && supported) {
                 statusText = `${amount} G$`;
                 statusClass = 'available';
                 hint = 'Available to claim now on this wallet.';
@@ -3248,7 +3253,7 @@
             const caps = getClaimWalletCapabilities();
             const claims = (claimAvailability && claimAvailability.claims) || {};
             if (claims.celo && claims.celo.can_claim) return 'celo';
-            if (!caps.isMiniPay && caps.supportsFuse && claims.fuse && claims.fuse.can_claim) return 'fuse';
+            if (!caps.isMiniPay && caps.supportsFuse && claims.fuse && claims.fuse.is_available !== false && claims.fuse.can_claim) return 'fuse';
             if (!caps.isMiniPay && caps.supportsXdc && claims.xdc && claims.xdc.can_claim) return 'xdc';
             return caps.isMiniPay ? 'celo' : null;
         }
@@ -4572,6 +4577,11 @@
 
         async function executeNetworkClaim(network) {
             const caps = getClaimWalletCapabilities();
+            const claims = (claimAvailability && claimAvailability.claims) || {};
+            if (network === 'fuse' && claims.fuse && claims.fuse.is_available === false) {
+                setStatus(claims.fuse.error || 'Fuse claim is temporarily not available.', '#fbbf24');
+                return;
+            }
             if (network === 'fuse' && !caps.supportsFuse) {
                 setStatus('Fuse claiming needs MetaMask or a compatible WalletConnect wallet.', '#fbbf24');
                 return;
