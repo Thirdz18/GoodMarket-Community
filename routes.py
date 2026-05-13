@@ -6900,6 +6900,56 @@ def xdc_gd_info():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/fuse/balances", methods=["GET"])
+@auth_required
+def fuse_balances():
+    """Get native FUSE and Fuse G$ balances for the current user."""
+    try:
+        wallet = session.get("wallet")
+        from blockchain import get_fuse_balance, get_fuse_gd_balance
+        fuse = get_fuse_balance(wallet)
+        gd = get_fuse_gd_balance(wallet)
+        return jsonify({"success": True, "fuse": fuse, "gd_balance": gd})
+    except Exception as e:
+        logger.error(f"fuse_balances error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@routes.route("/api/fuse/prepare-send", methods=["POST"])
+@auth_required
+def fuse_prepare_send():
+    """Prepare Fuse G$ or native FUSE send transaction parameters."""
+    try:
+        data = request.get_json()
+        token = data.get("token", "FUSE_GD").upper()
+        to_address = data.get("to", "").strip()
+        amount_str = data.get("amount", "0")
+
+        if not to_address or not to_address.startswith("0x") or len(to_address) != 42:
+            return jsonify({"success": False, "error": "Invalid recipient address"}), 400
+
+        try:
+            amount = float(amount_str)
+            if amount <= 0:
+                raise ValueError("amount must be > 0")
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid amount"}), 400
+
+        if token in ("FUSE_GD", "FUSEGD"):
+            from blockchain import prepare_fuse_gd_send_data
+            result = prepare_fuse_gd_send_data(to_address, amount)
+            result["token"] = "FUSE_GD"
+            return jsonify(result)
+        if token == "FUSE":
+            from blockchain import prepare_fuse_send_data
+            return jsonify(prepare_fuse_send_data(to_address, amount))
+        return jsonify({"success": False, "error": f"Unsupported token: {token}"}), 400
+
+    except Exception as e:
+        logger.error(f"fuse_prepare_send error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @routes.route("/api/xdc/prepare-send", methods=["POST"])
 @auth_required
 def xdc_prepare_send():

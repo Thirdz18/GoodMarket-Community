@@ -1333,6 +1333,37 @@
                 </div>
             </div>
         </div>
+
+        <!-- Fuse Network Section -->
+        <div class="section-label" style="margin-top:1rem;">Supported Tokens · Fuse Network</div>
+        <div class="token-list">
+            <div class="token-item">
+                <div class="token-icon" style="background:rgba(127,140,255,0.14);">
+                    <svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="22" fill="#151f49"/><text x="22" y="28" text-anchor="middle" font-size="12" fill="#b9c4ff" font-weight="900" font-family="Inter,sans-serif">G$</text></svg>
+                </div>
+                <div class="token-meta">
+                    <div class="token-symbol">Fuse G$</div>
+                    <div class="token-name">GoodDollar on Fuse</div>
+                </div>
+                <div class="token-balance">
+                    <div class="token-amount" id="fuseGdBal">—</div>
+                    <div class="token-usd" id="fuseGdBalSub">Loading...</div>
+                </div>
+            </div>
+            <div class="token-item">
+                <div class="token-icon" style="background:rgba(250,204,21,0.12);">
+                    <svg width="44" height="44" viewBox="0 0 44 44"><circle cx="22" cy="22" r="22" fill="#221a05"/><text x="22" y="28" text-anchor="middle" font-size="10" fill="#facc15" font-weight="900" font-family="Inter,sans-serif">FUSE</text></svg>
+                </div>
+                <div class="token-meta">
+                    <div class="token-symbol">FUSE</div>
+                    <div class="token-name">Fuse Network</div>
+                </div>
+                <div class="token-balance">
+                    <div class="token-amount" id="fuseBal">—</div>
+                    <div class="token-usd" id="fuseBalSub">For gas fees</div>
+                </div>
+            </div>
+        </div>
             </div>
 
             <!-- Activity Tab -->
@@ -1419,9 +1450,11 @@
                 <button class="token-chip" onclick="selectToken('CELO', this)">CELO</button>
                 <button class="token-chip" onclick="selectToken('XDC_GD', this)">XDC G$</button>
                 <button class="token-chip" onclick="selectToken('XDC', this)">XDC</button>
+                <button class="token-chip" onclick="selectToken('FUSE_GD', this)">Fuse G$</button>
+                <button class="token-chip" onclick="selectToken('FUSE', this)">FUSE</button>
             </div>
-            <div id="xdcSendNote" style="display:none;font-size:0.75rem;color:rgba(22,158,214,0.8);background:rgba(22,158,214,0.08);border:1px solid rgba(22,158,214,0.2);border-radius:8px;padding:0.5rem 0.75rem;margin-bottom:0.5rem;">
-                🔷 Sending on XDC Network — use a <strong>0x</strong> or <strong>xdc</strong> address
+            <div id="networkSendNote" style="display:none;font-size:0.75rem;color:rgba(22,158,214,0.8);background:rgba(22,158,214,0.08);border:1px solid rgba(22,158,214,0.2);border-radius:8px;padding:0.5rem 0.75rem;margin-bottom:0.5rem;">
+                🔷 Sending on a supported network
             </div>
 
             <div class="form-group">
@@ -1583,6 +1616,7 @@
     // ── Token state ──────────────────────────────────────────
     let gdBal = 0, celoBal = 0, cusdBal = 0, usdtBal = 0;
     let xdcBal = 0, xdcGdBal = 0;
+    let fuseBal = 0, fuseGdBal = 0;
     let gdUsdPrice = 0;
     let selectedToken = 'GD';
 
@@ -1919,7 +1953,7 @@
         const celoUsdEstimate = (celoBal || 0) * 0.75;
         const stableUsdTotal = (cusdBal || 0) + (usdtBal || 0);
         const convertedToGd = gdUsdPrice > 0 ? (celoUsdEstimate + stableUsdTotal) / gdUsdPrice : 0;
-        const totalGd = (gdBal || 0) + (xdcGdBal || 0) + convertedToGd;
+        const totalGd = (gdBal || 0) + (xdcGdBal || 0) + (fuseGdBal || 0) + convertedToGd;
 
         totalBalanceEl.textContent = fmt(totalGd, 4) + ' G$';
     }
@@ -2262,8 +2296,9 @@
             document.getElementById('gdBal').textContent = 'Error';
         }
 
-        // Also fetch XDC balances in parallel (non-blocking)
+        // Also fetch non-Celo balances in parallel (non-blocking)
         loadXdcBalances();
+        loadFuseBalances();
     }
 
     async function loadXdcBalances() {
@@ -2295,6 +2330,34 @@
         } catch (e) {
             document.getElementById('xdcBal').textContent = '—';
             document.getElementById('xdcGdBal').textContent = '—';
+        }
+    }
+
+    async function loadFuseBalances() {
+        try {
+            const res = await fetch('/api/fuse/balances');
+            const data = await res.json();
+
+            if (data.success && data.fuse && data.fuse.success) {
+                fuseBal = data.fuse.balance || 0;
+                document.getElementById('fuseBal').textContent = fmt(fuseBal, 4) + ' FUSE';
+                document.getElementById('fuseBalSub').textContent = 'For gas fees';
+            } else {
+                document.getElementById('fuseBal').textContent = '0 FUSE';
+            }
+
+            if (data.success && data.gd_balance && data.gd_balance.success) {
+                fuseGdBal = data.gd_balance.balance || 0;
+                document.getElementById('fuseGdBal').textContent = fmt(fuseGdBal, 4) + ' G$';
+                document.getElementById('fuseGdBalSub').textContent = 'GoodDollar on Fuse';
+            } else {
+                document.getElementById('fuseGdBal').textContent = '0 G$';
+                document.getElementById('fuseGdBalSub').textContent = 'GoodDollar on Fuse';
+            }
+            updateTotalBalanceInGd();
+        } catch (e) {
+            document.getElementById('fuseBal').textContent = '—';
+            document.getElementById('fuseGdBal').textContent = '—';
         }
     }
 
@@ -2384,16 +2447,40 @@
     }
 
     // ── Send ─────────────────────────────────────────────────
+    function getSelectedTokenMeta(token = selectedToken) {
+        const map = {
+            GD:      { label: 'G$',      network: 'celo', chainId: 42220, explorer: 'https://explorer.celo.org/mainnet/tx/' },
+            CUSD:    { label: 'cUSD',    network: 'celo', chainId: 42220, explorer: 'https://explorer.celo.org/mainnet/tx/' },
+            USDT:    { label: 'USDT',    network: 'celo', chainId: 42220, explorer: 'https://explorer.celo.org/mainnet/tx/' },
+            CELO:    { label: 'CELO',    network: 'celo', chainId: 42220, explorer: 'https://explorer.celo.org/mainnet/tx/' },
+            XDC_GD:  { label: 'XDC G$',  network: 'xdc',  chainId: 50,    explorer: 'https://xdcscan.io/tx/' },
+            XDC:     { label: 'XDC',     network: 'xdc',  chainId: 50,    explorer: 'https://xdcscan.io/tx/' },
+            FUSE_GD: { label: 'Fuse G$', network: 'fuse', chainId: 122,   explorer: 'https://explorer.fuse.io/tx/' },
+            FUSE:    { label: 'FUSE',    network: 'fuse', chainId: 122,   explorer: 'https://explorer.fuse.io/tx/' },
+        };
+        return map[token] || map.GD;
+    }
+
     function selectToken(token, btn) {
         selectedToken = token;
         document.querySelectorAll('.token-chip').forEach(c => c.classList.remove('active'));
         btn.classList.add('active');
-        const isXdc = token === 'XDC' || token === 'XDC_GD';
-        const label = token === 'GD' ? 'G$' : (token === 'XDC_GD' ? 'XDC G$' : token);
-        document.getElementById('sendTokenLabel').textContent = label;
-        document.getElementById('sendBtn').textContent = `Send ${label}`;
-        document.getElementById('xdcSendNote').style.display = isXdc ? '' : 'none';
-        document.getElementById('sendTo').placeholder = isXdc ? '0x... or xdc...' : '0x...';
+        const meta = getSelectedTokenMeta(token);
+        const networkNote = document.getElementById('networkSendNote');
+        document.getElementById('sendTokenLabel').textContent = meta.label;
+        document.getElementById('sendBtn').textContent = `Send ${meta.label}`;
+        if (meta.network === 'xdc') {
+            networkNote.style.display = '';
+            networkNote.innerHTML = '🔷 Sending on XDC Network — use a <strong>0x</strong> or <strong>xdc</strong> address';
+            document.getElementById('sendTo').placeholder = '0x... or xdc...';
+        } else if (meta.network === 'fuse') {
+            networkNote.style.display = '';
+            networkNote.innerHTML = '🟡 Sending on Fuse Network — use a <strong>0x</strong> address';
+            document.getElementById('sendTo').placeholder = '0x...';
+        } else {
+            networkNote.style.display = 'none';
+            document.getElementById('sendTo').placeholder = '0x...';
+        }
     }
 
     function setMaxSend() {
@@ -2402,6 +2489,8 @@
             CELO: Math.max(0, celoBal - 0.001),
             XDC: Math.max(0, xdcBal - 0.01),
             XDC_GD: xdcGdBal,
+            FUSE: Math.max(0, fuseBal - 0.001),
+            FUSE_GD: fuseGdBal,
         };
         const v = vals[selectedToken] || 0;
         document.getElementById('sendAmount').value = v > 0 ? v.toFixed(6) : '';
@@ -2454,7 +2543,9 @@
         const toAddrRaw = document.getElementById('sendTo').value.trim();
         const amount = document.getElementById('sendAmount').value.trim();
         const btn = document.getElementById('sendBtn');
-        const isXdcToken = selectedToken === 'XDC' || selectedToken === 'XDC_GD';
+        const meta = getSelectedTokenMeta();
+        const isXdcToken = meta.network === 'xdc';
+        const isFuseToken = meta.network === 'fuse';
 
         // Accept both 0x... and xdc... addresses; convert xdc prefix to 0x for validation
         let toAddr = toAddrRaw;
@@ -2480,7 +2571,9 @@
         btn.innerHTML = '<span class="spinner"></span> Sending…';
 
         try {
-            const prepEndpoint = isXdcToken ? '/api/xdc/prepare-send' : '/api/wallet/prepare-send';
+            const prepEndpoint = isXdcToken
+                ? '/api/xdc/prepare-send'
+                : (isFuseToken ? '/api/fuse/prepare-send' : '/api/wallet/prepare-send');
             const prepRes = await fetch(prepEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2509,7 +2602,7 @@
                     throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
                 }
 
-                const targetChainId = Number(txData.chain_id || (isXdcToken ? 50 : 42220));
+                const targetChainId = Number(txData.chain_id || meta.chainId);
                 const isCeloTx = targetChainId === 42220;
                 const miniPay = _isMiniPay() && isCeloTx;
 
@@ -2534,6 +2627,17 @@
                                         nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
                                         rpcUrls: ['https://forno.celo.org'],
                                         blockExplorerUrls: ['https://celoscan.io']
+                                    }]
+                                });
+                            } else if (isFuseToken) {
+                                await provider.request({
+                                    method: 'wallet_addEthereumChain',
+                                    params: [{
+                                        chainId: '0x7a',
+                                        chainName: 'Fuse Mainnet',
+                                        nativeCurrency: { name: 'FUSE', symbol: 'FUSE', decimals: 18 },
+                                        rpcUrls: ['https://rpc.fuse.io'],
+                                        blockExplorerUrls: ['https://explorer.fuse.io']
                                     }]
                                 });
                             } else {
@@ -2604,22 +2708,23 @@
                 throw new Error('Server signing is disabled. Please use your injected wallet / WalletConnect.');
             }
 
-            const explorerUrl = isXdcToken
-                ? `https://xdcscan.io/tx/${txHash}`
-                : `https://explorer.celo.org/mainnet/tx/${txHash}`;
+            const explorerUrl = `${meta.explorer}${txHash}`;
             showAlert('sendAlert', 'alert-success',
                 `✅ Transaction sent! <a style="color:var(--blue);" href="${explorerUrl}" target="_blank" rel="noopener">View ↗</a>`);
             document.getElementById('sendTo').value = '';
             document.getElementById('sendAmount').value = '';
-            setTimeout(() => isXdcToken ? loadXdcBalances() : loadBalances(), 3000);
+            setTimeout(() => {
+                if (isXdcToken) loadXdcBalances();
+                else if (isFuseToken) loadFuseBalances();
+                else loadBalances();
+            }, 3000);
 
         } catch (err) {
             const msg = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.message || 'Transaction failed');
             showAlert('sendAlert', 'alert-error', '❌ ' + msg);
         } finally {
             btn.disabled = false;
-            const label = selectedToken === 'GD' ? 'G$' : (selectedToken === 'XDC_GD' ? 'XDC G$' : selectedToken);
-            btn.textContent = `Send ${label}`;
+            btn.textContent = `Send ${getSelectedTokenMeta().label}`;
         }
     }
 

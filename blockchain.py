@@ -1524,14 +1524,27 @@ SRX_CONTRACT   = os.getenv("SRX_CONTRACT",   "0x17B217490e1c17dD9d41E5c8f3fF7DE1
 XDC_GD_TOKEN    = os.getenv("XDC_GD_TOKEN",   "0xEC2136843a983885AebF2feB3931F73A8eBEe50c")
 XDC_UBI_SCHEME  = os.getenv("XDC_UBI_SCHEME", "0x22867567E2D80f2049200E25C6F31CB6Ec2F0faf")
 XDC_IDENTITY    = os.getenv("XDC_IDENTITY",   "0x27a4a02C9ed591E1a86e2e5D05870292c34622C9")
-XDC_GD_DECIMALS = 18  # G$ on XDC uses 18 decimal places (unlike Fuse/Celo which use 2)
+XDC_GD_DECIMALS = 18  # G$ on XDC uses 18 decimal places.
+
+# GoodDollar on Fuse mainnet. Defaults come from GoodDollar docs; the decimals
+# value is still read from-chain when possible so deployments can override safely.
+FUSE_CHAIN_ID = int(os.getenv("FUSE_CHAIN_ID", "122"))
+FUSE_RPC = os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io")
+FUSE_GD_TOKEN = os.getenv("FUSE_GD_TOKEN", "0x495d133B938596C9984d462F007B676bDc57eCEC")
+FUSE_GD_DECIMALS = int(os.getenv("FUSE_GD_DECIMALS", "2"))
 
 _xdc_w3_singleton = None
 _xdc_w3_lock = threading.Lock()
+_fuse_w3_singleton = None
+_fuse_w3_lock = threading.Lock()
 
 _xdc_balance_cache: dict = {}
 _xdc_balance_cache_lock = threading.Lock()
 XDC_BALANCE_CACHE_TTL = 120  # 2 minutes
+
+_fuse_balance_cache: dict = {}
+_fuse_balance_cache_lock = threading.Lock()
+FUSE_BALANCE_CACHE_TTL = 120  # 2 minutes
 
 
 def _get_xdc_w3():
@@ -1541,6 +1554,15 @@ def _get_xdc_w3():
             from web3 import Web3 as _W3
             _xdc_w3_singleton = _W3(_W3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 10}))
         return _xdc_w3_singleton
+
+
+def _get_fuse_w3():
+    global _fuse_w3_singleton
+    with _fuse_w3_lock:
+        if _fuse_w3_singleton is None or not _fuse_w3_singleton.is_connected():
+            from web3 import Web3 as _W3
+            _fuse_w3_singleton = _W3(_W3.HTTPProvider(FUSE_RPC, request_kwargs={"timeout": 10}))
+        return _fuse_w3_singleton
 
 
 def _normalize_xdc_address(address: str) -> str:
@@ -1630,6 +1652,132 @@ def _get_xdc_token_balance(wallet_address: str, token_contract: str, cache_key: 
 
 def get_xusdt_balance(wallet_address: str) -> dict:
     return _get_xdc_token_balance(wallet_address, XUSDT_CONTRACT, "xusdt")
+
+
+def get_fuse_balance(wallet_address: str) -> dict:
+    """Get native FUSE balance for a wallet address (cached 2 minutes)."""
+    import time
+    key = wallet_address.lower()
+    with _fuse_balance_cache_lock:
+        entry = _fuse_balance_cache.get(key)
+        if entry and entry.get("fuse") and entry["expires_at"] > time.time():
+            return entry["fuse"]
+    try:
+        from web3 import Web3
+        w3 = _get_fuse_w3()
+        checksum = Web3.to_checksum_address(wallet_address)
+        balance_wei = w3.eth.get_balance(checksum)
+        balance_fuse = balance_wei / (10 ** 18)
+        result = {
+            "success": True,
+            "balance": float(balance_fuse),
+            "balance_wei": str(balance_wei),
+            "balance_formatted": f"{balance_fuse:.6f} FUSE",
+            "wallet": wallet_address,
+            "network": "fuse",
+        }
+        with _fuse_balance_cache_lock:
+            existing = _fuse_balance_cache.get(key, {})
+            _fuse_balance_cache[key] = {**existing, "fuse": result, "expires_at": time.time() + FUSE_BALANCE_CACHE_TTL}
+        return result
+    except Exception as e:
+        logger.error(f"FUSE balance error for {wallet_address}: {e}")
+        return {"success": False, "error": str(e), "balance": 0, "balance_formatted": "Error"}
+
+
+def _get_fuse_token_decimals(token_contract: str) -> int:
+    try:
+        from web3 import Web3
+        w3 = _get_fuse_w3()
+        contract = w3.eth.contract(address=Web3.to_checksum_address(token_contract), abi=_XDC_ERC20_ABI)
+        return int(contract.functions.decimals().call())
+    except Exception:
+        return FUSE_GD_DECIMALS
+
+
+def get_fuse_gd_balance(wallet_address: str) -> dict:
+    """Get G$ (GoodDollar) balance on Fuse Network."""
+    import time
+    key = wallet_address.lower()
+    with _fuse_balance_cache_lock:
+        entry = _fuse_balance_cache.get(key)
+        if entry and entry.get("gd") and entry["expires_at"] > time.time():
+            return entry["gd"]
+    try:
+        from web3 import Web3
+        w3 = _get_fuse_w3()
+        checksum = Web3.to_checksum_address(wallet_address)
+        token = Web3.to_checksum_address(FUSE_GD_TOKEN)
+        contract = w3.eth.contract(address=token, abi=_XDC_ERC20_ABI)
+        balance_raw = contract.functions.balanceOf(checksum).call()
+        decimals = _get_fuse_token_decimals(FUSE_GD_TOKEN)
+        balance = balance_raw / (10 ** decimals)
+        result = {
+            "success": True,
+            "balance": float(balance),
+            "balance_raw": str(balance_raw),
+            "decimals": decimals,
+            "token": "G$",
+            "network": "fuse",
+            "wallet": wallet_address,
+            "contract": FUSE_GD_TOKEN,
+        }
+        with _fuse_balance_cache_lock:
+            existing = _fuse_balance_cache.get(key, {})
+            _fuse_balance_cache[key] = {**existing, "gd": result, "expires_at": time.time() + FUSE_BALANCE_CACHE_TTL}
+        return result
+    except Exception as e:
+        logger.error(f"get_fuse_gd_balance error for {wallet_address}: {e}")
+        return {"success": False, "error": str(e), "balance": 0.0}
+
+
+def prepare_fuse_gd_send_data(to_address: str, amount: float) -> dict:
+    """Prepare Fuse G$ ERC-20 transfer calldata."""
+    try:
+        from web3 import Web3
+        from eth_abi import encode as abi_encode
+        to_checksum = Web3.to_checksum_address(to_address)
+        token = Web3.to_checksum_address(FUSE_GD_TOKEN)
+        decimals = _get_fuse_token_decimals(FUSE_GD_TOKEN)
+        amount_raw = int(amount * (10 ** decimals))
+        selector = Web3.keccak(text="transfer(address,uint256)")[:4]
+        encoded_args = abi_encode(["address", "uint256"], [to_checksum, amount_raw])
+        data = "0x" + (selector + encoded_args).hex()
+        return {
+            "success": True,
+            "to": token,
+            "data": data,
+            "value": "0x0",
+            "chain_id": FUSE_CHAIN_ID,
+            "token": "FUSE_GD",
+            "recipient": to_checksum,
+            "amount": amount,
+            "decimals": decimals,
+        }
+    except Exception as e:
+        logger.error(f"prepare_fuse_gd_send_data error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def prepare_fuse_send_data(to_address: str, amount_fuse: float) -> dict:
+    """Prepare native FUSE send transaction parameters."""
+    try:
+        from web3 import Web3
+        to_checksum = Web3.to_checksum_address(to_address)
+        amount_wei = int(amount_fuse * (10 ** 18))
+        return {
+            "success": True,
+            "to": to_checksum,
+            "data": "0x",
+            "value": hex(amount_wei),
+            "chain_id": FUSE_CHAIN_ID,
+            "token": "FUSE",
+            "recipient": to_checksum,
+            "amount": amount_fuse,
+        }
+    except Exception as e:
+        logger.error(f"prepare_fuse_send_data error: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def get_xdc_transfer_history(wallet_address: str, limit: int = 30) -> list:
