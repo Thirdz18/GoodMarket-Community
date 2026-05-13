@@ -1532,6 +1532,7 @@ FUSE_CHAIN_ID = int(os.getenv("FUSE_CHAIN_ID", "122"))
 FUSE_RPC = os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io")
 FUSE_GD_TOKEN = os.getenv("FUSE_GD_TOKEN", "0x495d133B938596C9984d462F007B676bDc57eCEC")
 FUSE_GD_DECIMALS = int(os.getenv("FUSE_GD_DECIMALS", "2"))
+FUSE_UBI_SCHEME = os.getenv("FUSE_UBI_SCHEME", "0xd253A5203817225e9768C05E5996d642fb96bA86")
 
 _xdc_w3_singleton = None
 _xdc_w3_lock = threading.Lock()
@@ -1729,6 +1730,37 @@ def get_fuse_gd_balance(wallet_address: str) -> dict:
     except Exception as e:
         logger.error(f"get_fuse_gd_balance error for {wallet_address}: {e}")
         return {"success": False, "error": str(e), "balance": 0.0}
+
+
+def check_fuse_ubi_entitlement(wallet_address: str) -> dict:
+    """Check how much G$ the wallet can claim on Fuse Network via UBIScheme.checkEntitlement()."""
+    try:
+        from web3 import Web3
+        w3 = _get_fuse_w3()
+        checksum = Web3.to_checksum_address(wallet_address)
+        ubi_addr = Web3.to_checksum_address(FUSE_UBI_SCHEME)
+        abi = [
+            {"inputs":[],"name":"checkEntitlement","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"name":"_account","type":"address"}],"name":"checkEntitlement","outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+        ]
+        contract = w3.eth.contract(address=ubi_addr, abi=abi)
+        try:
+            raw = contract.functions.checkEntitlement(checksum).call()
+        except Exception:
+            raw = contract.functions.checkEntitlement().call({'from': checksum})
+        claimable = raw / (10 ** FUSE_GD_DECIMALS)
+        return {
+            "success": True,
+            "claimable": float(claimable),
+            "claimable_raw": str(raw),
+            "can_claim": claimable > 0,
+            "network": "fuse",
+            "ubi_contract": FUSE_UBI_SCHEME,
+            "chain_id": FUSE_CHAIN_ID,
+        }
+    except Exception as e:
+        logger.error(f"check_fuse_ubi_entitlement error: {e}")
+        return {"success": False, "error": str(e), "claimable": 0.0, "can_claim": False, "network": "fuse"}
 
 
 def prepare_fuse_gd_send_data(to_address: str, amount: float) -> dict:

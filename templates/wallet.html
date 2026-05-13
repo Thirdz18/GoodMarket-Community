@@ -891,6 +891,60 @@
             margin-top: 0.75rem;
             min-height: 1.2em;
         }
+        .claim-network-list {
+            display: grid;
+            gap: 0.55rem;
+            margin: 0.8rem 0 0.65rem;
+        }
+        .claim-network-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.7rem;
+            padding: 0.72rem 0.78rem;
+            border-radius: 13px;
+            background: rgba(255,255,255,0.045);
+            border: 1px solid rgba(255,255,255,0.09);
+            text-align: left;
+        }
+        .claim-network-card.is-recommended {
+            border-color: rgba(95,242,210,0.42);
+            background: linear-gradient(135deg, rgba(95,242,210,0.12), rgba(127,140,255,0.08));
+            box-shadow: 0 0 0 1px rgba(95,242,210,0.08) inset;
+        }
+        .claim-network-card.is-disabled { opacity: 0.62; }
+        .claim-network-main { display: flex; align-items: center; gap: 0.58rem; min-width: 0; }
+        .claim-network-icon {
+            width: 34px; height: 34px;
+            border-radius: 999px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.08);
+            flex: 0 0 auto;
+            font-weight: 800;
+        }
+        .claim-network-name { font-size: 0.84rem; font-weight: 800; color: #fff; }
+        .claim-network-hint { font-size: 0.68rem; color: var(--text-muted); line-height: 1.35; margin-top: 0.12rem; }
+        .claim-network-status {
+            flex: 0 0 auto;
+            border-radius: 999px;
+            padding: 0.22rem 0.52rem;
+            font-size: 0.64rem;
+            font-weight: 800;
+            white-space: nowrap;
+            background: rgba(255,255,255,0.08);
+            color: var(--text-dim);
+        }
+        .claim-network-status.available { background: rgba(0,230,118,0.12); color: #86efac; }
+        .claim-network-status.claimed { background: rgba(255,255,255,0.07); color: rgba(232,234,246,0.55); }
+        .claim-network-status.warning { background: rgba(251,191,36,0.12); color: #fde68a; }
+        .claim-wallet-note {
+            margin: 0.1rem 0 0.75rem;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            line-height: 1.45;
+            text-align: center;
+        }
+
         .ubi-pool-row {
             display: flex;
             align-items: center;
@@ -1129,7 +1183,7 @@
     {% include "_security_banner.html" %}
     {% include "_claim_celebration.html" %}
     <div id="walletReminderBanner" class="wallet-reminder-banner hidden">
-        ✅ MetaMask mobile and MetaMask desktop users can now claim both Celo G$ and XDC G$ in one unified flow. After a successful Celo claim, please wait at least 3 seconds so the Signer Network step for XDC can appear automatically.
+        ✅ GoodMarket now checks Celo, Fuse, and XDC availability and recommends the next compatible unclaimed network. MiniPay remains Celo-only; Fuse/XDC are for MetaMask or compatible WalletConnect users.
     </div>
     <div id="walletDashboardFVMsg" class="alert alert-info" style="display:none;margin:0.9rem 1rem 0;padding:0.75rem 0.9rem;text-align:center;border-radius:12px;">
         Please click <strong>Claim G$</strong> button to start your face verification to start G$ daily claiming and using GoodMarket full features.
@@ -1387,12 +1441,26 @@
     <div class="modal-overlay" id="claimModal">
         <div class="modal-sheet">
             <div class="modal-handle"></div>
-            <div class="modal-title">🪙 Claim Daily G$</div>
+            <div class="modal-title">🪙 Available G$ Claims</div>
 
             <div class="ubi-pool-row">
-                <span class="ubi-pool-label">UBI Pool Balance</span>
+                <span class="ubi-pool-label">Celo UBI Pool Balance</span>
                 <span class="ubi-pool-value" id="ubiPoolBalance">Loading...</span>
             </div>
+
+            <div class="claim-network-list" id="claimNetworkList" aria-live="polite">
+                <div class="claim-network-card">
+                    <div class="claim-network-main">
+                        <div class="claim-network-icon">⏳</div>
+                        <div>
+                            <div class="claim-network-name">Checking networks…</div>
+                            <div class="claim-network-hint">Looking for any network you have not claimed yet.</div>
+                        </div>
+                    </div>
+                    <div class="claim-network-status">Loading</div>
+                </div>
+            </div>
+            <div class="claim-wallet-note" id="claimWalletNote">MiniPay is Celo-only. Fuse/XDC are shown only for MetaMask or compatible WalletConnect users.</div>
 
             <button id="ubiClaimBtn" onclick="doUbiClaim()" class="btn-primary">
                 <span id="ubiClaimIcon">⏳</span>
@@ -1424,11 +1492,11 @@
                 <div style="font-size:0.68rem;color:var(--text-muted);">⏰ Claimable daily</div>
             </div>
 
-            <!-- XDC Claim link -->
-            <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:1.1rem;padding-top:0.9rem;text-align:center;">
-                <a href="/xdc-wallet" style="display:inline-flex;align-items:center;gap:0.4rem;color:#a78bfa;font-size:0.82rem;font-weight:600;text-decoration:none;">
+            <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:1.1rem;padding-top:0.9rem;text-align:center;color:var(--text-muted);font-size:0.72rem;line-height:1.45;">
+                XDC remains available as an advanced route for wallets that support XDC prompts.
+                <a href="/xdc-wallet" style="display:inline-flex;align-items:center;gap:0.4rem;color:#a78bfa;font-size:0.82rem;font-weight:600;text-decoration:none;margin-top:0.35rem;">
                     <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="7" fill="rgba(124,58,237,0.25)"/><text x="7" y="10.5" text-anchor="middle" font-size="6.5" fill="#a78bfa" font-weight="900" font-family="Inter,sans-serif">XDC</text></svg>
-                    Claim G$ on XDC Network →
+                    Open XDC claim page →
                 </a>
             </div>
 
@@ -2732,12 +2800,16 @@
     (function() {
         const UBI_CONTRACT  = '0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1';
         const XDC_UBI_CONTRACT = '0x22867567E2D80f2049200E25C6F31CB6Ec2F0faf';
+        const FUSE_UBI_CONTRACT = '0xd253A5203817225e9768C05E5996d642fb96bA86';
         const XDC_CHAIN_ID_HEX = '0x32';
+        const FUSE_CHAIN_ID_HEX = '0x7a';
         const CELO_CHAIN_ID_HEX = '0xa4ec';
         const CLAIM_DATA    = '0x4e71d92d';
         const SESSION_WALLET = WALLET.toLowerCase();
         let claimed = false;
         let needsVerification = false;
+        let claimAvailability = null;
+        let recommendedClaimNetwork = 'celo';
         window._walletNeedsFV = false;
         let _countdownInterval = null;
 
@@ -2760,7 +2832,7 @@
 
             // Match labels that mean "ready to claim now":
             //   "Claim G$"
-            //   "Claim 99 G$ (Celo + XDC)"
+            //   "Claim 99 G$ on Celo"
             // Reject in-progress / done / verify-needed labels.
             const HOT_LABEL_RE  = /^\s*claim\s/i;
             const COLD_LABEL_RE = /(verify|checking|preparing|confirming|claimed|already|loading|wait)/i;
@@ -2834,6 +2906,12 @@
             'https://forno.celo.org',
             'https://rpc.ankr.com/celo',
             'https://1rpc.io/celo'
+        ];
+
+        const FUSE_RPC_URLS = [
+            'https://rpc.fuse.io',
+            'https://fuse-mainnet.chainstacklabs.com',
+            'https://fuse-pokt.nodies.app'
         ];
 
         // Detects a JSON-parse / HTML-response error bubbling up from the
@@ -2941,6 +3019,59 @@
             }
         }
 
+
+
+        async function claimFuseInjected(provider, from) {
+            const currentChain = await provider.request({ method: 'eth_chainId' });
+            const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
+            if (normalizedCurrentChain !== FUSE_CHAIN_ID_HEX) {
+                try {
+                    await provider.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: FUSE_CHAIN_ID_HEX }]
+                    });
+                } catch (switchErr) {
+                    if (switchErr && switchErr.code === 4001) {
+                        throw new Error('Fuse network switch was cancelled.');
+                    }
+                    if (switchErr && switchErr.code !== 4902) {
+                        throw new Error(switchErr.message || 'Could not switch to Fuse network.');
+                    }
+                    try {
+                        await provider.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: FUSE_CHAIN_ID_HEX,
+                                chainName: 'Fuse Mainnet',
+                                rpcUrls: FUSE_RPC_URLS.slice(),
+                                nativeCurrency: { name: 'FUSE', symbol: 'FUSE', decimals: 18 },
+                                blockExplorerUrls: ['https://explorer.fuse.io']
+                            }]
+                        });
+                    } catch (addErr) {
+                        if (addErr && addErr.code === 4001) {
+                            throw new Error('Adding Fuse network was cancelled.');
+                        }
+                        throw new Error((addErr && addErr.message) || 'Could not add Fuse network.');
+                    }
+                }
+            }
+
+            const sendFuseTx = () => provider.request({
+                method: 'eth_sendTransaction',
+                params: [{ from, to: FUSE_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
+            });
+
+            try {
+                return await sendFuseTx();
+            } catch (sendErr) {
+                if (_isUserRejectedError(sendErr)) throw sendErr;
+                if (!_isRpcHtmlError(sendErr)) throw sendErr;
+                await new Promise(r => setTimeout(r, 3500));
+                return await sendFuseTx();
+            }
+        }
+
         // Mirror of claimXdcInjected for the Celo claim. Same shape: chain
         // check → switch → add (with multi-RPC fallback for the wallet's
         // own JSON-RPC) → send tx → one-shot retry on transient HTML/parser
@@ -3039,6 +3170,126 @@
             if (rv) rv.style.display = 'none';
         }
 
+
+
+        function getClaimWalletCapabilities() {
+            const login = '{{ login_method }}'.toLowerCase();
+            const provider = _getEthProvider && _getEthProvider();
+            const isMiniPay = _isMiniPay();
+            const isWalletConnect = ['walletconnect', 'manual', 'manual_address'].includes(login) || !!(provider && provider.isWalletConnect);
+            const isMetaMask = !!(provider && provider.isMetaMask) || !!(window.ethereum && window.ethereum.isMetaMask);
+            const isTrustWallet = _isTrustWalletMobileContext && _isTrustWalletMobileContext();
+            const hasInjected = !!provider || !!window.ethereum;
+            const supportsFuse = !isMiniPay && !isTrustWallet && (isMetaMask || isWalletConnect || hasInjected);
+            const supportsXdc = !isMiniPay && !isTrustWallet && (isMetaMask || isWalletConnect);
+            return { isMiniPay, isWalletConnect, isMetaMask, isTrustWallet, hasInjected, supportsFuse, supportsXdc };
+        }
+
+        function claimNetworkStatusHtml(network, info, caps) {
+            const meta = {
+                celo: { icon: '🟢', name: 'Celo', hint: 'Works for MiniPay, MetaMask, WalletConnect and most injected wallets.' },
+                fuse: { icon: '🔥', name: 'Fuse', hint: 'Shown for MetaMask/injected and compatible WalletConnect users only.' },
+                xdc:  { icon: '💠', name: 'XDC',  hint: 'Advanced route; best with wallets that reliably support XDC network prompts.' },
+            }[network];
+            const canClaim = !!(info && info.can_claim);
+            const supported = network === 'celo' || (network === 'fuse' ? caps.supportsFuse : caps.supportsXdc);
+            const amount = info && (info.claimable_formatted || info.entitlement_formatted || (info.claimable ? Number(info.claimable).toFixed(2) : '0.00'));
+            let statusText = 'Claimed';
+            let statusClass = 'claimed';
+            let hint = meta.hint;
+            if (canClaim && supported) {
+                statusText = `${amount} G$`;
+                statusClass = 'available';
+                hint = 'Available to claim now on this wallet.';
+            } else if (canClaim && !supported) {
+                statusText = 'Use compatible wallet';
+                statusClass = 'warning';
+                hint = caps.isMiniPay
+                    ? 'MiniPay is Celo-only, so this network is hidden from the primary claim button.'
+                    : 'Use MetaMask or a compatible WalletConnect wallet for this network.';
+            } else if (info && info.success === false) {
+                statusText = 'Unavailable';
+                statusClass = 'warning';
+                hint = info.error || 'Could not check this network right now.';
+            }
+            const recommended = network === recommendedClaimNetwork && canClaim && supported;
+            return `
+                <div class="claim-network-card ${recommended ? 'is-recommended' : ''} ${supported ? '' : 'is-disabled'}">
+                    <div class="claim-network-main">
+                        <div class="claim-network-icon">${meta.icon}</div>
+                        <div>
+                            <div class="claim-network-name">${meta.name}</div>
+                            <div class="claim-network-hint">${hint}</div>
+                        </div>
+                    </div>
+                    <div class="claim-network-status ${statusClass}">${statusText}</div>
+                </div>`;
+        }
+
+        function renderClaimNetworks() {
+            const list = document.getElementById('claimNetworkList');
+            const note = document.getElementById('claimWalletNote');
+            if (!list || !claimAvailability) return;
+            const caps = getClaimWalletCapabilities();
+            const claims = claimAvailability.claims || {};
+            list.innerHTML = ['celo', 'fuse', 'xdc'].map(n => claimNetworkStatusHtml(n, claims[n] || {}, caps)).join('');
+            if (note) {
+                if (caps.isMiniPay) {
+                    note.textContent = 'MiniPay is Celo-only. Fuse and XDC claims require MetaMask or a compatible WalletConnect wallet.';
+                } else if (caps.isTrustWallet) {
+                    note.textContent = 'Trust Wallet network prompts can be unreliable for Fuse/XDC. Use MetaMask or compatible WalletConnect for those networks.';
+                } else {
+                    note.textContent = 'GoodMarket recommends the first unclaimed network your wallet can safely claim.';
+                }
+            }
+        }
+
+        function pickRecommendedClaimNetwork() {
+            const caps = getClaimWalletCapabilities();
+            const claims = (claimAvailability && claimAvailability.claims) || {};
+            if (claims.celo && claims.celo.can_claim) return 'celo';
+            if (!caps.isMiniPay && caps.supportsFuse && claims.fuse && claims.fuse.can_claim) return 'fuse';
+            if (!caps.isMiniPay && caps.supportsXdc && claims.xdc && claims.xdc.can_claim) return 'xdc';
+            return caps.isMiniPay ? 'celo' : null;
+        }
+
+        function applyClaimAvailabilityData(data) {
+            claimAvailability = data;
+            const claims = data.claims || {};
+            recommendedClaimNetwork = pickRecommendedClaimNetwork();
+            applyEntitlementData(claims.celo || data);
+            renderClaimNetworks();
+
+            if (needsVerification) return;
+            const caps = getClaimWalletCapabilities();
+            if (recommendedClaimNetwork === 'fuse') {
+                const amt = claims.fuse && claims.fuse.claimable_formatted ? claims.fuse.claimable_formatted : 'G$';
+                label.textContent = `Claim ${amt} G$ on Fuse`;
+                icon.textContent = '🔥';
+                btn.disabled = false;
+                setStatus('Fuse claim is available. GoodMarket will switch your wallet to Fuse when you tap claim.', 'var(--green)');
+            } else if (recommendedClaimNetwork === 'xdc') {
+                const amt = claims.xdc && claims.xdc.claimable_formatted ? claims.xdc.claimable_formatted : 'G$';
+                label.textContent = `Claim ${amt} G$ on XDC`;
+                icon.textContent = '💠';
+                btn.disabled = false;
+                setStatus('XDC claim is available for this wallet. Approve the XDC network prompt to continue.', 'var(--green)');
+            } else if (!recommendedClaimNetwork) {
+                const hasUnsupported = ['fuse', 'xdc'].some(n => claims[n] && claims[n].can_claim);
+                if (hasUnsupported) {
+                    label.textContent = 'Use MetaMask / WalletConnect';
+                    icon.textContent = '⚠️';
+                    btn.disabled = true;
+                    setStatus('You still have a claim on another network, but this wallet cannot safely prompt it.', '#fbbf24');
+                } else if (!claims.celo || !claims.celo.can_claim) {
+                    label.textContent = 'Already Claimed Today';
+                    icon.textContent = '✅';
+                    btn.disabled = true;
+                }
+            }
+            renderClaimNetworks();
+        }
+
         function applyEntitlementData(d) {
             const needsVerify = d.success && (d.reason === 'not_verified' || d.reason === 're_verification_needed');
             const isReverify  = d.reason === 're_verification_needed';
@@ -3061,7 +3312,7 @@
                 _hideReVerifyHint();
                 needsVerification = false;
                 window._walletNeedsFV = false;
-                label.textContent = 'Claim ' + d.entitlement_formatted + ' G$ (Celo + XDC)';
+                label.textContent = 'Claim ' + d.entitlement_formatted + ' G$ on Celo';
                 icon.textContent = '🪙';
                 btn.style.background = '';
                 btn.disabled = false;
@@ -3106,7 +3357,7 @@
             // Always force-bypass the backend cache on the first check.
             // Stale cache (up to 3 min) caused "Already Claimed Today" to appear for
             // wallets whose face-verification status had just changed.
-            fetch('/api/ubi-entitlement?force=1', { cache: 'no-store' })
+            fetch('/api/claim/availability?force=1', { cache: 'no-store' })
                 .then(r => r.json())
                 .then(d => {
                     // Guard: if the session wallet changed (user switched wallets),
@@ -3116,7 +3367,11 @@
                         window.location.reload();
                         return;
                     }
-                    applyEntitlementData(d);
+                    if (d.claims) {
+                        applyClaimAvailabilityData(d);
+                    } else {
+                        applyEntitlementData(d);
+                    }
                 })
                 .catch(() => { label.textContent = 'Claim G$'; icon.textContent = '🪙'; btn.disabled = false; });
         }
@@ -3146,7 +3401,7 @@
                         setStatus('Success! G$ sent to your wallet.', 'var(--green)');
                         logGoodMarketClaim(txHash, 'celo', 'confirmed');
                         startCountdown();
-                        setTimeout(() => loadBalances(), 4000);
+                        setTimeout(() => { loadBalances(); fetchEntitlement(); }, 4000);
                         try { window.showClaimCelebration && window.showClaimCelebration({ networks: ['celo'] }); } catch (_) {}
                     } else {
                         btn.disabled = false; label.textContent = 'Claim G$'; icon.textContent = '🪙';
@@ -3909,6 +4164,119 @@
             throw new Error((postFaucet && postFaucet.error) || 'XDC gas top-up did not arrive in time. Please retry shortly.');
         }
 
+        async function pollForFuseGasArrival(maxDurationMs = 150000) {
+            const correlationId = window.__claimFuseFaucetCorrelationId || `fuseclaim-${Date.now().toString(36)}`;
+            const startedAt = Date.now();
+            const backoffSchedule = [3000, 5000, 7000, 9000, 11000, 13000, 15000];
+            let attempt = 0;
+
+            while ((Date.now() - startedAt) < maxDurationMs) {
+                const delay = backoffSchedule[Math.min(attempt, backoffSchedule.length - 1)];
+                await new Promise(resolve => setTimeout(resolve, delay));
+                attempt += 1;
+
+                let statusData;
+                try {
+                    statusData = await _safeFetchJson('/api/fuse/faucet/gas', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                        body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: false })
+                    });
+                } catch (fetchErr) {
+                    if (_isXdcRpcHtmlError(fetchErr)) {
+                        setClaimGasUiState('waiting_credit');
+                        continue;
+                    }
+                    throw fetchErr;
+                }
+                if (statusData.success && statusData.gas_ready) {
+                    return { gasReady: true, statusData };
+                }
+                if (statusData.success && statusData.status === 'recent_refill' && !statusData.gas_ready) {
+                    const cooldown = Number(statusData.recent_refill_cooldown_seconds || 0);
+                    return {
+                        gasReady: false,
+                        stopPolling: true,
+                        error: `Fuse gas refill cooldown active (${cooldown}s remaining). Please wait and retry.`
+                    };
+                }
+                setClaimGasUiState('waiting_credit');
+            }
+            return {
+                gasReady: false,
+                stopPolling: true,
+                error: 'Fuse gas did not arrive after extended checks. Please retry in a minute.'
+            };
+        }
+
+        async function ensureFuseGasReadyBeforeClaim(options = {}) {
+            const forceOnchain = !!options.forceOnchain;
+            const correlationId = `fuseclaim-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            window.__claimFuseFaucetCorrelationId = correlationId;
+            setClaimGasUiState('checking_balance');
+
+            const requestFuseFaucetGas = async (forceFlag) => {
+                const gasData = await _safeFetchJson('/api/fuse/faucet/gas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
+                    body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: !!forceFlag })
+                });
+                return {
+                    gasData,
+                    terminal: gasData.terminal_status || gasData.status
+                };
+            };
+
+            setClaimGasUiState('requesting_faucet');
+            let { gasData, terminal } = await requestFuseFaucetGas(forceOnchain);
+
+            if (gasData.gas_ready) {
+                setClaimGasUiState('gas_ready');
+                return {
+                    gasReady: true,
+                    toppedUp: !!gasData.topped_up,
+                    source: gasData.topup_source || 'wallet_balance'
+                };
+            }
+
+            if (terminal === 'recent_refill' && !gasData.gas_ready) {
+                const cooldownSeconds = Number(gasData.recent_refill_cooldown_seconds || 0);
+                const errorMsg = `Fuse gas refill cooldown active. Please wait ${cooldownSeconds}s before retrying.`;
+
+                if (window.appendStatusLine) {
+                    appendStatusLine(`Cooldown: ${cooldownSeconds}s remaining`);
+                    let remaining = cooldownSeconds;
+                    const countdownInterval = setInterval(() => {
+                        remaining--;
+                        if (remaining > 0) {
+                            appendStatusLine(`Cooldown: ${remaining}s remaining`, true);
+                        } else {
+                            clearInterval(countdownInterval);
+                            appendStatusLine('Cooldown expired. You can retry now.', true);
+                        }
+                    }, 1000);
+                }
+
+                throw new Error(errorMsg);
+            }
+
+            if (
+                (terminal === 'onchain_failed' || terminal === 'not_configured' || terminal === 'api_failed') &&
+                !gasData.gas_ready
+            ) {
+                throw new Error(
+                    `${gasData.error || gasData.reason || 'Fuse gas top-up failed.'} Please retry shortly.`
+                );
+            }
+
+            const postFaucet = await pollForFuseGasArrival(150000);
+            if (postFaucet && postFaucet.gasReady) {
+                setClaimGasUiState('gas_ready');
+                return { gasReady: true, toppedUp: true, source: gasData.topup_source || 'faucet' };
+            }
+            throw new Error((postFaucet && postFaucet.error) || 'Fuse gas top-up did not arrive in time. Please retry shortly.');
+        }
+
         async function ensureInjectedWalletClaim() {
             const isInsufficientFundsError = (err) => {
                 const raw = String(
@@ -4141,36 +4509,7 @@
                 logGoodMarketClaim(txHash, 'celo', 'submitted');
                 pollReceipt(txHash, 20);
 
-                appendStatusLine('⏳ Attempting XDC claim…', '#60a5fa');
-                try {
-                    // Mirror of the Celo gas pre-flight: top up XDC gas via
-                    // the server-side faucet BEFORE asking the wallet to
-                    // sign/send the XDC claim tx. Without this, users with
-                    // 0 XDC silently failed here and had to detour through
-                    // the standalone "Claim G$ on XDC Network →" page just
-                    // to top up gas.
-                    appendStatusLine('⛽ Checking XDC gas…', 'var(--text-dim)');
-                    await ensureXdcGasReadyBeforeClaim();
-
-                    const xdcTxHash = await claimXdcInjected(provider, from);
-                    logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
-                    appendStatusLine(
-                        `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
-                        '#86efac'
-                    );
-                    try { window.showClaimCelebration && window.showClaimCelebration({ networks: ['xdc'] }); } catch (_) {}
-                } catch (xdcErr) {
-                    const rawXdc = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
-                    let xdcMsg;
-                    if ((rawXdc || '').toLowerCase().includes('user rejected')) {
-                        xdcMsg = 'XDC transaction cancelled.';
-                    } else if (_isXdcRpcHtmlError(xdcErr)) {
-                        xdcMsg = 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.';
-                    } else {
-                        xdcMsg = rawXdc;
-                    }
-                    appendStatusLine('⚠️ ' + xdcMsg, '#fbbf24');
-                }
+                appendStatusLine('ℹ️ Other network claims will appear here after Celo confirms — no automatic Fuse/XDC prompt.', 'var(--text-dim)');
             } catch (err) {
                 console.warn('[claim] Celo claim error:', err);
                 const raw = (err && (err.shortMessage || err.message)) || 'Claim failed';
@@ -4187,64 +4526,14 @@
                     msg = raw;
                 }
 
-                // Show the CELO failure reason FIRST so users understand why,
-                // before any XDC fallback is attempted.
+                // Show the CELO failure reason without auto-prompting another network;
+                // the network cards above expose any remaining Fuse/XDC claim manually.
                 appendStatusLine('❌ Celo claim failed: ' + msg, 'var(--red)');
 
-                // Skip XDC fallback when the failure is something XDC cannot
-                // resolve and would only confuse the user with a second wallet
-                // prompt:
-                //   - User explicitly cancelled the CELO transaction.
-                //   - Wallet mismatch (wrong account connected).
-                // For genuine CELO-only issues (already claimed on Celo,
-                // contract revert, transient RPC errors) we still try XDC
-                // because XDC is an independent chain/contract — the user
-                // may still be entitled there.
-                const skipXdcFallback = userRejected || wrongWallet;
-                if (skipXdcFallback) {
-                    btn.disabled = false;
-                    label.textContent = 'Claim G$';
-                    icon.textContent = '🪙';
-                } else {
-                    appendStatusLine('⏳ Trying XDC claim on the other chain…', '#60a5fa');
-                    try {
-                        const accounts = await provider.request({ method: 'eth_requestAccounts' });
-                        if (accounts && accounts.length) {
-                            const from = accounts[0];
-                            if (from.toLowerCase() === WALLET.toLowerCase()) {
-                                // Same XDC gas pre-flight as the success path
-                                // above. Without this, the XDC fallback after
-                                // a Celo failure also silently fails when the
-                                // user has 0 XDC, forcing them to the
-                                // standalone XDC page.
-                                appendStatusLine('⛽ Checking XDC gas…', 'var(--text-dim)');
-                                await ensureXdcGasReadyBeforeClaim();
-
-                                const xdcTxHash = await claimXdcInjected(provider, from);
-                                logGoodMarketClaim(xdcTxHash, 'xdc', 'submitted');
-                                appendStatusLine(
-                                    `✅ XDC claim submitted: <a href="https://xdcscan.com/tx/${xdcTxHash}" target="_blank" rel="noopener" style="color:#86efac;">${xdcTxHash.slice(0, 10)}...${xdcTxHash.slice(-6)}</a>`,
-                                    '#86efac'
-                                );
-                                try { window.showClaimCelebration && window.showClaimCelebration({ networks: ['xdc'] }); } catch (_) {}
-                            }
-                        }
-                    } catch (xdcErr) {
-                        if (_isUserRejectedError(xdcErr)) {
-                            appendStatusLine('⚠️ XDC claim cancelled.', '#fbbf24');
-                        } else {
-                            const xdcRaw = (xdcErr && (xdcErr.shortMessage || xdcErr.message)) || 'XDC claim failed';
-                            const xdcDisplay = _isXdcRpcHtmlError(xdcErr)
-                                ? 'XDC network is temporarily busy (RPC returned a non-JSON response). Please retry your XDC claim in 30–60 seconds.'
-                                : xdcRaw;
-                            appendStatusLine('❌ ' + xdcDisplay, 'var(--red)');
-                        }
-                    } finally {
-                        btn.disabled = false;
-                        label.textContent = 'Claim G$';
-                        icon.textContent = '🪙';
-                    }
-                }
+                btn.disabled = false;
+                label.textContent = 'Claim G$';
+                icon.textContent = '🪙';
+                appendStatusLine('ℹ️ Check the network cards above for any remaining Fuse/XDC claim.', 'var(--text-dim)');
             }
         }
 
@@ -4267,9 +4556,83 @@
             } catch (_e) { /* sessionStorage may be unavailable; fail silent */ }
         }
 
+
+        async function getClaimProviderAndFrom() {
+            let provider = await _vAwaitEthProvider();
+            if (!provider) provider = await _walletGetWcProviderIfPreferred();
+            if (!provider) throw new Error('No wallet detected. Open in MetaMask or sign in again with WalletConnect.');
+            const accounts = await provider.request({ method: 'eth_requestAccounts' });
+            if (!accounts || !accounts.length) throw new Error('No wallet account available.');
+            const from = accounts[0];
+            if (from.toLowerCase() !== WALLET.toLowerCase()) {
+                throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+            }
+            return { provider, from };
+        }
+
+        async function executeNetworkClaim(network) {
+            const caps = getClaimWalletCapabilities();
+            if (network === 'fuse' && !caps.supportsFuse) {
+                setStatus('Fuse claiming needs MetaMask or a compatible WalletConnect wallet.', '#fbbf24');
+                return;
+            }
+            if (network === 'xdc' && !caps.supportsXdc) {
+                setStatus('XDC claiming needs MetaMask or a compatible WalletConnect wallet.', '#fbbf24');
+                return;
+            }
+
+            btn.disabled = true;
+            icon.textContent = network === 'fuse' ? '🔥' : '💠';
+            label.textContent = network === 'fuse' ? 'Claiming on Fuse…' : 'Claiming on XDC…';
+            setStatus(`Connecting wallet for ${network.toUpperCase()} claim…`, 'var(--text-dim)');
+
+            try {
+                const { provider, from } = await getClaimProviderAndFrom();
+                if (network === 'xdc') {
+                    setStatus('Checking XDC gas…', 'var(--text-dim)');
+                    await ensureXdcGasReadyBeforeClaim();
+                } else if (network === 'fuse') {
+                    setStatus('Checking Fuse gas…', 'var(--text-dim)');
+                    await ensureFuseGasReadyBeforeClaim();
+                }
+
+                const txHash = network === 'fuse'
+                    ? await claimFuseInjected(provider, from)
+                    : await claimXdcInjected(provider, from);
+                logGoodMarketClaim(txHash, network, 'submitted');
+                const explorer = network === 'fuse' ? 'https://explorer.fuse.io/tx/' : 'https://xdcscan.com/tx/';
+                setStatus(
+                    `✅ ${network.toUpperCase()} claim submitted: <a href="${explorer}${txHash}" target="_blank" rel="noopener" style="color:#86efac;">${txHash.slice(0, 10)}...${txHash.slice(-6)}</a>`,
+                    'var(--green)'
+                );
+                try { window.showClaimCelebration && window.showClaimCelebration({ networks: [network] }); } catch (_) {}
+                setTimeout(() => {
+                    if (network === 'fuse' && typeof loadFuseBalances === 'function') loadFuseBalances();
+                    if (network === 'xdc' && typeof loadXdcBalances === 'function') loadXdcBalances();
+                    fetchEntitlement();
+                }, 4000);
+            } catch (err) {
+                const raw = (err && (err.shortMessage || err.message)) || `${network.toUpperCase()} claim failed`;
+                const msg = _isUserRejectedError(err)
+                    ? `${network.toUpperCase()} transaction cancelled.`
+                    : (_isRpcHtmlError(err)
+                        ? `${network.toUpperCase()} network is temporarily busy. Please retry in 30–60 seconds.`
+                        : ((window.GMTxError && GMTxError.format) ? GMTxError.format(err) : raw));
+                setStatus('❌ ' + msg, 'var(--red)');
+                btn.disabled = false;
+                label.textContent = network === 'fuse' ? 'Retry Fuse Claim' : 'Retry XDC Claim';
+            }
+        }
+
         window.doUbiClaim = async function() {
-            if (claimed || btn.disabled) return;
+            if (btn.disabled) return;
+            recommendedClaimNetwork = pickRecommendedClaimNetwork() || recommendedClaimNetwork;
+            if (claimed && recommendedClaimNetwork === 'celo') return;
             if (needsVerification) { startFV(); return; }
+            if (recommendedClaimNetwork === 'fuse' || recommendedClaimNetwork === 'xdc') {
+                await executeNetworkClaim(recommendedClaimNetwork);
+                return;
+            }
 
             showCeloBalanceWarningOnce();
 
