@@ -82,7 +82,7 @@ Configure these GoodMarket environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `SUPPORT_DESK_BASE_URL` | Base URL of the deployed GIMT Support Desk app, for example `https://support.example.com`. Do not include a trailing slash. |
+| `SUPPORT_DESK_BASE_URL` | Base URL of the deployed GIMT Support Desk app, for example `https://support.example.com`. A full `https://support.example.com/api/goodmarket/support-tickets` endpoint URL is also accepted. |
 | `GOODMARKET_SUPPORT_API_SECRET` | Shared secret sent as `Authorization: Bearer <secret>` from the GoodMarket backend to the support-desk backend. Never expose this in client-side code. |
 
 The GIMT Support Desk repo must provide this receiving endpoint before production ticket creation will work:
@@ -108,7 +108,7 @@ If either GoodMarket env var is missing, or the support-desk endpoint is unavail
 
 ### Which values should I use?
 
-- `SUPPORT_DESK_BASE_URL`: use the public deployed base URL of the GIMT Support Desk backend, such as `https://gimt-support.example.com`. GoodMarket automatically appends `/api/goodmarket/support-tickets`.
+- `SUPPORT_DESK_BASE_URL`: use the public deployed base URL of the GIMT Support Desk backend, such as `https://gimt-support.example.com`. GoodMarket automatically appends `/api/goodmarket/support-tickets`; if you already entered the full `/api/goodmarket/support-tickets` endpoint URL, GoodMarket will use it as-is instead of appending the path twice.
 - `GOODMARKET_SUPPORT_API_SECRET`: create your own long random shared secret (for example with `openssl rand -hex 32`) and put the same value in GoodMarket and in the GIMT Support Desk backend's verification config. This is **not** the Supabase anon key.
 - Do **not** put Supabase service-role keys in GoodMarket browser code. GoodMarket does not need the support desk Supabase keys for this integration; only the GIMT Support Desk backend should use its own Supabase credentials to write `support_tickets`, `support_ticket_messages`, and `support_ticket_events`.
 - If you need GoodMarket's existing `SUPABASE_ANON_KEY` for other app features, get it from Supabase Dashboard → Project Settings → API → Project API keys → `anon public`. That key is separate from `GOODMARKET_SUPPORT_API_SECRET` and is not the support-ticket bearer token.

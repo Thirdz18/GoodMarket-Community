@@ -110,18 +110,32 @@ def _is_valid_support_url(value):
         return False
 
 
+def _support_desk_ticket_endpoint(support_base_url):
+    """Return the support-desk ticket endpoint from a base URL or full endpoint URL."""
+    cleaned = (support_base_url or "").strip().rstrip("/")
+    endpoint_path = "/api/goodmarket/support-tickets"
+    parsed = urllib.parse.urlparse(cleaned)
+    normalized_path = parsed.path.rstrip("/")
+    if normalized_path.endswith(endpoint_path):
+        return cleaned
+    return f"{cleaned}{endpoint_path}"
+
+
 def _support_session_user(payload):
     """Build the external user identity from the verified session plus safe fallbacks."""
     submitted_user = payload.get("user") if isinstance(payload.get("user"), dict) else {}
     wallet = (session.get("wallet") or session.get("wallet_address") or "").strip()
     verified = bool(session.get("verified") or session.get("ubi_verified"))
 
-    user_id = wallet if wallet and verified else _clean_support_string(submitted_user.get("id"), 120)
+    user_email = _clean_support_string(submitted_user.get("email"), SUPPORT_FIELD_LIMITS["email"])
+    user_id = wallet if wallet and verified else (
+        _clean_support_string(submitted_user.get("id"), 120)
+        or (f"guest:{user_email.lower()}" if user_email else "")
+    )
     user_name = (
         _clean_support_string(session.get("username"), SUPPORT_FIELD_LIMITS["name"])
         or _clean_support_string(submitted_user.get("name"), SUPPORT_FIELD_LIMITS["name"])
     )
-    user_email = _clean_support_string(submitted_user.get("email"), SUPPORT_FIELD_LIMITS["email"])
     return {
         "id": user_id,
         "name": user_name,
@@ -1651,7 +1665,7 @@ def create_support_ticket():
         "attachmentUrl": attachment_url,
     }
 
-    endpoint = f"{support_base_url}/api/goodmarket/support-tickets"
+    endpoint = _support_desk_ticket_endpoint(support_base_url)
     request_data = json.dumps(forwarded_body).encode("utf-8")
     outbound_request = urllib.request.Request(
         endpoint,
