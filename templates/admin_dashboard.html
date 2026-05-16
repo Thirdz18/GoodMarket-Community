@@ -661,12 +661,6 @@
                     </a>
                 </li>
                 <li class="menu-item">
-                    <a class="menu-link" onclick="showSection('goodmarket-verified-section')">
-                        <span class="menu-icon">🏆</span>
-                        <span>Verified via GoodMarket</span>
-                    </a>
-                </li>
-                <li class="menu-item">
                     <a class="menu-link" onclick="showSection('community-stories-section')">
                         <span class="menu-icon">🌟</span>
                         <span>Community Stories</span>
@@ -843,61 +837,6 @@
                         <div class="loading">
                             <div class="spinner"></div>
                             <p>Loading users...</p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Verified via GoodMarket Section -->
-            <section id="goodmarket-verified-section" class="section">
-                <div class="page-header">
-                    <h1 class="page-title">🏆 Verified via GoodMarket</h1>
-                    <p style="color: rgba(241, 245, 249, 0.7);">Review wallets attributed to GoodMarket verification and the latest 100 GoodMarket history events.</p>
-                </div>
-
-                <div class="stats-grid" id="goodmarketVerifiedStats">
-                    <div class="stat-card">
-                        <div class="stat-label">Verified via GoodMarket</div>
-                        <div class="stat-value" id="gmVerifiedTotal">—</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Visible Users</div>
-                        <div class="stat-value" id="gmVerifiedVisible">—</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Latest History Events</div>
-                        <div class="stat-value" id="gmHistoryCount">—</div>
-                    </div>
-                </div>
-
-                <div class="content-box">
-                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-                        <div>
-                            <h2 style="margin-bottom:0.25rem;">Verified Users</h2>
-                            <p style="color: rgba(241, 245, 249, 0.65); margin:0;">Wallets with <code>verified_after_goodmarket = true</code>, including verification date and last seen.</p>
-                        </div>
-                        <button class="btn btn-primary" onclick="loadGoodMarketVerified()">Refresh</button>
-                    </div>
-                    <div id="goodmarketVerifiedUsersTable">
-                        <div class="loading">
-                            <div class="spinner"></div>
-                            <p>Loading GoodMarket verified users...</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="content-box">
-                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
-                        <div>
-                            <h2 style="margin-bottom:0.25rem;">Latest 100 GoodMarket History</h2>
-                            <p style="color: rgba(241, 245, 249, 0.65); margin:0;">Recent claim flow events from the GoodMarket attribution audit trail.</p>
-                        </div>
-                        <button class="btn btn-primary" onclick="loadGoodMarketHistory()">Refresh</button>
-                    </div>
-                    <div id="goodmarketHistoryTable">
-                        <div class="loading">
-                            <div class="spinner"></div>
-                            <p>Loading GoodMarket history...</p>
                         </div>
                     </div>
                 </div>
@@ -2723,10 +2662,6 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                 case 'users':
                     loadUsers();
                     break;
-                case 'goodmarket-verified':
-                    loadGoodMarketVerified();
-                    loadGoodMarketHistory();
-                    break;
                 case 'community-stories':
                     loadCommunityStoriesNotifications();
                     loadCommunityStoriesHistory();
@@ -3317,146 +3252,6 @@ async function loadMinigamesMaintenance() {
             } catch (error) {
                 console.error('Error loading users:', error);
                 document.getElementById('usersTable').innerHTML = '<p style="color: #ef4444;">Error loading users</p>';
-            }
-        }
-
-
-        function escapeAdminHtml(value) {
-            return String(value ?? '')
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function formatAdminDate(value) {
-            if (!value) return '—';
-            const date = new Date(value);
-            return Number.isNaN(date.getTime()) ? escapeAdminHtml(value) : date.toLocaleString();
-        }
-
-        function formatAdminWallet(wallet) {
-            if (!wallet) return '—';
-            const safeWallet = escapeAdminHtml(wallet);
-            if (wallet.length <= 18) return `<code>${safeWallet}</code>`;
-            return `<code title="${safeWallet}">${escapeAdminHtml(wallet.substring(0, 10))}...${escapeAdminHtml(wallet.substring(wallet.length - 8))}</code>`;
-        }
-
-        async function loadGoodMarketVerified() {
-            const container = document.getElementById('goodmarketVerifiedUsersTable');
-            if (!container) return;
-            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading GoodMarket verified users...</p></div>';
-
-            try {
-                const response = await fetch('/api/admin/goodmarket-verified-users?limit=100&offset=0');
-                const data = await response.json();
-
-                if (!data.success) {
-                    container.innerHTML = `<p style="color:#ef4444;">Error loading verified users: ${escapeAdminHtml(data.error || 'Unknown error')}</p>`;
-                    return;
-                }
-
-                document.getElementById('gmVerifiedTotal').textContent = (data.total ?? data.count ?? 0).toLocaleString();
-                document.getElementById('gmVerifiedVisible').textContent = (data.count ?? 0).toLocaleString();
-
-                if (!data.users || data.users.length === 0) {
-                    container.innerHTML = '<p style="color: rgba(241,245,249,0.7);">No GoodMarket-attributed verified users found yet.</p>';
-                    return;
-                }
-
-                container.innerHTML = `
-                    <div style="overflow-x:auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Wallet Address</th>
-                                    <th>Username</th>
-                                    <th>Face Verified</th>
-                                    <th>Verified Date</th>
-                                    <th>First Seen Unverified</th>
-                                    <th>Last Seen</th>
-                                    <th>Total Logins</th>
-                                    <th>Created</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.users.map(user => `
-                                    <tr>
-                                        <td style="font-family: monospace;">${formatAdminWallet(user.wallet_address)}</td>
-                                        <td>${escapeAdminHtml(user.username || '—')}</td>
-                                        <td>${user.face_verified || user.ubi_verified ? '✅' : '❌'}</td>
-                                        <td>${formatAdminDate(user.face_verified_at || user.verification_timestamp)}</td>
-                                        <td>${formatAdminDate(user.first_seen_unverified)}</td>
-                                        <td>${formatAdminDate(user.last_login)}</td>
-                                        <td>${Number(user.total_logins || 0).toLocaleString()}</td>
-                                        <td>${formatAdminDate(user.created_at)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            } catch (error) {
-                console.error('Error loading GoodMarket verified users:', error);
-                container.innerHTML = `<p style="color:#ef4444;">Error loading verified users: ${escapeAdminHtml(error.message)}</p>`;
-            }
-        }
-
-        async function loadGoodMarketHistory() {
-            const container = document.getElementById('goodmarketHistoryTable');
-            if (!container) return;
-            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading GoodMarket history...</p></div>';
-
-            try {
-                const response = await fetch('/api/admin/goodmarket-history?limit=100');
-                const data = await response.json();
-
-                if (!data.success) {
-                    container.innerHTML = `<p style="color:#ef4444;">Error loading history: ${escapeAdminHtml(data.error || 'Unknown error')}</p>`;
-                    return;
-                }
-
-                document.getElementById('gmHistoryCount').textContent = (data.count ?? 0).toLocaleString();
-
-                if (!data.history || data.history.length === 0) {
-                    container.innerHTML = '<p style="color: rgba(241,245,249,0.7);">No GoodMarket history events found yet.</p>';
-                    return;
-                }
-
-                container.innerHTML = `
-                    <div style="overflow-x:auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Wallet Address</th>
-                                    <th>Event</th>
-                                    <th>Network</th>
-                                    <th>TX Hash</th>
-                                    <th>Source</th>
-                                    <th>Error</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.history.map(event => `
-                                    <tr>
-                                        <td>${formatAdminDate(event.created_at)}</td>
-                                        <td style="font-family: monospace;">${formatAdminWallet(event.wallet_address)}</td>
-                                        <td>${escapeAdminHtml(event.event_type || '—')}</td>
-                                        <td>${escapeAdminHtml(event.network || '—')}</td>
-                                        <td style="font-family: monospace;">${event.tx_hash ? formatAdminWallet(event.tx_hash) : '—'}</td>
-                                        <td>${escapeAdminHtml(event.source || '—')}</td>
-                                        <td>${escapeAdminHtml(event.error_code || event.error_message || '—')}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            } catch (error) {
-                console.error('Error loading GoodMarket history:', error);
-                container.innerHTML = `<p style="color:#ef4444;">Error loading history: ${escapeAdminHtml(error.message)}</p>`;
             }
         }
 
