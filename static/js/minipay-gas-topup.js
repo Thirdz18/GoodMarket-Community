@@ -550,6 +550,18 @@
     }
 
 
+    async function _waitForCeloSwapBalance(walletAddr, attempts, progress) {
+        const maxAttempts = attempts || 30;
+        let latest = null;
+        for (let i = 0; i < maxAttempts; i++) {
+            latest = await getBalances(walletAddr);
+            if (getAutoSwapAmountWei(latest) > 0n) return latest;
+            if (progress) progress.update('Step 1/3 — waiting for GoodDollar CELO faucet to arrive for autoswap… (' + (i + 1) + '/' + maxAttempts + ')');
+            await _sleep(2000);
+        }
+        return latest || await getBalances(walletAddr);
+    }
+
     function _describeCeloFaucetFailure(result) {
         if (!result) return 'GoodDollar CELO faucet did not return a result.';
         const terminal = result.terminal_status || result.status || result.reason;
@@ -684,13 +696,26 @@
             try {
                 const celoFaucetResult = await _ensureCeloGasFaucet(walletAddr, balances, progress);
                 if (startedWithoutStableGas) {
-                    // MiniPay pays gas with stablecoins. The CELO faucet is only
-                    // a best-effort helper for users who can later swap extra CELO
-                    // into cUSD; do not block the cUSD faucet when GoodDollar's
-                    // CELO API/fallback does not credit the wallet.
-                    try {
-                        balances = await getBalances(walletAddr);
-                    } catch (_) { /* keep the pre-flight balances */ }
+                    // MiniPay users who do not have enough stablecoin must still
+                    // go through the GoodDollar CELO faucet first. That CELO is
+                    // the source balance for the autoswap (CELO -> cUSD), so do
+                    // not spend the direct cUSD gas-budget faucet unless there is
+                    // confirmed CELO above the protected MiniPay reserve to swap.
+                    balances = await _waitForCeloSwapBalance(walletAddr, 30, progress);
+                }
+                if (startedWithoutStableGas && getAutoSwapAmountWei(balances) <= 0n) {
+                    const msg = _describeCeloFaucetFailure(celoFaucetResult)
+                        + ' MiniPay cannot use CELO directly for gas, so GoodMarket will not send the cUSD gas budget until GoodDollar CELO is available to autoswap into cUSD.';
+                    progress.close();
+                    if (typeof global.alert === 'function') {
+                        global.alert('MiniPay CELO faucet failed: ' + msg);
+                    }
+                    return {
+                        proceed: false,
+                        error: msg,
+                        celoFaucetResult: celoFaucetResult,
+                        reason: 'no-celo-to-swap',
+                    };
                 }
 
                 if (!startedWithoutStableGas) {
