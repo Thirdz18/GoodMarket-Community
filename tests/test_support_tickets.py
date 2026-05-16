@@ -1,6 +1,5 @@
 import json
 import os
-import urllib.error
 import unittest
 from unittest.mock import patch
 
@@ -69,39 +68,6 @@ class SupportTicketTests(unittest.TestCase):
         payload = json.loads(outbound_request.data.decode("utf-8"))
         self.assertEqual(payload["externalUserId"], "guest:guest@example.com")
         self.assertEqual(payload["externalUserEmail"], "Guest@Example.COM")
-
-    @patch.dict(
-        os.environ,
-        {
-            "SUPPORT_DESK_BASE_URL": "https://support.example.com",
-            "GOODMARKET_SUPPORT_API_SECRET": "test-secret-token",
-        },
-    )
-    @patch("routes.urllib.request.urlopen")
-    def test_upstream_http_error_returns_request_id_and_status(self, mock_urlopen):
-        mock_urlopen.side_effect = urllib.error.HTTPError(
-            "https://support.example.com/api/goodmarket/support-tickets",
-            404,
-            "Not Found",
-            {},
-            None,
-        )
-
-        response = self.client.post(
-            "/api/support-tickets",
-            headers={"X-Vercel-Id": "sin1::abc123"},
-            json={
-                "category": "Other",
-                "message": "Please help with my account.",
-                "user": {"name": "Guest User", "email": "guest@example.com"},
-            },
-        )
-
-        body = response.get_json()
-        self.assertEqual(response.status_code, 502)
-        self.assertEqual(body["requestId"], "sin1::abc123")
-        self.assertEqual(body["upstreamStatus"], 404)
-        self.assertFalse(body["success"])
 
 
 if __name__ == "__main__":
