@@ -2281,8 +2281,6 @@ def admin_goodmarket_verified_users():
                 )
                 .eq("verified_after_goodmarket", True)
                 .order("face_verified_at", desc=True)
-                .order("verification_timestamp", desc=True)
-                .order("last_login", desc=True)
                 .range(offset, offset + limit - 1)
                 .execute(),
             fallback_result=type("obj", (object,), {"data": [], "count": 0})(),
@@ -2329,7 +2327,6 @@ def admin_goodmarket_history():
                     "error_message, metadata, created_at"
                 )
                 .order("created_at", desc=True)
-                .order("id", desc=True)
                 .limit(limit)
                 .execute(),
             fallback_result=type("obj", (object,), {"data": []})(),

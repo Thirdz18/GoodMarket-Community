@@ -3343,36 +3343,6 @@ async function loadMinigamesMaintenance() {
             return `<code title="${safeWallet}">${escapeAdminHtml(wallet.substring(0, 10))}...${escapeAdminHtml(wallet.substring(wallet.length - 8))}</code>`;
         }
 
-        function isAdminHexValue(value, expectedLength) {
-            return typeof value === 'string' && new RegExp(`^0x[a-fA-F0-9]{${expectedLength}}$`).test(value);
-        }
-
-        function formatAdminCeloScanAddressLink(wallet) {
-            if (!isAdminHexValue(wallet, 40)) return formatAdminWallet(wallet);
-            const safeWallet = escapeAdminHtml(wallet);
-            return `
-                <a href="https://celoscan.io/address/${safeWallet}" target="_blank" rel="noopener noreferrer" title="Open ${safeWallet} on Celoscan" style="color:#60a5fa;text-decoration:none;">
-                    ${formatAdminWallet(wallet)} ↗
-                </a>
-            `;
-        }
-
-        function formatAdminCeloScanTxLink(txHash) {
-            if (!isAdminHexValue(txHash, 64)) return formatAdminWallet(txHash);
-            const safeTxHash = escapeAdminHtml(txHash);
-            return `
-                <a href="https://celoscan.io/tx/${safeTxHash}" target="_blank" rel="noopener noreferrer" title="Open ${safeTxHash} on Celoscan" style="color:#60a5fa;text-decoration:none;">
-                    ${formatAdminWallet(txHash)} ↗
-                </a>
-            `;
-        }
-
-        function getAdminTimestamp(value) {
-            if (!value) return 0;
-            const timestamp = new Date(value).getTime();
-            return Number.isNaN(timestamp) ? 0 : timestamp;
-        }
-
         async function loadGoodMarketVerified() {
             const container = document.getElementById('goodmarketVerifiedUsersTable');
             if (!container) return;
@@ -3395,22 +3365,6 @@ async function loadMinigamesMaintenance() {
                     return;
                 }
 
-                const verifiedUsers = [...data.users].sort((a, b) => {
-                    const latestA = Math.max(
-                        getAdminTimestamp(a.face_verified_at),
-                        getAdminTimestamp(a.verification_timestamp),
-                        getAdminTimestamp(a.last_login),
-                        getAdminTimestamp(a.created_at)
-                    );
-                    const latestB = Math.max(
-                        getAdminTimestamp(b.face_verified_at),
-                        getAdminTimestamp(b.verification_timestamp),
-                        getAdminTimestamp(b.last_login),
-                        getAdminTimestamp(b.created_at)
-                    );
-                    return latestB - latestA;
-                });
-
                 container.innerHTML = `
                     <div style="overflow-x:auto;">
                         <table>
@@ -3427,9 +3381,9 @@ async function loadMinigamesMaintenance() {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${verifiedUsers.map(user => `
+                                ${data.users.map(user => `
                                     <tr>
-                                        <td style="font-family: monospace;">${formatAdminCeloScanAddressLink(user.wallet_address)}</td>
+                                        <td style="font-family: monospace;">${formatAdminWallet(user.wallet_address)}</td>
                                         <td>${escapeAdminHtml(user.username || '—')}</td>
                                         <td>${user.face_verified || user.ubi_verified ? '✅' : '❌'}</td>
                                         <td>${formatAdminDate(user.face_verified_at || user.verification_timestamp)}</td>
@@ -3470,12 +3424,6 @@ async function loadMinigamesMaintenance() {
                     return;
                 }
 
-                const historyEvents = [...data.history].sort((a, b) => {
-                    const createdDiff = getAdminTimestamp(b.created_at) - getAdminTimestamp(a.created_at);
-                    if (createdDiff !== 0) return createdDiff;
-                    return Number(b.id || 0) - Number(a.id || 0);
-                });
-
                 container.innerHTML = `
                     <div style="overflow-x:auto;">
                         <table>
@@ -3491,13 +3439,13 @@ async function loadMinigamesMaintenance() {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${historyEvents.map(event => `
+                                ${data.history.map(event => `
                                     <tr>
                                         <td>${formatAdminDate(event.created_at)}</td>
-                                        <td style="font-family: monospace;">${formatAdminCeloScanAddressLink(event.wallet_address)}</td>
+                                        <td style="font-family: monospace;">${formatAdminWallet(event.wallet_address)}</td>
                                         <td>${escapeAdminHtml(event.event_type || '—')}</td>
                                         <td>${escapeAdminHtml(event.network || '—')}</td>
-                                        <td style="font-family: monospace;">${event.tx_hash ? formatAdminCeloScanTxLink(event.tx_hash) : '—'}</td>
+                                        <td style="font-family: monospace;">${event.tx_hash ? formatAdminWallet(event.tx_hash) : '—'}</td>
                                         <td>${escapeAdminHtml(event.source || '—')}</td>
                                         <td>${escapeAdminHtml(event.error_code || event.error_message || '—')}</td>
                                     </tr>
