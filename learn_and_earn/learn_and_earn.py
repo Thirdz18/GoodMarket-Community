@@ -45,6 +45,8 @@ _card_sales_cache:     dict = {}   # {wallet: (data, expires)}
 # ─────────────────────────────────────────────────────────────────────────────
 
 COLLABORATION_MIN_GD = int(os.getenv('COLLABORATION_MIN_GD', '100000'))
+LEARN_EARN_MIN_CONTRACT_GD = float(os.getenv('LEARN_EARN_MIN_CONTRACT_GD', '1000'))
+DEFAULT_LEARN_EARN_DEPLETED_MESSAGE = 'G$ funds have been depleted. Please try to contact us at t.me/GoodDollarX'
 
 
 def _get_gooddollar_contract_address() -> str:
@@ -134,6 +136,82 @@ def _get_memory_nft_job(job_id, buyer_wallet):
         if not job or not _wallets_match(job.get('buyer_wallet'), buyer_wallet):
             return None
         return dict(job)
+
+
+def _get_insufficient_learn_earn_funds_message() -> str:
+    """Return the configured user-facing message for depleted Learn & Earn funds."""
+    try:
+        from supabase_client import safe_supabase_operation
+
+        supabase = get_supabase_client()
+        if not supabase:
+            return DEFAULT_LEARN_EARN_DEPLETED_MESSAGE
+
+        msg_result = safe_supabase_operation(
+            lambda: supabase.table('maintenance_settings')
+                .select('custom_message')
+                .eq('feature_name', 'learn_earn_insufficient_balance')
+                .execute(),
+            fallback_result=type('obj', (object,), {'data': []})(),
+            operation_name="get insufficient balance custom message",
+        )
+        if msg_result.data:
+            db_message = msg_result.data[0].get('custom_message')
+            if db_message:
+                return db_message
+    except Exception as msg_err:
+        logger.warning(f"⚠️ Could not load Learn & Earn depleted-funds message: {msg_err}")
+
+    return DEFAULT_LEARN_EARN_DEPLETED_MESSAGE
+
+
+async def _get_learn_earn_contract_funding_status() -> Dict[str, Any]:
+    """Check the reward contract balance against the quiz-start threshold."""
+    required_balance = LEARN_EARN_MIN_CONTRACT_GD
+
+    if not learn_blockchain_service.contract:
+        return {
+            'sufficient': False,
+            'balance': 0.0,
+            'required_balance': required_balance,
+            'reason': 'contract_not_configured',
+            'message': _get_insufficient_learn_earn_funds_message(),
+        }
+
+    contract_balance = await learn_blockchain_service.get_contract_balance()
+    sufficient = contract_balance >= required_balance
+
+    return {
+        'sufficient': sufficient,
+        'balance': contract_balance,
+        'required_balance': required_balance,
+        'reason': None if sufficient else 'insufficient_contract_balance',
+        'message': None if sufficient else _get_insufficient_learn_earn_funds_message(),
+    }
+
+
+def _insufficient_learn_earn_funds_response(funding_status: Dict[str, Any], status_code: int = 400):
+    """Build a consistent API response when Learn & Earn contract funds are too low."""
+    custom_message = funding_status.get('message') or DEFAULT_LEARN_EARN_DEPLETED_MESSAGE
+    return jsonify({
+        'success': False,
+        'blocked': True,
+        'eligible': False,
+        'error': custom_message,
+        'message': custom_message,
+        'reason': funding_status.get('reason') or 'insufficient_contract_balance',
+        'show_notification': True,
+        'notification_type': 'insufficient_balance',
+        'notification_message': custom_message,
+        'voice_message': 'G$ funds depleted. Contact us at t.me/GoodDollarX',
+        'learn_balance': funding_status.get('balance', 0.0),
+        'contract_balance': funding_status.get('balance', 0.0),
+        'required_balance': funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD),
+        'minimum_contract_balance': funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD),
+        'feature_status': 'insufficient_balance',
+        'can_take_now': False,
+    }), status_code
+
 
 class LearnEarnQuizManager:
     def __init__(self):
@@ -646,6 +724,41 @@ class LearnEarnQuizManager:
             except Exception as maint_error:
                 logger.warning(f"⚠️ Maintenance check failed: {maint_error}")
                 # Continue with eligibility check even if maintenance check fails
+
+            # The quiz must not start when the Learn & Earn reward contract
+            # has less than the configured minimum (default: 1000 G$).
+            try:
+                funding_status = await _get_learn_earn_contract_funding_status()
+                if not funding_status.get('sufficient'):
+                    logger.warning(
+                        f"⚠️ Learn & Earn quiz blocked: contract balance "
+                        f"{funding_status.get('balance', 0):.2f} G$ < "
+                        f"{funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD):.2f} G$"
+                    )
+                    return {
+                        'eligible': False,
+                        'blocked': True,
+                        'reason': funding_status.get('reason') or 'insufficient_contract_balance',
+                        'message': funding_status.get('message') or DEFAULT_LEARN_EARN_DEPLETED_MESSAGE,
+                        'can_take_now': False,
+                        'feature_available': False,
+                        'feature_status': 'insufficient_balance',
+                        'contract_balance': funding_status.get('balance', 0.0),
+                        'learn_balance': funding_status.get('balance', 0.0),
+                        'required_balance': funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD),
+                        'minimum_contract_balance': funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD),
+                    }
+            except Exception as funds_error:
+                logger.error(f"❌ Learn & Earn contract funding check error: {funds_error}")
+                return {
+                    'eligible': False,
+                    'blocked': True,
+                    'reason': 'contract_balance_check_failed',
+                    'message': 'Unable to verify Learn & Earn contract funds. Please try again later.',
+                    'can_take_now': False,
+                    'feature_available': False,
+                    'feature_status': 'contract_balance_check_failed',
+                }
 
             # Check using sync method like hour_bonus
             try:
@@ -1275,51 +1388,25 @@ def start_quiz(current_user):
                 'feature_status': 'wallet_not_configured'
             }), 400
 
-        # Check Learn wallet balance before allowing quiz
+        # Check the Learn & Earn contract balance before allowing quiz start.
+        # Business rule: users must not start a quiz when contract funds are below 1000 G$
+        # (overridable via LEARN_EARN_MIN_CONTRACT_GD).
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            learn_balance = loop.run_until_complete(learn_blockchain_service.get_learn_wallet_balance())
+            funding_status = loop.run_until_complete(_get_learn_earn_contract_funding_status())
         finally:
             loop.close()
 
-        # Check if Learn wallet has sufficient balance (at least 2000 G$ for full quiz rewards)
-        min_required_balance = quiz_manager.questions_per_quiz * quiz_manager.reward_per_correct
-        # Use tolerance to avoid floating point precision issues (e.g., 1000.0 vs 1000.0000000000001)
-        balance_tolerance = 0.01  # Allow 0.01 G$ tolerance
-        if learn_balance < (min_required_balance - balance_tolerance):
-            logger.warning(f"⚠️ Learn wallet balance too low: {learn_balance} < {min_required_balance}")
+        learn_balance = funding_status.get('balance', 0.0)
+        min_required_balance = funding_status.get('required_balance', LEARN_EARN_MIN_CONTRACT_GD)
 
-            # Get custom message from database
-            from supabase_client import get_supabase_client, safe_supabase_operation
-            supabase = get_supabase_client()
-            custom_message = 'G$ funds have been depleted. Please try to contact us at t.me/GoodDollarX'
-
-            if supabase:
-                msg_result = safe_supabase_operation(
-                    lambda: supabase.table('maintenance_settings')\
-                        .select('custom_message')\
-                        .eq('feature_name', 'learn_earn_insufficient_balance')\
-                        .execute(),
-                    fallback_result=type('obj', (object,), {'data': []})(),
-                    operation_name="get insufficient balance custom message"
-                )
-                if msg_result.data and len(msg_result.data) > 0:
-                    db_message = msg_result.data[0].get('custom_message')
-                    if db_message:
-                        custom_message = db_message
-
-            return jsonify({
-                'success': False,
-                'error': custom_message,
-                'show_notification': True,
-                'notification_type': 'insufficient_balance',
-                'notification_message': custom_message,
-                'voice_message': 'G$ funds depleted. Contact us at t.me/GoodDollarX',
-                'learn_balance': learn_balance,
-                'required_balance': min_required_balance,
-                'feature_status': 'insufficient_balance'
-            }), 400
+        if not funding_status.get('sufficient'):
+            logger.warning(
+                f"⚠️ Learn & Earn contract balance too low: "
+                f"{learn_balance} < {min_required_balance}"
+            )
+            return _insufficient_learn_earn_funds_response(funding_status, 400)
 
         # Check user eligibility using sync method like hour_bonus
         loop = asyncio.new_event_loop()
@@ -1740,6 +1827,11 @@ def check_eligibility(current_user):
             'message': eligibility_info.get('message'),
             'next_quiz_time': eligibility_info.get('next_quiz_time'),
             'can_take_now': eligibility_info.get('can_take_now', False),
+            'feature_status': eligibility_info.get('feature_status'),
+            'contract_balance': eligibility_info.get('contract_balance'),
+            'learn_balance': eligibility_info.get('learn_balance'),
+            'required_balance': eligibility_info.get('required_balance'),
+            'minimum_contract_balance': eligibility_info.get('minimum_contract_balance'),
             'ubi_verification': eligibility_info # Contains all info, including cooldown details
         }), 200
 

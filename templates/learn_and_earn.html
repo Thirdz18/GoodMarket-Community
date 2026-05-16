@@ -2223,17 +2223,21 @@
                         cooldownTimerInterval = null;
                     }
                 } else {
-                    console.log('⏸️ Quiz on cooldown');
+                    console.log('⏸️ Quiz unavailable:', data.reason || data.feature_status || 'cooldown');
+                    const isInsufficientBalance = data.feature_status === 'insufficient_balance' || data.reason === 'insufficient_contract_balance';
+                    const statusIcon = isInsufficientBalance ? 'fas fa-wallet' : 'fas fa-clock';
                     statusDiv.className = 'eligibility-status eligibility-blocked';
-                    statusDiv.innerHTML = `<i class="fas fa-clock"></i> ${data.message || 'Quiz not available'}`;
+                    statusDiv.innerHTML = `<i class="${statusIcon}"></i> ${data.message || 'Quiz not available'}`;
                     startBtn.disabled = true;
-                    startBtn.innerHTML = '<i class="fas fa-clock"></i> Quiz on Cooldown';
+                    startBtn.innerHTML = isInsufficientBalance
+                        ? '<i class="fas fa-wallet"></i> Rewards Fund Low'
+                        : '<i class="fas fa-clock"></i> Quiz on Cooldown';
 
                     // Start live countdown timer if next_quiz_time is available
-                    if (data.next_quiz_time) {
+                    if (!isInsufficientBalance && data.next_quiz_time) {
                         console.log('🕐 Starting countdown timer until:', data.next_quiz_time);
                         startCooldownTimer(data.next_quiz_time);
-                    } else if (data.ubi_verification && data.ubi_verification.next_quiz_time) {
+                    } else if (!isInsufficientBalance && data.ubi_verification && data.ubi_verification.next_quiz_time) {
                         console.log('🕐 Starting countdown timer from ubi_verification:', data.ubi_verification.next_quiz_time);
                         startCooldownTimer(data.ubi_verification.next_quiz_time);
                     } else {
@@ -2299,12 +2303,18 @@
                     const notificationType = data.high_demand ? 'info' : 'error';
                     showNotification(errorMsg, notificationType);
 
-                    // If high demand, update the eligibility status UI
-                    if (data.high_demand) {
+                    // If backend says the quiz is unavailable, update the eligibility status UI
+                    if (data.high_demand || data.feature_status === 'insufficient_balance') {
                         const statusDiv = document.getElementById('eligibility-status');
+                        const startBtn = document.getElementById('start-quiz-btn');
+                        const isInsufficientBalance = data.feature_status === 'insufficient_balance';
                         statusDiv.className = 'eligibility-status eligibility-blocked';
-                        statusDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${errorMsg}`;
+                        statusDiv.innerHTML = `<i class="${isInsufficientBalance ? 'fas fa-wallet' : 'fas fa-exclamation-triangle'}"></i> ${errorMsg}`;
                         statusDiv.style.display = 'block';
+                        startBtn.disabled = true;
+                        startBtn.innerHTML = isInsufficientBalance
+                            ? '<i class="fas fa-wallet"></i> Rewards Fund Low'
+                            : startBtn.innerHTML;
                     }
                 }
             } catch (error) {
