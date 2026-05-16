@@ -874,7 +874,7 @@
                     <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;">
                         <div>
                             <h2 style="margin-bottom:0.25rem;">Verified Users</h2>
-                            <p style="color: rgba(241, 245, 249, 0.65); margin:0;">Only wallets that pass GoodMarket's strict Face Verification callback check are shown; generic GoodWallet/GoodDapp verifications are filtered out.</p>
+                            <p style="color: rgba(241, 245, 249, 0.65); margin:0;">Wallets with <code>verified_after_goodmarket = true</code>, including verification date and last seen.</p>
                         </div>
                         <button class="btn btn-primary" onclick="loadGoodMarketVerified()">Refresh</button>
                     </div>
@@ -3389,9 +3389,6 @@ async function loadMinigamesMaintenance() {
 
                 document.getElementById('gmVerifiedTotal').textContent = (data.total ?? data.count ?? 0).toLocaleString();
                 document.getElementById('gmVerifiedVisible').textContent = (data.count ?? 0).toLocaleString();
-                if (data.rejected_count) {
-                    console.info('Filtered stored GoodMarket FV flags that failed strict attribution:', data.rejected_sample || []);
-                }
 
                 if (!data.users || data.users.length === 0) {
                     container.innerHTML = '<p style="color: rgba(241,245,249,0.7);">No GoodMarket-attributed verified users found yet.</p>';

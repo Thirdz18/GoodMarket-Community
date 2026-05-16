@@ -113,22 +113,6 @@ STRICT_ATTRIBUTION_ENABLED = os.getenv(
     "GOODMARKET_ATTRIBUTION_STRICT_ENABLED", "1"
 ).strip().lower() in ("1", "true", "yes", "on")
 
-# Only these server-side sources are allowed to create a GoodMarket FV
-# attribution. Claim confirmations and generic login checks must never flip
-# ``verified_after_goodmarket`` because those wallets may have verified in
-# GoodWallet, GoodDapp, or any other GoodDollar-compatible app.
-GOODMARKET_FV_ATTRIBUTION_SOURCES = {
-    "goodmarket_fv_callback",
-    "fv_callback",
-    "wallet_fv_pending_callback",
-}
-
-
-def is_goodmarket_fv_source(source: str) -> bool:
-    """Return True only for explicit GoodMarket Face Verification callbacks."""
-    normalized = (source or "").strip().lower()
-    return normalized in GOODMARKET_FV_ATTRIBUTION_SOURCES
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -250,10 +234,11 @@ def is_attributable_to_goodmarket(
 
     The two conditions for a TRUE attribution:
 
-    1. The wallet must have ``first_seen_unverified`` recorded by GoodMarket
-       before the on-chain ``lastAuthenticated`` timestamp. A generic
-       ``first_login`` is not enough proof because the wallet may already have
-       been verified, or may have verified later in GoodWallet/GoodDapp.
+    1. The wallet's on-chain ``lastAuthenticated`` timestamp is **after** the
+       row's ``first_login`` (the user came to GoodMarket *before* they
+       verified anywhere). If ``first_login`` is missing we fall back to
+       ``first_seen_unverified`` and then ``created_at``; if all three are
+       missing we cannot prove attribution and reject.
 
     2. The on-chain ``lastAuthenticated`` falls within
        ``STRICT_ATTRIBUTION_WINDOW_SECONDS`` of ``reference_unix`` (defaults
@@ -323,15 +308,19 @@ def is_attributable_to_goodmarket(
 
     row = sb_row or {}
 
-    first_seen_unverified_unix = _parse_iso_to_unix(row.get("first_seen_unverified"))
-    out["first_login_unix"] = first_seen_unverified_unix
+    first_login_unix = (
+        _parse_iso_to_unix(row.get("first_login"))
+        or _parse_iso_to_unix(row.get("first_seen_unverified"))
+        or _parse_iso_to_unix(row.get("created_at"))
+    )
+    out["first_login_unix"] = first_login_unix
 
-    if first_seen_unverified_unix is None:
-        out["reason"] = "no_goodmarket_unverified_visit"
+    if first_login_unix is None:
+        out["reason"] = "no_first_login_timestamp"
         return out
 
-    if last_auth < first_seen_unverified_unix:
-        out["reason"] = "verified_before_goodmarket_unverified_visit"
+    if last_auth < first_login_unix:
+        out["reason"] = "verified_before_first_login"
         return out
 
     # Closeness check.
@@ -406,13 +395,6 @@ def mark_verified_via_goodmarket(
     if not checksum:
         return {"status": "skipped", "reason": "invalid_address", "source": source}
 
-    if not is_goodmarket_fv_source(source):
-        return {
-            "status": "skipped",
-            "reason": "not_goodmarket_fv_callback",
-            "source": source,
-        }
-
     sb, client_kind = _get_sb_client()
     if sb is None:
         return {"status": "error", "reason": "no_supabase_client", "source": source}
@@ -462,11 +444,13 @@ def mark_verified_via_goodmarket(
                 "attribution_decision": decision,
             }
 
-    # 4. Flip the flag. Never synthesize ``first_seen_unverified`` here; it
-    #    must come from an earlier GoodMarket on-chain unverified check.
+    # 4. Flip the flag. Also backfill ``first_seen_unverified`` if missing
+    #    so analytics queries that expect it don't break.
     update_payload: Dict[str, Any] = {
         "verified_after_goodmarket": True,
     }
+    if not row.get("first_seen_unverified"):
+        update_payload["first_seen_unverified"] = _now_iso()
     if not row.get("face_verified"):
         update_payload["face_verified"] = True
         update_payload["face_verified_at"] = _now_iso()
@@ -549,33 +533,141 @@ def _collect_candidate_wallets(sb) -> List[str]:
 
 
 def run_full_backfill(dry_run: bool = False, limit: Optional[int] = None) -> Dict[str, Any]:
-    """Deprecated claim-based backfill.
+    """One-shot backfill across every GoodMarket-claim wallet.
 
-    Claim activity is not proof that Face Verification happened inside
-    GoodMarket. A wallet may verify in GoodWallet/GoodDapp and later claim
-    through GoodMarket, so this routine is intentionally read-only and returns
-    a no-op summary for the existing admin endpoint.
+    For each candidate wallet:
+        * Look up the ``user_data`` row.
+        * Skip if ``verified_after_goodmarket`` is already TRUE.
+        * Verify on-chain ``Identity.isWhitelisted`` (cached 5 min).
+        * If verified, flip the flag (or just count when ``dry_run=True``).
+
+    Args:
+        dry_run: When True, no writes happen. Returns the same shape so the
+            admin endpoint can preview the impact.
+        limit: Hard cap on candidates examined this run. Defaults to
+            ``MAX_WALLETS_PER_RUN``. Useful for chunked manual runs.
+
+    Returns:
+        Structured summary with counts + a sample of updated wallets.
     """
-    del dry_run, limit
-    return {
+    started_at = time.time()
+    sb, client_kind = _get_sb_client()
+    if sb is None:
+        return {
+            "success": False,
+            "error": "no_supabase_client",
+            "dry_run": dry_run,
+        }
+
+    cap = min(int(limit), MAX_WALLETS_PER_RUN) if limit else MAX_WALLETS_PER_RUN
+    candidates = _collect_candidate_wallets(sb)[:cap]
+    logger.info(
+        f"[gm-backfill] full run started: dry_run={dry_run} "
+        f"candidates={len(candidates)} client={client_kind}"
+    )
+
+    examined = 0
+    already = 0
+    updated = 0
+    skipped_no_user = 0
+    skipped_not_verified = 0
+    skipped_rpc = 0
+    skipped_not_attributable = 0
+    errors = 0
+    updated_sample: List[str] = []
+    skipped_attribution_reasons: Dict[str, int] = {}
+
+    for wallet in candidates:
+        examined += 1
+        try:
+            # Read current state.
+            row_resp = sb.table("user_data")\
+                .select("wallet_address, verified_after_goodmarket, "
+                        "first_seen_unverified, ubi_verified, face_verified, "
+                        "face_verified_at, first_login, created_at")\
+                .ilike("wallet_address", wallet)\
+                .limit(1)\
+                .execute()
+            if not row_resp or not row_resp.data:
+                skipped_no_user += 1
+                continue
+            row = row_resp.data[0]
+
+            if row.get("verified_after_goodmarket") is True:
+                already += 1
+                continue
+
+            decision = is_attributable_to_goodmarket(wallet, row)
+            if not decision["attributable"]:
+                reason = decision.get("reason", "unknown")
+                if reason == "on_chain_check_unavailable":
+                    skipped_rpc += 1
+                elif reason in ("not_face_verified_on_chain", "never_authenticated_on_chain"):
+                    skipped_not_verified += 1
+                else:
+                    skipped_not_attributable += 1
+                skipped_attribution_reasons[reason] = (
+                    skipped_attribution_reasons.get(reason, 0) + 1
+                )
+                continue
+
+            if dry_run:
+                updated += 1
+                if len(updated_sample) < 50:
+                    updated_sample.append(wallet)
+                continue
+
+            update_payload: Dict[str, Any] = {"verified_after_goodmarket": True}
+            if not row.get("first_seen_unverified"):
+                update_payload["first_seen_unverified"] = _now_iso()
+            if not row.get("face_verified"):
+                update_payload["face_verified"] = True
+                update_payload["face_verified_at"] = _now_iso()
+            if not row.get("ubi_verified"):
+                update_payload["ubi_verified"] = True
+                update_payload["verification_timestamp"] = _now_iso()
+
+            sb.table("user_data")\
+                .update(update_payload)\
+                .ilike("wallet_address", wallet)\
+                .execute()
+
+            updated += 1
+            if len(updated_sample) < 50:
+                updated_sample.append(wallet)
+            logger.info(
+                f"[gm-backfill] FULL attributed {wallet[:10]}... "
+                f"-> verified_after_goodmarket=TRUE"
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors += 1
+            logger.warning(
+                f"[gm-backfill] error processing {wallet[:10] if wallet else '?'}...: {exc}"
+            )
+
+        if RPC_THROTTLE_MS > 0:
+            time.sleep(RPC_THROTTLE_MS / 1000.0)
+
+    duration_seconds = round(time.time() - started_at, 2)
+    summary = {
         "success": True,
-        "dry_run": True,
-        "deprecated": True,
-        "reason": "claim_activity_is_not_goodmarket_face_verification_proof",
-        "client": "none",
-        "candidates": 0,
-        "examined": 0,
-        "updated": 0,
-        "already_attributed": 0,
-        "skipped_no_user_row": 0,
-        "skipped_not_face_verified": 0,
-        "skipped_rpc_error": 0,
-        "skipped_not_attributable": 0,
-        "skipped_attribution_reasons": {},
-        "errors": 0,
-        "updated_sample": [],
-        "duration_seconds": 0,
+        "dry_run": dry_run,
+        "client": client_kind,
+        "candidates": len(candidates),
+        "examined": examined,
+        "updated": updated,
+        "already_attributed": already,
+        "skipped_no_user_row": skipped_no_user,
+        "skipped_not_face_verified": skipped_not_verified,
+        "skipped_rpc_error": skipped_rpc,
+        "skipped_not_attributable": skipped_not_attributable,
+        "skipped_attribution_reasons": skipped_attribution_reasons,
+        "errors": errors,
+        "updated_sample": updated_sample,
+        "duration_seconds": duration_seconds,
     }
+    logger.info(f"[gm-backfill] full run finished: {summary}")
+    return summary
 
 
 # ---------------------------------------------------------------------------

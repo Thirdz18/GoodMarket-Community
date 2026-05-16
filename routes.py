@@ -2290,78 +2290,15 @@ def admin_goodmarket_verified_users():
         )
 
         rows = users.data if users.data else []
-        stored_total = getattr(users, "count", None)
-        if stored_total is None:
-            stored_total = len(rows)
-
-        # Do not trust the stored flag alone. Older rows may have been marked
-        # from claim activity or generic GoodDollar identity checks. Re-run the
-        # strict rule before returning the admin list so the UI only fetches
-        # wallets whose actual Face Verification can be attributed to the
-        # GoodMarket FV callback flow.
-        strict_rows = []
-        rejected_rows = []
-        try:
-            from goodmarket_attribution_backfill import (
-                is_attributable_to_goodmarket,
-                is_goodmarket_fv_source,
-            )
-            for row in rows:
-                wallet = row.get("wallet_address")
-                decision = is_attributable_to_goodmarket(wallet, row)
-
-                callback_found = False
-                if decision.get("attributable") and wallet:
-                    try:
-                        event_resp = supabase.table("user_sessions") \
-                            .select("details, timestamp") \
-                            .ilike("wallet_address", wallet) \
-                            .eq("activity_type", "verification_attempt") \
-                            .eq("success", True) \
-                            .order("timestamp", desc=True) \
-                            .limit(20) \
-                            .execute()
-                        for event in event_resp.data or []:
-                            details = event.get("details") or {}
-                            if is_goodmarket_fv_source(details.get("source")):
-                                callback_found = True
-                                row["goodmarket_fv_callback_at"] = event.get("timestamp")
-                                break
-                    except Exception as event_err:
-                        logger.warning(
-                            f"[gm-attribution] callback event lookup failed for "
-                            f"{str(wallet)[:10]}...: {event_err}"
-                        )
-
-                row["goodmarket_attribution_decision"] = decision
-                if decision.get("attributable") and callback_found:
-                    strict_rows.append(row)
-                else:
-                    rejected_rows.append({
-                        "wallet_address": wallet,
-                        "reason": (
-                            decision.get("reason")
-                            if not decision.get("attributable")
-                            else "missing_goodmarket_fv_callback_event"
-                        ),
-                    })
-        except Exception as strict_err:
-            logger.warning(f"[gm-attribution] strict admin filter failed: {strict_err}")
-            strict_rows = []
-            rejected_rows = [{
-                "wallet_address": r.get("wallet_address"),
-                "reason": "strict_filter_error",
-            } for r in rows]
+        total = getattr(users, "count", None)
+        if total is None:
+            total = len(rows)
 
         return jsonify({
             "success": True,
-            "users": strict_rows,
-            "count": len(strict_rows),
-            "total": len(strict_rows),
-            "stored_flag_total": stored_total,
-            "stored_flag_count": len(rows),
-            "rejected_count": len(rejected_rows),
-            "rejected_sample": rejected_rows[:25],
+            "users": rows,
+            "count": len(rows),
+            "total": total,
             "limit": limit,
             "offset": offset,
         })
@@ -6523,78 +6460,6 @@ def claim_availability():
         return response
     except Exception as e:
         logger.error(f"claim_availability route error: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-
-
-@routes.route("/api/fv-goodmarket-callback", methods=["POST"])
-@auth_required
-def fv_goodmarket_callback():
-    """Record a Face Verification only when it returned through GoodMarket.
-
-    This endpoint is intentionally stricter than generic identity checks. It
-    validates the logged-in wallet, confirms the GoodDollar on-chain identity
-    timestamp is fresh, and then lets the shared attribution helper decide
-    whether ``verified_after_goodmarket`` can be set. Wallets that were already
-    verified in GoodWallet, GoodDapp, or another app will remain face_verified
-    but will not be counted as verified via GoodMarket.
-    """
-    try:
-        data = request.get_json(silent=True) or {}
-        wallet = (data.get("wallet") or session.get("wallet") or "").strip()
-        session_wallet = (session.get("wallet") or "").strip()
-
-        if not wallet or not session_wallet:
-            return jsonify({"success": False, "error": "not_authenticated"}), 401
-
-        if Web3.is_address(wallet):
-            wallet = Web3.to_checksum_address(wallet)
-        else:
-            return jsonify({"success": False, "error": "invalid_wallet"}), 400
-
-        if Web3.is_address(session_wallet):
-            session_wallet = Web3.to_checksum_address(session_wallet)
-
-        if wallet.lower() != session_wallet.lower():
-            return jsonify({"success": False, "error": "wallet_mismatch"}), 403
-
-        from blockchain import get_identity_expiry
-        fv_result = get_identity_expiry(wallet)
-        if not fv_result.get("success") or not fv_result.get("verified"):
-            return jsonify({
-                "success": False,
-                "error": "not_face_verified_on_chain",
-                "verified": False,
-            }), 409
-
-        from supabase_client import supabase_logger
-        if supabase_logger:
-            supabase_logger.log_verification_attempt(
-                wallet,
-                success=True,
-                face_verified=True,
-                details={
-                    "source": "goodmarket_fv_callback",
-                    "rdu_src": data.get("src") or "goodmarket",
-                    "date_authenticated": fv_result.get("date_authenticated"),
-                },
-            )
-
-        from goodmarket_attribution_backfill import mark_verified_via_goodmarket
-        attribution = mark_verified_via_goodmarket(
-            wallet,
-            source="goodmarket_fv_callback",
-            background=False,
-        )
-
-        return jsonify({
-            "success": True,
-            "verified": True,
-            "attribution": attribution,
-        })
-    except Exception as e:
-        logger.error(f"FV GoodMarket callback route error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

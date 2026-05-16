@@ -980,8 +980,7 @@ class SupabaseLogger:
         face_verified=True means the user ACTUALLY completed GoodDollar face verification
         (confirmed via the on-chain identity contract).
         success=True without face_verified means the user was granted GoodMarket access only.
-        Only an explicit GoodMarket FV callback can update verified_after_goodmarket;
-        generic face_verified=True calls only update the wallet's face_verified flags.
+        Only face_verified=True updates ubi_verified, face_verified, and verified_after_goodmarket.
         """
         # Normalize address
         try:
@@ -1022,26 +1021,21 @@ class SupabaseLogger:
 
                 if user_row.data:
                     row = user_row.data[0]
-                    # Strict attribution: only credit GoodMarket when this call
-                    # came from the GoodMarket FV return URL and the on-chain
-                    # ``lastAuthenticated`` timestamp proves the scan happened
-                    # during this GoodMarket session. Generic login checks must
-                    # not count, because the wallet may have verified in
-                    # GoodWallet, GoodDapp, or another app.
-                    source = (details or {}).get("source")
+                    # Strict attribution: only credit GoodMarket when the on-chain
+                    # ``lastAuthenticated`` actually falls within this GoodMarket
+                    # session (within STRICT_ATTRIBUTION_WINDOW_SECONDS of "now")
+                    # AND the user came to GoodMarket BEFORE verifying. Without
+                    # this guard, /fv-callback flips the flag for users who
+                    # verified months ago elsewhere and just round-tripped
+                    # through GoodMarket's FV button — see the audit summary in
+                    # GOODMARKET_ATTRIBUTION_AUDIT.md (only 2/123 of the rows
+                    # under the old code actually verified through GoodMarket).
                     if not row.get("verified_after_goodmarket"):
                         try:
                             from goodmarket_attribution_backfill import (
                                 is_attributable_to_goodmarket,
-                                is_goodmarket_fv_source,
                             )
-                            if is_goodmarket_fv_source(source):
-                                decision = is_attributable_to_goodmarket(wallet_address, row)
-                            else:
-                                decision = {
-                                    "attributable": False,
-                                    "reason": "not_goodmarket_fv_callback",
-                                }
+                            decision = is_attributable_to_goodmarket(wallet_address, row)
                         except Exception as attr_err:  # noqa: BLE001
                             logger.warning(
                                 f"⚠️ Attribution check failed for {wallet_address}: {attr_err}"
@@ -1056,10 +1050,14 @@ class SupabaseLogger:
                             )
                         else:
                             logger.info(
-                                f"ℹ️ Face-verified wallet {wallet_address} not credited "
-                                f"as GoodMarket FV (reason={decision.get('reason')}, "
-                                f"source={source or 'none'})"
+                                f"ℹ️ /fv-callback fired for {wallet_address} but "
+                                f"attribution not credited "
+                                f"(reason={decision.get('reason')})"
                             )
+                    # Also backfill first_seen_unverified if it was never recorded
+                    if not row.get("first_seen_unverified"):
+                        update_payload["first_seen_unverified"] = datetime.now().isoformat()
+                        logger.info(f"📝 Backfilled first_seen_unverified on FV callback for wallet: {wallet_address}")
 
                 self.client.table("user_data")\
                     .update(update_payload)\

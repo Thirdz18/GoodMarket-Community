@@ -4687,21 +4687,6 @@
             if (p.get('fv_pending') === '1') {
                 openModal('claimModal');
                 setStatus('✅ Face verification submitted! Re-checking your eligibility…', '#facc15');
-                const callbackWallet = p.get('wallet') || (window.GM_WALLET_ADDRESS || '');
-                fetch('/api/fv-goodmarket-callback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        wallet: callbackWallet,
-                        src: p.get('src') || 'goodmarket'
-                    })
-                }).then(r => r.json()).then(d => {
-                    if (!d.success) {
-                        console.warn('GoodMarket FV callback attribution skipped:', d);
-                    }
-                }).catch(err => {
-                    console.warn('GoodMarket FV callback attribution failed:', err);
-                });
                 history.replaceState(null, '', window.location.pathname);
             } else if (p.get('fv_failed') === '1') {
                 openModal('claimModal');
