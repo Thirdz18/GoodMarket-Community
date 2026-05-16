@@ -428,6 +428,36 @@
         return latest || await getBalances(walletAddr);
     }
 
+    async function _waitForCeloSwapBalance(walletAddr, attempts, progress) {
+        const maxAttempts = attempts || 30;
+        let latest = null;
+        for (let i = 0; i < maxAttempts; i++) {
+            latest = await getBalances(walletAddr);
+            if (getAutoSwapAmountWei(latest) > 0n) return latest;
+            if (progress) progress.update('Step 1/3 — waiting for GoodDollar CELO faucet to arrive… (' + (i + 1) + '/' + maxAttempts + ')');
+            await _sleep(2000);
+        }
+        return latest || await getBalances(walletAddr);
+    }
+
+    function _describeCeloFaucetFailure(result) {
+        if (!result) return 'GoodDollar CELO faucet did not return a result.';
+        const terminal = result.terminal_status || result.status || result.reason;
+        if (terminal === 'gooddollar_cooldown') {
+            const secs = result.gooddollar_cooldown_remaining_seconds || result.recent_refill_cooldown_seconds;
+            const human = _humanizeCooldownSeconds(secs) || 'a while';
+            return result.reason || result.error || ('GoodDollar CELO faucet is on cooldown for ~' + human + '.');
+        }
+        if (terminal === 'recent_refill') {
+            const human = _humanizeCooldownSeconds(result.recent_refill_cooldown_seconds) || 'a while';
+            return result.reason || ('CELO faucet refill cooldown is active for ~' + human + '.');
+        }
+        if (terminal === 'api_accepted_pending') {
+            return 'GoodDollar CELO faucet accepted the request, but CELO has not arrived yet. Please retry in a few seconds.';
+        }
+        return result.error || result.reason || 'GoodDollar CELO faucet did not send CELO to this MiniPay wallet.';
+    }
+
     // ─── Swap execution: Uniswap V3 exactInputSingle CELO -> cUSD ─────────
     async function _swapCeloForCusd(walletAddr, amountCeloWei, progress) {
         const ethers = await _loadEthers();
@@ -539,7 +569,23 @@
                 '⛽ Preparing MiniPay stablecoin gas'
             );
             try {
-                await _ensureCeloGasFaucet(walletAddr, balances, progress);
+                const celoFaucetResult = await _ensureCeloGasFaucet(walletAddr, balances, progress);
+                balances = await _waitForCeloSwapBalance(walletAddr, 30, progress);
+                if (getAutoSwapAmountWei(balances) <= 0n) {
+                    const msg = _describeCeloFaucetFailure(celoFaucetResult)
+                        + ' MiniPay cannot use CELO directly for gas, so GoodMarket will not send the cUSD gas budget until CELO is available to swap.';
+                    progress.close();
+                    if (typeof global.alert === 'function') {
+                        global.alert('MiniPay CELO faucet failed: ' + msg);
+                    }
+                    return {
+                        proceed: false,
+                        error: msg,
+                        celoFaucetResult: celoFaucetResult,
+                        reason: 'no-celo-to-swap',
+                    };
+                }
+
                 faucetResult = await _ensureCusdFaucet(walletAddr, progress);
 
                 cooldownActive = !!(faucetResult
@@ -566,15 +612,14 @@
                     progress.close();
                     try { balances = await getBalances(walletAddr); } catch (_) { /* keep stale balances */ }
 
-                    if (getAutoSwapAmountWei(balances) <= 0n
-                        && !hasStablecoinGasBalance(balances)) {
+                    if (!hasStablecoinGasBalance(balances)) {
                         const human = _humanizeCooldownSeconds(cooldownSeconds) || 'a few hours';
                         const readyAt = _formatCooldownReadyAt(cooldownSeconds);
                         const tail = readyAt ? ' (until ' + readyAt + ')' : '';
                         const msg = '⏳ MiniPay cUSD faucet is on cooldown\n\n'
                             + 'You received the gas budget recently. Wait ~' + human + tail
                             + ' or send a small amount of cUSD / USDT / USDC to your '
-                            + 'MiniPay wallet from another source to claim sooner.';
+                            + 'MiniPay wallet from another source. MiniPay needs stablecoin gas before it can swap CELO to cUSD.';
                         if (typeof global.alert === 'function') global.alert(msg);
                         return {
                             proceed: false,
@@ -583,9 +628,9 @@
                             faucetResult: faucetResult,
                         };
                     }
-                    // User has CELO available — fall through to the swap-prompt
-                    // branch below; the modal copy is adjusted to explain the
-                    // cooldown context.
+                    // User has stablecoin gas available — fall through to the
+                    // swap-prompt branch below; the modal copy is adjusted to
+                    // explain the cooldown context.
                 } else {
                     balances = await _waitForStablecoin(walletAddr, 30, progress);
                     progress.close();
