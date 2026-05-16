@@ -7,10 +7,10 @@
  * (claim, swap, send, bridge, etc.).
  *
  * Flow:
- *   1) Detect: isMiniPay() + CELO above 0.09 reserve + zero stablecoins
- *   2) Confirm modal: convert all CELO above the MiniPay reserve to cUSD
- *   3) Run Uniswap V3 exactInputSingle CELO -> cUSD, leaving 0.09 CELO.
- *   4) Resume the original action via runWithGasTopUp(wallet, action).
+ *   1) Detect MiniPay balances and whether stablecoin gas is missing.
+ *   2) Request the GoodDollar CELO faucet best-effort when CELO is low.
+ *   3) Always allow the direct cUSD gas faucet for wallets missing stablecoin gas.
+ *   4) If extra CELO is available, optionally swap it to cUSD, then resume.
  *
  * Constraint: every on-chain tx still requires user signature inside
  * MiniPay, so this is "auto-prompt + chained txs", not "zero-tap auto".
@@ -53,11 +53,10 @@
     // and ~$0.001-$0.002 at normal gas. Keep this threshold below the
     // server faucet amount so one refill can clear it.
     const STABLECOIN_GAS_MIN_USD = 0.01;
-    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.05';
+    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.025';
     // Match the backend FAUCET_MIN_CELO default. MiniPay still pays claim gas
-    // in stablecoins, but the GoodDollar CELO faucet must be requested when a
-    // MiniPay claim starts below this floor so the cUSD faucet + autoswap
-    // recovery path has CELO available to convert.
+    // in stablecoins, so the CELO faucet is a best-effort recovery path for
+    // wallets below this floor; it must not block the cUSD gas budget.
     const CELO_FAUCET_TRIGGER_BELOW_WEI = 100000000000000000n; // 0.1 CELO
     const CELO_FAUCET_TRIGGER_BELOW_STR = '0.1';
     const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
@@ -550,17 +549,6 @@
         return latest || await getBalances(walletAddr);
     }
 
-    async function _waitForCeloSwapBalance(walletAddr, attempts, progress) {
-        const maxAttempts = attempts || 30;
-        let latest = null;
-        for (let i = 0; i < maxAttempts; i++) {
-            latest = await getBalances(walletAddr);
-            if (getAutoSwapAmountWei(latest) > 0n) return latest;
-            if (progress) progress.update('Step 1/3 — waiting for GoodDollar CELO faucet to arrive… (' + (i + 1) + '/' + maxAttempts + ')');
-            await _sleep(2000);
-        }
-        return latest || await getBalances(walletAddr);
-    }
 
     function _describeCeloFaucetFailure(result) {
         if (!result) return 'GoodDollar CELO faucet did not return a result.';
@@ -696,21 +684,13 @@
             try {
                 const celoFaucetResult = await _ensureCeloGasFaucet(walletAddr, balances, progress);
                 if (startedWithoutStableGas) {
-                    balances = await _waitForCeloSwapBalance(walletAddr, 30, progress);
-                }
-                if (startedWithoutStableGas && getAutoSwapAmountWei(balances) <= 0n) {
-                    const msg = _describeCeloFaucetFailure(celoFaucetResult)
-                        + ' MiniPay cannot use CELO directly for gas, so GoodMarket will not send the cUSD gas budget until CELO is available to swap.';
-                    progress.close();
-                    if (typeof global.alert === 'function') {
-                        global.alert('MiniPay CELO faucet failed: ' + msg);
-                    }
-                    return {
-                        proceed: false,
-                        error: msg,
-                        celoFaucetResult: celoFaucetResult,
-                        reason: 'no-celo-to-swap',
-                    };
+                    // MiniPay pays gas with stablecoins. The CELO faucet is only
+                    // a best-effort helper for users who can later swap extra CELO
+                    // into cUSD; do not block the cUSD faucet when GoodDollar's
+                    // CELO API/fallback does not credit the wallet.
+                    try {
+                        balances = await getBalances(walletAddr);
+                    } catch (_) { /* keep the pre-flight balances */ }
                 }
 
                 if (!startedWithoutStableGas) {
