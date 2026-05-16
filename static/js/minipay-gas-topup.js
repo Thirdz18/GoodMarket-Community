@@ -380,26 +380,131 @@
         return data;
     }
 
+    function _getCeloFaucetTerminal(result) {
+        return result && (result.terminal_status || result.status || result.reason);
+    }
+
+    function _isCeloFaucetReady(result) {
+        return !!(result && (result.gas_ready || result.status === 'gas_ready'));
+    }
+
+    function _isCeloFaucetHardStop(result) {
+        const terminal = _getCeloFaucetTerminal(result);
+        return terminal === 'gooddollar_cooldown'
+            || terminal === 'recent_refill'
+            || terminal === 'force_onchain_rate_limited'
+            || terminal === 'not_configured';
+    }
+
+    function _showCeloFaucetCoverageBanner(result, walletAddr) {
+        try {
+            if (!global.GMGasCoverageBanner || !result) return;
+            if (result.show_gas_coverage_message) {
+                global.GMGasCoverageBanner.maybeShow(result, { wallet: walletAddr });
+            } else if (_getCeloFaucetTerminal(result) === 'gooddollar_cooldown') {
+                global.GMGasCoverageBanner.maybeShow(
+                    Object.assign({}, result, { show_gas_coverage_message: true }),
+                    { wallet: walletAddr }
+                );
+            }
+        } catch (_) { /* banner is best-effort */ }
+    }
+
+    async function _pollCeloFaucetStatus(walletAddr, correlationId, maxDurationMs, progress) {
+        const startedAt = Date.now();
+        const schedule = [3000, 5000, 7000, 9000, 11000, 13000, 15000, 18000, 22000, 26000];
+        let attempt = 0;
+        let latest = null;
+
+        while ((Date.now() - startedAt) < maxDurationMs) {
+            const delay = schedule[Math.min(attempt, schedule.length - 1)];
+            await _sleep(delay);
+            attempt += 1;
+            if (progress) progress.update('Step 1/3 — waiting for CELO faucet confirmation… (' + attempt + ')');
+            latest = await _postJson('/api/faucet/status', {
+                wallet: walletAddr,
+                correlation_id: correlationId,
+            });
+            _showCeloFaucetCoverageBanner(latest, walletAddr);
+            if (_isCeloFaucetReady(latest) || _isCeloFaucetHardStop(latest)) {
+                return latest;
+            }
+        }
+        return latest || {
+            success: false,
+            status: 'faucet_timeout',
+            error: 'CELO faucet did not confirm before timeout.',
+        };
+    }
+
     async function _ensureCeloGasFaucet(walletAddr, balances, progress) {
         const nativeMinWei = BigInt(Math.floor(CELO_GAS_FAUCET_MIN_CELO * 1e18));
         if (!balances || balances.celo >= nativeMinWei) {
             return { skipped: true, reason: 'celo-gas-ready' };
         }
-        if (progress) progress.update('Step 1/3 — requesting CELO faucet because balance is below 0.1 CELO…');
+
+        const correlationId = 'minipay-celo-' + Date.now().toString(36)
+            + '-' + Math.random().toString(36).slice(2, 8);
+
         try {
-            const result = await _postJson(CELO_FAUCET_ENDPOINT, { wallet: walletAddr });
-            try {
-                if (global.GMGasCoverageBanner && result && result.show_gas_coverage_message) {
-                    global.GMGasCoverageBanner.maybeShow(result, { wallet: walletAddr });
-                } else if (global.GMGasCoverageBanner && result &&
-                           (result.terminal_status === 'gooddollar_cooldown' || result.status === 'gooddollar_cooldown')) {
-                    global.GMGasCoverageBanner.maybeShow(
-                        Object.assign({}, result, { show_gas_coverage_message: true }),
-                        { wallet: walletAddr }
-                    );
+            if (progress) progress.update('Step 1/3 — checking CELO faucet status…');
+            const statusBefore = await _postJson('/api/faucet/status', {
+                wallet: walletAddr,
+                correlation_id: correlationId,
+            });
+            _showCeloFaucetCoverageBanner(statusBefore, walletAddr);
+            if (_isCeloFaucetReady(statusBefore) || _isCeloFaucetHardStop(statusBefore)) {
+                return statusBefore;
+            }
+
+            // Mirror the working injected MetaMask/Trust Wallet path: call the
+            // unified endpoint first, which itself tries GoodDollar's API and
+            // falls back to the TOPWALLET_KEY on-chain topWallet() signer when
+            // the API is down, rejected, or accepted but no balance arrives.
+            if (progress) progress.update('Step 1/3 — requesting CELO faucet with TOPWALLET fallback…');
+            let result = await _postJson(CELO_FAUCET_ENDPOINT, {
+                wallet: walletAddr,
+                correlation_id: correlationId,
+                force_onchain: false,
+                client: 'minipay',
+            });
+            _showCeloFaucetCoverageBanner(result, walletAddr);
+
+            if (_isCeloFaucetReady(result) || _isCeloFaucetHardStop(result)) {
+                return result;
+            }
+
+            // If the unified request reports a transient failure before it ever
+            // tried the on-chain signer, ask once for the explicit force_onchain
+            // path. The backend rate-limits this path and still records the same
+            // GoodDollar cooldown, so this matches injected-wallet behavior
+            // without opening an unlimited TOPWALLET drain.
+            const terminal = _getCeloFaucetTerminal(result);
+            if (!result.gas_ready
+                && result.attempted_onchain === false
+                && (terminal === 'api_failed' || terminal === 'onchain_failed' || terminal === 'faucet_timeout')) {
+                if (progress) progress.update('Step 1/3 — retrying CELO faucet through TOPWALLET fallback…');
+                result = await _postJson(CELO_FAUCET_ENDPOINT, {
+                    wallet: walletAddr,
+                    correlation_id: correlationId,
+                    force_onchain: true,
+                    client: 'minipay',
+                });
+                _showCeloFaucetCoverageBanner(result, walletAddr);
+                if (_isCeloFaucetReady(result) || _isCeloFaucetHardStop(result)) {
+                    return result;
                 }
-            } catch (_) { /* banner is best-effort */ }
-            return result;
+            }
+
+            // MetaMask/Trust Wallet do not trust a single immediate response;
+            // they poll /api/faucet/status until the backend sees gas. MiniPay
+            // needs the same wait because GoodDollar/API/topWallet credits can
+            // confirm after the request returns or after the wallet RPC lags.
+            const polled = await _pollCeloFaucetStatus(walletAddr, correlationId, 180000, progress);
+            if (_isCeloFaucetReady(polled) || _isCeloFaucetHardStop(polled)) {
+                return polled;
+            }
+            return Object.assign({}, result, { status_result: polled });
         } catch (err) {
             console.warn('[MPGasTopUp] CELO gas faucet request failed:', err);
             return { success: false, error: (err && err.message) || 'CELO faucet request failed' };
