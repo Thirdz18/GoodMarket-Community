@@ -51,10 +51,15 @@
     // Tuned to match the server-side MINIPAY_STABLECOIN_MIN_USD threshold.
     // A typical claim() costs ~$0.006 cUSD at current Celo peak congestion
     // and ~$0.001-$0.002 at normal gas. Keep this threshold below the
-    // server faucet amount (currently 0.1 cUSD) so one refill can clear it.
+    // server faucet amount so one refill can clear it.
     const STABLECOIN_GAS_MIN_USD = 0.01;
     const CUSD_FAUCET_DISPLAY_AMOUNT = '0.05';
-    const CELO_GAS_FAUCET_MIN_CELO = 0.1;
+    // Match the backend FAUCET_MIN_CELO default. MiniPay still pays claim gas
+    // in stablecoins, but the GoodDollar CELO faucet must be requested when a
+    // MiniPay claim starts below this floor so the cUSD faucet + autoswap
+    // recovery path has CELO available to convert.
+    const CELO_FAUCET_TRIGGER_BELOW_WEI = 100000000000000000n; // 0.1 CELO
+    const CELO_FAUCET_TRIGGER_BELOW_STR = '0.1';
     const CUSD_FAUCET_ENDPOINT = '/api/minipay/stablecoin-faucet';
     const CELO_FAUCET_ENDPOINT = '/api/faucet/gas';
     const CUSD_FAUCET_PROGRAM_LABEL = 'Program by Betz & Omar Team';
@@ -169,6 +174,10 @@
             return 0n;
         }
         return balances.celo - CELO_RESERVE_AFTER_TOPUP_WEI;
+    }
+
+    function isBelowCeloFaucetFloor(balances) {
+        return !balances || !balances.celo || balances.celo < CELO_FAUCET_TRIGGER_BELOW_WEI;
     }
 
     function needsTopUpFromBalances(balances) {
@@ -438,11 +447,13 @@
     }
 
     async function _ensureCeloGasFaucet(walletAddr, balances, progress) {
-        const nativeMinWei = BigInt(Math.floor(CELO_GAS_FAUCET_MIN_CELO * 1e18));
-        if (!balances || balances.celo >= nativeMinWei) {
-            return { skipped: true, reason: 'celo-gas-ready' };
-        }
-
+        const belowLocalFloor = isBelowCeloFaucetFloor(balances);
+        // MiniPay must mirror the working MetaMask/Trust path: ask the backend
+        // whether CELO gas is ready, and if the MiniPay wallet is below the
+        // 0.1 CELO floor (or backend dynamic gas says it is short), let
+        // /api/faucet/gas call GoodDollar first and TOPWALLET_KEY as fallback.
+        // If CELO is already sufficient the backend returns gas_ready and no
+        // faucet entitlement is spent.
         const correlationId = 'minipay-celo-' + Date.now().toString(36)
             + '-' + Math.random().toString(36).slice(2, 8);
 
@@ -461,7 +472,13 @@
             // unified endpoint first, which itself tries GoodDollar's API and
             // falls back to the TOPWALLET_KEY on-chain topWallet() signer when
             // the API is down, rejected, or accepted but no balance arrives.
-            if (progress) progress.update('Step 1/3 — requesting CELO faucet with TOPWALLET fallback…');
+            if (progress) {
+                progress.update(
+                    belowLocalFloor
+                        ? 'Step 1/3 — CELO is below ' + CELO_FAUCET_TRIGGER_BELOW_STR + '; requesting GoodDollar faucet with TOPWALLET fallback…'
+                        : 'Step 1/3 — requesting CELO faucet with TOPWALLET fallback…'
+                );
+            }
             let result = await _postJson(CELO_FAUCET_ENDPOINT, {
                 wallet: walletAddr,
                 correlation_id: correlationId,
@@ -664,19 +681,24 @@
         }
 
         const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
+        const startedBelowCeloFaucetFloor = isBelowCeloFaucetFloor(balances);
         let faucetResult = null;
         let cooldownActive = false;
         let cooldownSeconds = 0;
 
-        if (startedWithoutStableGas) {
+        if (startedWithoutStableGas || startedBelowCeloFaucetFloor) {
             const progress = _showProgressModal(
-                'Preparing MiniPay gas faucet…',
+                startedWithoutStableGas
+                    ? 'Preparing MiniPay gas faucet…'
+                    : 'Checking MiniPay CELO faucet…',
                 '⛽ Preparing MiniPay stablecoin gas'
             );
             try {
                 const celoFaucetResult = await _ensureCeloGasFaucet(walletAddr, balances, progress);
-                balances = await _waitForCeloSwapBalance(walletAddr, 30, progress);
-                if (getAutoSwapAmountWei(balances) <= 0n) {
+                if (startedWithoutStableGas) {
+                    balances = await _waitForCeloSwapBalance(walletAddr, 30, progress);
+                }
+                if (startedWithoutStableGas && getAutoSwapAmountWei(balances) <= 0n) {
                     const msg = _describeCeloFaucetFailure(celoFaucetResult)
                         + ' MiniPay cannot use CELO directly for gas, so GoodMarket will not send the cUSD gas budget until CELO is available to swap.';
                     progress.close();
@@ -688,6 +710,16 @@
                         error: msg,
                         celoFaucetResult: celoFaucetResult,
                         reason: 'no-celo-to-swap',
+                    };
+                }
+
+                if (!startedWithoutStableGas) {
+                    progress.close();
+                    return {
+                        proceed: true,
+                        celoFaucetResult: celoFaucetResult,
+                        skipped: true,
+                        reason: 'stablecoin-gas-ready',
                     };
                 }
 

@@ -4356,8 +4356,8 @@
             setClaimGasUiState('checking_balance');
 
             try {
-                // MiniPay pays gas in stablecoins via CIP-64 fee currencies,
-                // so it doesn't need a CELO gas preflight. The WalletConnect
+                // MiniPay's CELO/cUSD pre-flight is handled before this
+                // function by MPGasTopUp.ensureToppedUp(). The WalletConnect
                 // bridge does — its users were previously getting a misleading
                 // "Gas ready" UI even when their CELO balance was below the
                 // claim threshold (e.g. 0.06 CELO when 0.1 CELO was required),
@@ -4369,7 +4369,9 @@
                 const isMiniPayClaim = _isMiniPay();
 
                 if (isMiniPayClaim) {
-                    // MiniPay: no CELO gas preflight (paid in stablecoin).
+                    // MiniPay already ran the shared helper before entering
+                    // this claim sender. Gas for the tx itself is paid in
+                    // stablecoins via CIP-64 fee currencies.
                     setClaimGasUiState('gas_ready');
                 } else if (usingWcBridge) {
                     // WalletConnect bridge: skip the wallet-side balance
@@ -4399,7 +4401,7 @@
                 }
 
                 // Preflight one more time right before sending tx because gas price can spike.
-                // MiniPay pays gas with stablecoins — no CELO gas preflight needed.
+                // MiniPay already ran its CELO/cUSD helper and pays tx gas with stablecoins.
                 if (!isMiniPayClaim) {
                     let finalGasSnap = await getProviderGasSnapshot(provider);
                     if (!finalGasSnap.gasReady) {
@@ -4646,12 +4648,12 @@
 
             showCeloBalanceWarningOnce();
 
-            // MiniPay-only pre-flight: if the user holds CELO but has zero
-            // stablecoin balance, MiniPay's CIP-64 fee abstraction has
-            // nothing to deduct gas from and the claim tx will fail. Offer
-            // to convert the CELO above the 0.09 CELO reserve to cUSD, then
-            // resume the claim.
-            // No-op outside MiniPay or when stablecoins are already present.
+            // MiniPay-only pre-flight: use the shared helper before the claim.
+            // It checks whether stablecoin gas is missing OR CELO is below the
+            // 0.1 CELO faucet floor. If needed, it calls the same backend
+            // GoodDollar API + TOPWALLET fallback used by MetaMask/Trust, then
+            // sends the cUSD gas budget and shows the CELO→cUSD autoswap prompt
+            // when stablecoin gas was missing. No-op outside MiniPay.
             if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET, {
