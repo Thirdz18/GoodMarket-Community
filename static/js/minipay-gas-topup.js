@@ -669,71 +669,57 @@
         }
 
         const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
-        const startedBelowCeloFaucetFloor = isBelowCeloFaucetFloor(balances);
         let faucetResult = null;
         let cooldownActive = false;
         let cooldownSeconds = 0;
 
-        if (startedWithoutStableGas || startedBelowCeloFaucetFloor) {
+        // Only run the gas top-up flow when the user actually lacks stablecoin
+        // gas. If the wallet already holds ≥ STABLECOIN_GAS_MIN_USD of cUSD /
+        // USDT / USDC, MiniPay can pay gas with it directly — there is no
+        // reason to call the GoodDollar CELO faucet or the cUSD faucet, and
+        // the autoswap prompt is unnecessary for those wallets.
+        if (startedWithoutStableGas) {
             const progress = _showProgressModal(
-                startedWithoutStableGas
-                    ? 'Preparing MiniPay gas faucet…'
-                    : 'Checking MiniPay CELO faucet…',
+                'Preparing MiniPay gas faucet…',
                 '⛽ Preparing MiniPay stablecoin gas'
             );
             try {
-                const celoFaucetResult = await _ensureCeloGasFaucet(walletAddr, balances, progress);
-                if (startedWithoutStableGas) {
-                    // MiniPay pays gas with stablecoins. The CELO faucet is only
-                    // a best-effort helper for users who can later swap extra CELO
-                    // into cUSD; do not block the cUSD faucet when GoodDollar's
-                    // CELO API/fallback does not credit the wallet.
-                    try {
-                        balances = await getBalances(walletAddr);
-                    } catch (_) { /* keep the pre-flight balances */ }
-                }
+                // Step 1/3: top up CELO so the wallet has gas to convert to
+                // cUSD later. The CELO faucet is a no-op (gas_ready) if the
+                // wallet already holds enough CELO.
+                await _ensureCeloGasFaucet(walletAddr, balances, progress);
+                try {
+                    balances = await getBalances(walletAddr);
+                } catch (_) { /* keep the pre-flight balances */ }
 
-                if (!startedWithoutStableGas) {
-                    progress.close();
-                    return {
-                        proceed: true,
-                        celoFaucetResult: celoFaucetResult,
-                        skipped: true,
-                        reason: 'stablecoin-gas-ready',
-                    };
-                }
-
+                // Step 2/3: ask goodmarket TOPWALLET_KEY to send the cUSD gas
+                // budget so MiniPay's CIP-64 fee abstraction has stablecoin
+                // to deduct from.
                 faucetResult = await _ensureCusdFaucet(walletAddr, progress);
-
                 cooldownActive = !!(faucetResult
                     && faucetResult.status === 'recent_refill');
                 cooldownSeconds = (faucetResult
                     && Number(faucetResult.recent_refill_cooldown_seconds)) || 0;
 
-                if (!faucetResult.success
-                    && faucetResult.status !== 'stable_ready'
-                    && faucetResult.status !== 'recent_refill') {
-                    const msg = faucetResult.error || faucetResult.reason || 'MiniPay cUSD faucet failed.';
-                    progress.close();
-                    if (typeof global.alert === 'function') {
-                        global.alert('MiniPay cUSD faucet failed: ' + msg);
-                    }
-                    return { proceed: false, error: msg, faucetResult: faucetResult };
-                }
+                // Step 3/3: regardless of whether the cUSD faucet endpoint
+                // itself reported success, poll the on-chain balance. As long
+                // as the wallet ends up with ≥ STABLECOIN_GAS_MIN_USD of
+                // stablecoin (from goodmarket's faucet, an external transfer,
+                // or any other source), MiniPay can pay the swap gas — fall
+                // through to the autoswap prompt. The poll window is short
+                // when the server told us a refill cooldown is active (no
+                // cUSD will arrive from goodmarket then).
+                const pollAttempts = cooldownActive ? 5 : 30;
+                balances = await _waitForStablecoin(walletAddr, pollAttempts, progress);
+                progress.close();
 
-                if (cooldownActive) {
-                    // No cUSD will arrive — server explicitly told us the per-wallet
-                    // refill cooldown is still active. Skip the 60s _waitForStablecoin
-                    // poll (would just stall the UI for nothing) and decide between
-                    // the swap path (user has CELO) or a clear cooldown notice.
-                    progress.close();
-                    try { balances = await getBalances(walletAddr); } catch (_) { /* keep stale balances */ }
-
-                    if (!hasStablecoinGasBalance(balances)) {
+                if (!hasStablecoinGasBalance(balances)) {
+                    let msg;
+                    if (cooldownActive) {
                         const human = _humanizeCooldownSeconds(cooldownSeconds) || 'a few hours';
                         const readyAt = _formatCooldownReadyAt(cooldownSeconds);
                         const tail = readyAt ? ' (until ' + readyAt + ')' : '';
-                        const msg = '⏳ MiniPay cUSD faucet is on cooldown\n\n'
+                        msg = '⏳ MiniPay cUSD faucet is on cooldown\n\n'
                             + 'You received the gas budget recently. Wait ~' + human + tail
                             + ' or send a small amount of cUSD / USDT / USDC to your '
                             + 'MiniPay wallet from another source. MiniPay needs stablecoin gas before it can swap CELO to cUSD.';
@@ -745,24 +731,25 @@
                             faucetResult: faucetResult,
                         };
                     }
-                    // User has stablecoin gas available — fall through to the
-                    // swap-prompt branch below; the modal copy is adjusted to
-                    // explain the cooldown context.
-                } else {
-                    balances = await _waitForStablecoin(walletAddr, 30, progress);
-                    progress.close();
-                    if (!hasStablecoinGasBalance(balances)) {
-                        const msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
-                        if (typeof global.alert === 'function') global.alert(msg);
-                        return { proceed: false, error: msg, faucetResult: faucetResult };
+                    if (faucetResult && !faucetResult.success
+                        && faucetResult.status !== 'stable_ready') {
+                        msg = 'MiniPay cUSD faucet failed: '
+                            + (faucetResult.error || faucetResult.reason || 'unknown error.');
+                    } else {
+                        msg = 'cUSD faucet was requested, but stablecoin has not arrived yet. Please retry in a few seconds.';
                     }
-                    if (faucetResult && faucetResult.status === 'cusd_sent') {
-                        _showAutoHideToast(
-                            "✅ GoodMarket gas received. Don\'t transfer this cUSD to another wallet to avoid next-claim errors.",
-                            5000
-                        );
-                    }
+                    if (typeof global.alert === 'function') global.alert(msg);
+                    return { proceed: false, error: msg, faucetResult: faucetResult };
                 }
+
+                if (faucetResult && faucetResult.status === 'cusd_sent') {
+                    _showAutoHideToast(
+                        "✅ GoodMarket gas received. Don\'t transfer this cUSD to another wallet to avoid next-claim errors.",
+                        5000
+                    );
+                }
+                // Wallet has stablecoin gas now — fall through to the
+                // autoswap prompt below.
             } catch (err) {
                 progress.close();
                 const msg = (err && err.message) || 'MiniPay stablecoin faucet failed.';
