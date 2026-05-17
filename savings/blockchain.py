@@ -2,26 +2,36 @@
 G$ Savings blockchain service.
 All on-chain reads. Withdrawals and deposits happen directly from the user's wallet (frontend).
 
-Contract mechanics (v4 — multi-token, slot-based, per-duration bonuses):
-  - Tokens accepted: G$, CELO, cUSD
+Contract mechanics (v5 — multi-token, slot-based, custom-duration bonuses):
+  - Tokens accepted: G$, CELO, cUSD, USDT (Tether on Celo, 6 decimals).
   - One slot per (user, token, lockDays). Top-ups inherit the slot's
     original unlocksAt (no lock extension).
-  - Lock durations (days): 1, 30, 60, 90, 120, 150, 180, 210, 240, 270,
-    300, 330, 365.
-  - Per-token min/max (18-decimal units):
-      G$:   1,000        – 10,000,000
-      CELO: 1            – 100,000
-      cUSD: 1            – 1,000,000
+  - Lock duration: ANY integer day from 1 to 360 (inclusive). No fixed
+    preset durations — the user types a custom number of days.
+  - Per-token min/max (using each token's NATIVE decimals):
+      G$:   1,000        – 10,000,000   (18 decimals)
+      CELO: 1            – 100,000      (18 decimals)
+      cUSD: 1            – 1,000,000    (18 decimals)
+      USDT: 1            – 1,000,000    ( 6 decimals)
   - Per-duration bonus structure (always paid in G$, regardless of
-    deposit token; internal contract ratio 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD):
-      1-day  → 30 G$  if amount ≥ per-token MIN.
-      30..330d (multiples of 30) → (lockDays / 30) * 500 G$  if amount
-                                  ≥ per-token "100k G$ equivalent"
-                                  (G$ 100,000 / CELO 100 / cUSD 100).
-      365d   → 20,000 G$ if amount ≥ per-token "1M G$ equivalent"
-               (G$ 1,000,000 / CELO 1,000 / cUSD 1,000).
+    deposit token; internal contract ratio 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD ≡
+    0.001 USDT):
+      1..29-day   → 30 G$        if amount ≥ per-token MIN.
+      30..360-day → (lockDays * 500 / 30) G$ if amount ≥ per-token
+                     "100k G$ equivalent" (G$ 100,000 / CELO 100 /
+                     cUSD 100 / USDT 100). 30d → 500 G$, 60d → 1,000 G$,
+                     ..., 360d → 6,000 G$.
+      ≥300-day with amount ≥ per-token "1M G$ equivalent"
+         (G$ 1,000,000 / CELO 1,000 / cUSD 1,000 / USDT 1,000) REPLACES
+         the mid-tier value with a flat 20,000 G$ loyalty bonus.
   - Bonus only paid if reward pool has sufficient G$ (optional / trustless).
   - No owner, no pause, no early withdrawal.
+
+Legacy contracts (read-only):
+  - v4 (multi-token, fixed durations [1, 30, ..., 365]). Was the live
+    contract before v5; users with active v4 saves can still see and
+    withdraw them via the legacy v4 panel.
+  - v2 (single-token G$ only, deposit-id based). Frozen permanently.
 """
 import os
 import logging
@@ -35,16 +45,30 @@ SAVINGS_CONTRACT_ADDRESS = os.getenv('SAVINGS_CONTRACT_ADDRESS', '')
 GD_TOKEN_ADDRESS = os.getenv('GOODDOLLAR_CONTRACT_ADDRESS', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
 CELO_TOKEN_ADDRESS = os.getenv('CELO_TOKEN_ADDRESS', '0x471EcE3750Da237f93B8E339c536989b8978a438')
 CUSD_TOKEN_ADDRESS = os.getenv('CUSD_TOKEN_ADDRESS', '0x765DE816845861e75A25fCA122bb6898B8B1282a')
+# Tether (USD₮) on Celo — 6-decimal ERC-20, not the 18-decimal pattern.
+USDT_TOKEN_ADDRESS = os.getenv('USDT_TOKEN_ADDRESS', '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e')
+
+# Legacy v4 contract — multi-token (G$/CELO/cUSD) savings vault that used
+# fixed preset durations. Kept read-only so users with active v4 slots can
+# still see and withdraw them in the UI after the v5 redeploy.
+LEGACY_V4_CONTRACT_ADDRESS = os.getenv(
+    'LEGACY_V4_CONTRACT_ADDRESS',
+    '0x78d2a6Dd976337d3bEaFA0c30df6a0fDE949a618',
+)
 
 # Legacy v2 contract — frozen-in-place forever, read-only support so users with
 # old (single-token, deposit-id-based) saves can still see and withdraw them.
 LEGACY_V2_CONTRACT_ADDRESS = '0xF3cca43F5C108d3dEf01Ff1E138866aC1ed00e9c'
 
 # Map of supported tokens, used by the frontend / API to label slots.
+# USDT uses 6 decimals; all others are 18. Anywhere we convert raw on-chain
+# amounts to human-readable values we must scale by the token's own decimals
+# (Web3.from_wei(_, 'ether') would over-divide a USDT balance by 1e12).
 SUPPORTED_TOKENS = {
     GD_TOKEN_ADDRESS.lower():   {"symbol": "G$",   "decimals": 18},
     CELO_TOKEN_ADDRESS.lower(): {"symbol": "CELO", "decimals": 18},
     CUSD_TOKEN_ADDRESS.lower(): {"symbol": "cUSD", "decimals": 18},
+    USDT_TOKEN_ADDRESS.lower(): {"symbol": "USDT", "decimals":  6},
 }
 
 
@@ -54,13 +78,38 @@ def _token_meta(addr):
     return SUPPORTED_TOKENS.get(addr.lower(), {"symbol": "?", "decimals": 18})
 
 
+def _raw_to_human(raw, decimals):
+    """Scale a raw on-chain integer amount to its human-readable float using
+    the token's native decimals. Returns 0.0 on any conversion error so the
+    UI never crashes on a malformed value."""
+    try:
+        d = int(decimals) if decimals is not None else 18
+        if d < 0:
+            d = 18
+        return float(int(raw)) / float(10 ** d)
+    except Exception:
+        return 0.0
+
+
+# Common slot-detail tuple shared between v4 and v5 ABIs.
+_USER_ACTIVE_SLOTS_OUT = [
+    {"internalType": "address[]", "name": "tokens",         "type": "address[]"},
+    {"internalType": "uint256[]", "name": "lockDays_",      "type": "uint256[]"},
+    {"internalType": "uint256[]", "name": "amounts",        "type": "uint256[]"},
+    {"internalType": "uint256[]", "name": "unlocksAts",     "type": "uint256[]"},
+    {"internalType": "bool[]",    "name": "areUnlocked",    "type": "bool[]"},
+    {"internalType": "bool[]",    "name": "bonusClaimed",   "type": "bool[]"},
+    {"internalType": "uint256[]", "name": "pendingBonuses", "type": "uint256[]"},
+]
+
 SAVINGS_ABI = [
-    # ── Constructor ──────────────────────────────────────────────────────
+    # ── Constructor (v5 — 4-token registry) ─────────────────────────────────
     {
         "inputs": [
             {"internalType": "address", "name": "_gd",        "type": "address"},
             {"internalType": "address", "name": "_celoToken", "type": "address"},
             {"internalType": "address", "name": "_cusd",      "type": "address"},
+            {"internalType": "address", "name": "_usdt",      "type": "address"},
         ],
         "stateMutability": "nonpayable",
         "type": "constructor",
@@ -133,19 +182,11 @@ SAVINGS_ABI = [
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserActiveSlots",
-        "outputs": [
-            {"internalType": "address[]", "name": "tokens",         "type": "address[]"},
-            {"internalType": "uint256[]", "name": "lockDays_",      "type": "uint256[]"},
-            {"internalType": "uint256[]", "name": "amounts",        "type": "uint256[]"},
-            {"internalType": "uint256[]", "name": "unlocksAts",     "type": "uint256[]"},
-            {"internalType": "bool[]",    "name": "areUnlocked",    "type": "bool[]"},
-            {"internalType": "bool[]",    "name": "bonusClaimed",   "type": "bool[]"},
-            {"internalType": "uint256[]", "name": "pendingBonuses", "type": "uint256[]"},
-        ],
+        "outputs": _USER_ACTIVE_SLOTS_OUT,
         "stateMutability": "view",
         "type": "function",
     },
-    # ── View: contract stats ─────────────────────────────────────────────
+    # ── View: contract stats (v5 — USDT added) ──────────────────────────
     {
         "inputs": [],
         "name": "getContractStats",
@@ -153,10 +194,12 @@ SAVINGS_ABI = [
             {"internalType": "uint256", "name": "totalLockedGd",       "type": "uint256"},
             {"internalType": "uint256", "name": "totalLockedCelo",     "type": "uint256"},
             {"internalType": "uint256", "name": "totalLockedCusd",     "type": "uint256"},
+            {"internalType": "uint256", "name": "totalLockedUsdt",     "type": "uint256"},
             {"internalType": "uint256", "name": "rewardPoolBalance",   "type": "uint256"},
             {"internalType": "uint256", "name": "contractGdBalance",   "type": "uint256"},
             {"internalType": "uint256", "name": "contractCeloBalance", "type": "uint256"},
             {"internalType": "uint256", "name": "contractCusdBalance", "type": "uint256"},
+            {"internalType": "uint256", "name": "contractUsdtBalance", "type": "uint256"},
             {"internalType": "uint256", "name": "slotsOpenedTotal",    "type": "uint256"},
         ],
         "stateMutability": "view",
@@ -191,10 +234,14 @@ SAVINGS_ABI = [
         "stateMutability": "view",
         "type": "function",
     },
+    # v5: continuous duration range, not a fixed [1, 30, ..., 365] preset list.
     {
         "inputs": [],
-        "name": "getValidDurations",
-        "outputs": [{"internalType": "uint16[13]", "name": "", "type": "uint16[13]"}],
+        "name": "getDurationRange",
+        "outputs": [
+            {"internalType": "uint256", "name": "minDays", "type": "uint256"},
+            {"internalType": "uint256", "name": "maxDays", "type": "uint256"},
+        ],
         "stateMutability": "view",
         "type": "function",
     },
@@ -205,6 +252,7 @@ SAVINGS_ABI = [
             {"internalType": "address", "name": "gdAddr",   "type": "address"},
             {"internalType": "address", "name": "celoAddr", "type": "address"},
             {"internalType": "address", "name": "cusdAddr", "type": "address"},
+            {"internalType": "address", "name": "usdtAddr", "type": "address"},
         ],
         "stateMutability": "view",
         "type": "function",
@@ -225,6 +273,23 @@ SAVINGS_ABI = [
     {"inputs": [], "name": "cusd",
      "outputs": [{"internalType": "address", "name": "", "type": "address"}],
      "stateMutability": "view", "type": "function"},
+    {"inputs": [], "name": "usdt",
+     "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+     "stateMutability": "view", "type": "function"},
+]
+
+# Legacy v4 ABI — only the read functions used by the legacy v4 panel.
+# v4 used fixed [1, 30, 60, ..., 365] durations and 3 tokens (G$/CELO/cUSD).
+# Withdrawals from v4 are signed directly by the user's wallet on the
+# frontend using the matching JS ABI, so we only need the reads here.
+LEGACY_V4_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserActiveSlots",
+        "outputs": _USER_ACTIVE_SLOTS_OUT,
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 
 # Legacy v2 ABI — only the read functions we need to list a user's old deposits.
@@ -316,7 +381,12 @@ def get_gd_contract(w3):
 
 
 def get_contract_stats():
-    """Return high-level stats about the savings vault."""
+    """Return high-level stats about the v5 savings vault.
+
+    USDT uses 6 decimals so we must scale its raw values with the token's
+    own decimals — calling Web3.from_wei(_, 'ether') on a USDT amount would
+    under-report it by a factor of 10¹².
+    """
     try:
         w3 = get_w3()
         contract = get_savings_contract(w3)
@@ -325,35 +395,77 @@ def get_contract_stats():
             total_locked_gd_raw,
             total_locked_celo_raw,
             total_locked_cusd_raw,
+            total_locked_usdt_raw,
             reward_pool_raw,
             contract_gd_raw,
             contract_celo_raw,
             contract_cusd_raw,
+            contract_usdt_raw,
             slots_opened,
         ) = s
+        usdt_decimals = _token_meta(USDT_TOKEN_ADDRESS)["decimals"]
         return {
-            "total_locked_gd":      str(total_locked_gd_raw),
-            "total_locked_gd_h":    float(Web3.from_wei(total_locked_gd_raw,   'ether')),
-            "total_locked_celo":    str(total_locked_celo_raw),
-            "total_locked_celo_h":  float(Web3.from_wei(total_locked_celo_raw, 'ether')),
-            "total_locked_cusd":    str(total_locked_cusd_raw),
-            "total_locked_cusd_h":  float(Web3.from_wei(total_locked_cusd_raw, 'ether')),
-            "reward_pool":          str(reward_pool_raw),
-            "reward_pool_gd":       float(Web3.from_wei(reward_pool_raw, 'ether')),
-            "contract_gd_balance":  str(contract_gd_raw),
-            "contract_celo_balance":str(contract_celo_raw),
-            "contract_cusd_balance":str(contract_cusd_raw),
-            "total_slots_opened":   slots_opened,
-            "contract_address":     SAVINGS_CONTRACT_ADDRESS,
+            "total_locked_gd":       str(total_locked_gd_raw),
+            "total_locked_gd_h":     _raw_to_human(total_locked_gd_raw,   18),
+            "total_locked_celo":     str(total_locked_celo_raw),
+            "total_locked_celo_h":   _raw_to_human(total_locked_celo_raw, 18),
+            "total_locked_cusd":     str(total_locked_cusd_raw),
+            "total_locked_cusd_h":   _raw_to_human(total_locked_cusd_raw, 18),
+            "total_locked_usdt":     str(total_locked_usdt_raw),
+            "total_locked_usdt_h":   _raw_to_human(total_locked_usdt_raw, usdt_decimals),
+            "reward_pool":           str(reward_pool_raw),
+            "reward_pool_gd":        _raw_to_human(reward_pool_raw, 18),
+            "contract_gd_balance":   str(contract_gd_raw),
+            "contract_celo_balance": str(contract_celo_raw),
+            "contract_cusd_balance": str(contract_cusd_raw),
+            "contract_usdt_balance": str(contract_usdt_raw),
+            "total_slots_opened":    slots_opened,
+            "contract_address":      SAVINGS_CONTRACT_ADDRESS,
             "tokens": {
                 "gd":   GD_TOKEN_ADDRESS,
                 "celo": CELO_TOKEN_ADDRESS,
                 "cusd": CUSD_TOKEN_ADDRESS,
+                "usdt": USDT_TOKEN_ADDRESS,
             },
         }
     except Exception as e:
         logger.error(f"get_contract_stats error: {e}")
         return None
+
+
+def _normalize_active_slots(raw_slots):
+    """Shared helper for v4 + v5 getUserActiveSlots() responses."""
+    (
+        tokens,
+        lock_days_list,
+        amounts,
+        unlocks_ats,
+        are_unlocked,
+        bonus_claimeds,
+        pending_bonuses,
+    ) = raw_slots
+
+    result = []
+    for i in range(len(tokens)):
+        token_addr = tokens[i]
+        meta = _token_meta(token_addr)
+        decimals = meta["decimals"]
+        result.append({
+            "token":             token_addr,
+            "token_symbol":      meta["symbol"],
+            "token_decimals":    decimals,
+            "lock_days":         int(lock_days_list[i]),
+            "amount":            str(amounts[i]),
+            "amount_h":          _raw_to_human(amounts[i], decimals),
+            "unlocks_at":        int(unlocks_ats[i]),
+            "is_unlocked":       bool(are_unlocked[i]),
+            "bonus_claimed":     bool(bonus_claimeds[i]),
+            "pending_bonus":     str(pending_bonuses[i]),
+            # Pending bonus is always paid in G$ (18-decimal) on both v4
+            # and v5, regardless of the deposit token.
+            "pending_bonus_gd":  _raw_to_human(pending_bonuses[i], 18),
+        })
+    return result
 
 
 def get_user_deposits(wallet_address):
@@ -367,34 +479,8 @@ def get_user_deposits(wallet_address):
         w3 = get_w3()
         contract = get_savings_contract(w3)
         addr = Web3.to_checksum_address(wallet_address)
-        (
-            tokens,
-            lock_days_list,
-            amounts,
-            unlocks_ats,
-            are_unlocked,
-            bonus_claimeds,
-            pending_bonuses,
-        ) = contract.functions.getUserActiveSlots(addr).call()
-
-        result = []
-        for i in range(len(tokens)):
-            token_addr = tokens[i]
-            meta = _token_meta(token_addr)
-            result.append({
-                "token":             token_addr,
-                "token_symbol":      meta["symbol"],
-                "token_decimals":    meta["decimals"],
-                "lock_days":         lock_days_list[i],
-                "amount":            str(amounts[i]),
-                "amount_h":          float(Web3.from_wei(amounts[i], 'ether')),
-                "unlocks_at":        unlocks_ats[i],
-                "is_unlocked":       are_unlocked[i],
-                "bonus_claimed":     bonus_claimeds[i],
-                "pending_bonus":     str(pending_bonuses[i]),
-                "pending_bonus_gd":  float(Web3.from_wei(pending_bonuses[i], 'ether')),
-            })
-        return result
+        raw_slots = contract.functions.getUserActiveSlots(addr).call()
+        return _normalize_active_slots(raw_slots)
     except Exception as e:
         logger.error(f"get_user_deposits error: {e}")
         return []
@@ -419,26 +505,48 @@ def get_gd_allowance(wallet_address):
 
 
 def get_user_token_balances(wallet_address):
-    """Return the user's balances for all three supported tokens."""
+    """Return the user's balances + savings-vault allowances for all
+    supported tokens, scaled by each token's own decimals."""
     try:
         w3 = get_w3()
         addr = Web3.to_checksum_address(wallet_address)
         out = {}
-        for key, token_addr in (("gd", GD_TOKEN_ADDRESS), ("celo", CELO_TOKEN_ADDRESS), ("cusd", CUSD_TOKEN_ADDRESS)):
+        token_map = (
+            ("gd",   GD_TOKEN_ADDRESS),
+            ("celo", CELO_TOKEN_ADDRESS),
+            ("cusd", CUSD_TOKEN_ADDRESS),
+            ("usdt", USDT_TOKEN_ADDRESS),
+        )
+        for key, token_addr in token_map:
+            decimals = _token_meta(token_addr)["decimals"]
             try:
                 token = get_erc20_contract(w3, token_addr)
                 bal = token.functions.balanceOf(addr).call()
-                allowance = token.functions.allowance(addr, Web3.to_checksum_address(SAVINGS_CONTRACT_ADDRESS)).call() if SAVINGS_CONTRACT_ADDRESS else 0
+                allowance = (
+                    token.functions.allowance(
+                        addr, Web3.to_checksum_address(SAVINGS_CONTRACT_ADDRESS)
+                    ).call()
+                    if SAVINGS_CONTRACT_ADDRESS
+                    else 0
+                )
                 out[key] = {
                     "address":     token_addr,
+                    "decimals":    decimals,
                     "balance":     str(bal),
-                    "balance_h":   float(Web3.from_wei(bal, 'ether')),
+                    "balance_h":   _raw_to_human(bal, decimals),
                     "allowance":   str(allowance),
-                    "allowance_h": float(Web3.from_wei(allowance, 'ether')),
+                    "allowance_h": _raw_to_human(allowance, decimals),
                 }
             except Exception as inner:
                 logger.warning(f"balance fetch failed for {key}: {inner}")
-                out[key] = {"address": token_addr, "balance": "0", "balance_h": 0.0, "allowance": "0", "allowance_h": 0.0}
+                out[key] = {
+                    "address":     token_addr,
+                    "decimals":    decimals,
+                    "balance":     "0",
+                    "balance_h":   0.0,
+                    "allowance":   "0",
+                    "allowance_h": 0.0,
+                }
         return out
     except Exception as e:
         logger.error(f"get_user_token_balances error: {e}")
@@ -451,6 +559,36 @@ def get_legacy_contract(w3):
         address=Web3.to_checksum_address(LEGACY_V2_CONTRACT_ADDRESS),
         abi=LEGACY_V2_ABI,
     )
+
+
+def get_legacy_v4_contract(w3):
+    """The v4 multi-token savings contract — read-only after the v5 redeploy.
+    Users with active v4 slots can still withdraw them from the frontend."""
+    return w3.eth.contract(
+        address=Web3.to_checksum_address(LEGACY_V4_CONTRACT_ADDRESS),
+        abi=LEGACY_V4_ABI,
+    )
+
+
+def get_user_legacy_v4_deposits(wallet_address):
+    """Return all active v4 slots for the given wallet.
+
+    Same shape as `get_user_deposits` (active-only), so the frontend can
+    reuse the same row-rendering logic for the legacy v4 panel. Returns an
+    empty list if the wallet never opened a v4 slot or the contract call
+    fails (e.g. v4 contract address not configured).
+    """
+    if not LEGACY_V4_CONTRACT_ADDRESS:
+        return []
+    try:
+        w3 = get_w3()
+        contract = get_legacy_v4_contract(w3)
+        addr = Web3.to_checksum_address(wallet_address)
+        raw_slots = contract.functions.getUserActiveSlots(addr).call()
+        return _normalize_active_slots(raw_slots)
+    except Exception as e:
+        logger.error(f"get_user_legacy_v4_deposits error: {e}")
+        return []
 
 
 def get_user_legacy_deposits(wallet_address):

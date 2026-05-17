@@ -1,28 +1,34 @@
 """
-GDSavings Contract Deployment Script for Celo Mainnet (v4)
+GDSavings Contract Deployment Script for Celo Mainnet (v5)
 
 Deploys the multi-token GDSavings vault (no owner, no pause, no early
-withdrawal). Tokens accepted: G$, CELO, cUSD.
+withdrawal). Tokens accepted: G$, CELO, cUSD, USDT.
 
 Features:
   - One slot per (user, token, lockDays). Top-ups inherit the slot's
     original unlocksAt (no lock extension).
-  - Lock durations (days): 1, 30, 60, 90, 120, 150, 180, 210, 240, 270,
-    300, 330, 365.
-  - Per-token min/max (18-decimal units):
-      G$:   1,000        – 10,000,000
-      CELO: 1            – 100,000
-      cUSD: 1            – 1,000,000
+  - Lock duration: any integer from 1 to 360 days (custom typed by user).
+  - Per-token min/max (using each token's native decimals):
+      G$:   1,000        - 10,000,000   (18d)
+      CELO: 1            - 100,000      (18d)
+      cUSD: 1            - 1,000,000    (18d)
+      USDT: 1            - 1,000,000    ( 6d)
   - Per-duration bonus structure (always paid in G$, regardless of
-    deposit token; internal contract ratio 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD):
-      1-day  → 30 G$ if amount ≥ per-token MIN.
-      30..330d (multiples of 30) → (lockDays / 30) * 500 G$ if amount
-                                  ≥ per-token "100k G$ equivalent"
-                                  (G$ 100,000 / CELO 100 / cUSD 100).
-      365d   → 20,000 G$ if amount ≥ per-token "1M G$ equivalent"
-               (G$ 1,000,000 / CELO 1,000 / cUSD 1,000).
+    deposit token; internal contract ratio 1 G$ == 0.001 CELO == 0.001 cUSD
+    == 0.001 USDT):
+      1..29-day  -> 30 G$ if amount >= per-token MIN.
+      30..360-day -> (lockDays * 500 / 30) G$ if amount >= per-token
+                     "100k G$ equivalent" (G$ 100,000 / CELO 100 / cUSD 100
+                     / USDT 100).
+      >=300-day with amount >= per-token "1M G$ equivalent" replaces the
+      mid-tier value with 20,000 G$ loyalty bonus.
   - Anyone can fund the G$ reward pool via fundRewardPool().
   - No owner, no admin, no pause, no emergency, no early withdrawal.
+
+Before re-deploying:
+  - Old (v4) deployment info is preserved at
+    contracts/savings_deployment_info_v4.json so the frontend can still
+    read+withdraw legacy v4 deposits.
 """
 
 import os
@@ -50,6 +56,11 @@ CELO_TOKEN_ADDRESS = os.getenv(
 CUSD_TOKEN_ADDRESS = os.getenv(
     'CUSD_TOKEN_ADDRESS',
     '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+)
+# Tether native USDT on Celo, 6 decimals.
+USDT_TOKEN_ADDRESS = os.getenv(
+    'USDT_TOKEN_ADDRESS',
+    '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e',
 )
 
 FLATTENED_SOURCE = open(os.path.join(os.path.dirname(__file__), 'GDSavings.sol')).read()
@@ -98,6 +109,9 @@ def deploy_contract():
     if not CUSD_TOKEN_ADDRESS:
         logger.error("CUSD_TOKEN_ADDRESS not set!")
         return None
+    if not USDT_TOKEN_ADDRESS:
+        logger.error("USDT_TOKEN_ADDRESS not set!")
+        return None
 
     w3 = Web3(Web3.HTTPProvider(CELO_RPC_URL))
     if not w3.is_connected():
@@ -112,6 +126,7 @@ def deploy_contract():
     logger.info(f"  G$   token: {GOODDOLLAR_CONTRACT}")
     logger.info(f"  CELO token: {CELO_TOKEN_ADDRESS}")
     logger.info(f"  cUSD token: {CUSD_TOKEN_ADDRESS}")
+    logger.info(f"  USDT token: {USDT_TOKEN_ADDRESS}")
 
     celo_balance = w3.eth.get_balance(account.address)
     celo_human = w3.from_wei(celo_balance, 'ether')
@@ -131,13 +146,11 @@ def deploy_contract():
     nonce = w3.eth.get_transaction_count(account.address)
     gas_price = int(w3.eth.gas_price * 1.2)
 
-    # Estimate gas dynamically rather than hardcoding (Celo gas spikes
-    # could otherwise turn a 3.5M*price ceiling into "insufficient funds"
-    # even when the actual gas usage is only ~2M).
     ctor_call = contract.constructor(
         Web3.to_checksum_address(GOODDOLLAR_CONTRACT),
         Web3.to_checksum_address(CELO_TOKEN_ADDRESS),
         Web3.to_checksum_address(CUSD_TOKEN_ADDRESS),
+        Web3.to_checksum_address(USDT_TOKEN_ADDRESS),
     )
     try:
         gas_estimate = ctor_call.estimate_gas({'from': account.address})
@@ -170,19 +183,20 @@ def deploy_contract():
 
     if receipt.status == 1:
         contract_address = receipt.contractAddress
-        logger.info(f"✅ Contract deployed: {contract_address}")
+        logger.info(f"Contract deployed: {contract_address}")
         logger.info(f"   CeloScan: https://celoscan.io/address/{contract_address}")
         logger.info(f"   Gas used: {receipt.gasUsed}")
 
         deployment_info = {
             "contract_name": "GDSavings",
-            "version": "4",
+            "version": "5",
             "contract_address": contract_address,
             "tx_hash": tx_hash_hex,
             "deployer": account.address,
             "gooddollar_token": GOODDOLLAR_CONTRACT,
             "celo_token": CELO_TOKEN_ADDRESS,
             "cusd_token": CUSD_TOKEN_ADDRESS,
+            "usdt_token": USDT_TOKEN_ADDRESS,
             "chain_id": CHAIN_ID,
             "network": "Celo Mainnet",
             "block_number": receipt.blockNumber,
@@ -191,7 +205,8 @@ def deploy_contract():
             "optimization": True,
             "optimization_runs": 200,
             "notes": (
-                "Multi-token (G$, CELO, cUSD). Per-(user, token, lockDays) slot. "
+                "Multi-token (G$, CELO, cUSD, USDT). Per-(user, token, lockDays) slot. "
+                "Lock duration is any integer 1..360 (custom typed by user). "
                 "Top-ups inherit the slot's unlocksAt. No early withdrawal. "
                 "No owner, no pause. Reward pool is G$-only and trustless."
             ),
@@ -203,22 +218,23 @@ def deploy_contract():
             json.dump(deployment_info, f, indent=2)
 
         logger.info(f"Deployment info saved to: {out}")
-        logger.info(f"\nSet this env variable:")
+        logger.info("\nSet this env variable:")
         logger.info(f"  SAVINGS_CONTRACT_ADDRESS={contract_address}")
+        logger.info("\nAlso make sure USDT_TOKEN_ADDRESS is set in your env (defaults to Tether native USDT on Celo).")
 
         return deployment_info
     else:
-        logger.error("❌ Deployment failed!")
+        logger.error("Deployment failed!")
         return None
 
 
 if __name__ == "__main__":
     logger.info("=" * 60)
-    logger.info("GDSavings Contract Deployment — Celo Mainnet")
+    logger.info("GDSavings v5 Contract Deployment - Celo Mainnet")
     logger.info("=" * 60)
     result = deploy_contract()
     if result:
-        logger.info("\n✅ DEPLOYMENT SUCCESSFUL!")
+        logger.info("\nDEPLOYMENT SUCCESSFUL!")
         logger.info(f"Contract:  {result['contract_address']}")
         logger.info(f"Deployer:  {result['deployer']}")
         logger.info(f"Set env:   SAVINGS_CONTRACT_ADDRESS={result['contract_address']}")

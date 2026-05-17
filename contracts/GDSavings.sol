@@ -2,33 +2,35 @@
 pragma solidity ^0.8.21;
 
 /**
- * GDSavings v3 — Multi-token, slot-based, fully trustless savings vault.
+ * GDSavings v5 — Multi-token, slot-based, custom-duration savings vault.
  *
  * Tokens supported on Celo Mainnet:
- *   - G$   (GoodDollar)
- *   - CELO
- *   - cUSD
+ *   - G$   (GoodDollar)           — 18 decimals
+ *   - CELO                        — 18 decimals
+ *   - cUSD                        — 18 decimals
+ *   - USDT (Tether on Celo)       —  6 decimals
  *
  * Mechanics:
  *   - One slot per (user, token, lockDays). Top-ups into an existing slot
- *     KEEP the original unlocksAt — adding to an existing 1-year save does
- *     NOT extend the lock period. All deposits in the slot unlock together.
- *   - Lock durations (days): 1, 30, 60, 90, 120, 150, 180, 210, 240, 270,
- *     300, 330, 365.
- *   - Per-token min/max:
- *       G$:   1,000        – 10,000,000
- *       CELO: 1            – 100,000
- *       cUSD: 1            – 1,000,000
- *     (All in 18-decimal units.)
+ *     KEEP the original unlocksAt — adding to an existing save does NOT
+ *     extend the lock period. All deposits in the slot unlock together.
+ *   - Lock duration: ANY integer day from 1 to 360 (inclusive). The user
+ *     types a custom number of days; there are no preset durations.
+ *   - Per-token min/max (using each token's native decimals):
+ *       G$:   1,000        – 10,000,000   (18d)
+ *       CELO: 1            – 100,000      (18d)
+ *       cUSD: 1            – 1,000,000    (18d)
+ *       USDT: 1            – 1,000,000    ( 6d)
  *   - No early withdrawal. Withdrawal only after slot.unlocksAt.
  *   - On mature withdrawal the user receives 100% of principal in the
  *     deposit token, plus a G$ bonus (if eligible AND reward pool funded).
  *   - Bonus tiers (always paid in G$ regardless of deposit token):
- *       1-day lock, ≥ MIN of token  → 10 G$
- *       ≥150-day lock, by token amount:
- *         G$:   10k–100k → 1k G$ | 100k–500k → 2.5k G$ | 500k–10M → 10k G$
- *         CELO: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–100k → 10k G$
- *         cUSD: 10–100   → 1k G$ |   100–500 → 2.5k G$ |   500–1M  → 10k G$
+ *       1–29-day "tester" lock, amount ≥ per-token MIN → 30 G$.
+ *       30–360-day "mid-tier" lock, amount ≥ per-token "100k G$ eq."
+ *           → (lockDays * 500 / 30) G$  (i.e. 30d → 500 G$, 60d → 1,000 G$,
+ *             …, 360d → 6,000 G$).
+ *       ≥300-day "loyalty" lock, amount ≥ per-token "1M G$ eq."
+ *           → 20,000 G$ (replaces the mid-tier value when eligible).
  *   - Anyone can fund the G$ reward pool via fundRewardPool(); funds added
  *     are non-withdrawable by anyone (used exclusively for bonuses).
  *   - No owner, no admin, no pause, no emergency, no early withdrawal.
@@ -46,7 +48,7 @@ interface IERC20 {
 }
 
 /// @dev Minimal SafeERC20-style helper. Tolerates non-standard tokens that
-///      return no value from transfer/transferFrom.
+///      return no value from transfer/transferFrom (e.g. USDT on some chains).
 library SafeERC20 {
     function safeTransfer(IERC20 token, address to, uint256 value) internal {
         _callOptionalReturn(token, abi.encodeWithSelector(token.transfer.selector, to, value));
@@ -90,38 +92,47 @@ contract GDSavings is ReentrancyGuard {
     address public immutable gd;
     address public immutable celoToken;
     address public immutable cusd;
+    address public immutable usdt;
 
-    // ── Per-token min/max (18-decimal units) ────────────────────────────────
+    // ── Per-token min/max (in each token's native decimals) ─────────────────
     uint256 public constant MIN_DEPOSIT_GD   = 1_000      * 1e18;
     uint256 public constant MAX_DEPOSIT_GD   = 10_000_000 * 1e18;
     uint256 public constant MIN_DEPOSIT_CELO = 1          * 1e18;
     uint256 public constant MAX_DEPOSIT_CELO = 100_000    * 1e18;
     uint256 public constant MIN_DEPOSIT_CUSD = 1          * 1e18;
     uint256 public constant MAX_DEPOSIT_CUSD = 1_000_000  * 1e18;
+    // USDT on Celo uses 6 decimals.
+    uint256 public constant MIN_DEPOSIT_USDT = 1          * 1e6;
+    uint256 public constant MAX_DEPOSIT_USDT = 1_000_000  * 1e6;
 
     // ── Bonus rules (rewards always denominated in G$) ──────────────────────
-    // Per-duration bonus structure (v4):
-    //   1-day  → 30 G$  if amount >= per-token MIN.
-    //   30..330-day (multiples of 30) → (lockDays / 30) * 500 G$ if amount
-    //                                   >= per-token "100k G$ equivalent".
-    //   365-day → 20,000 G$ if amount >= per-token "1M G$ equivalent".
-    uint256 public constant BONUS_1DAY         =     30 * 1e18;
-    uint256 public constant BONUS_PER_30D_STEP =    500 * 1e18; // x N for N*30 days, N in 1..11
-    uint256 public constant BONUS_1YEAR        = 20_000 * 1e18;
+    // Per-duration bonus structure (v5):
+    //   1..29-day   → 30 G$ if amount >= per-token MIN.
+    //   30..360-day → (lockDays * 500 / 30) G$ if amount >= per-token
+    //                 "100k G$ equivalent" (mid-tier).
+    //   >=300-day with amount >= per-token "1M G$ equivalent" REPLACES the
+    //   mid-tier value with a flat 20,000 G$ "loyalty" bonus.
+    uint256 public constant BONUS_TESTER       =     30 * 1e18;
+    uint256 public constant BONUS_PER_30D_STEP =    500 * 1e18; // mid-tier step value
+    uint256 public constant BONUS_LOYALTY      = 20_000 * 1e18;
 
-    // Per-token "100k G$ equivalent" thresholds for 30..330-day locks.
-    // Internal contract ratio: 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD.
+    // Per-token "100k G$ equivalent" thresholds for mid-tier bonus.
+    // Internal contract ratio: 1 G$ ≡ 0.001 CELO ≡ 0.001 cUSD ≡ 0.001 USDT.
     uint256 public constant MID_TIER_MIN_GD   = 100_000 * 1e18;
     uint256 public constant MID_TIER_MIN_CELO =     100 * 1e18;
     uint256 public constant MID_TIER_MIN_CUSD =     100 * 1e18;
+    uint256 public constant MID_TIER_MIN_USDT =     100 * 1e6;
 
-    // Per-token "1M G$ equivalent" thresholds for the 365-day lock.
+    // Per-token "1M G$ equivalent" thresholds for loyalty bonus.
     uint256 public constant LONG_TIER_MIN_GD   = 1_000_000 * 1e18;
     uint256 public constant LONG_TIER_MIN_CELO =     1_000 * 1e18;
     uint256 public constant LONG_TIER_MIN_CUSD =     1_000 * 1e18;
+    uint256 public constant LONG_TIER_MIN_USDT =     1_000 * 1e6;
 
-    // ── Lock durations ──────────────────────────────────────────────────────
-    uint16[13] private _validDurations;
+    // ── Lock duration range (inclusive) ─────────────────────────────────────
+    uint256 public constant MIN_LOCK_DAYS = 1;
+    uint256 public constant MAX_LOCK_DAYS = 360;
+    uint256 public constant LOYALTY_MIN_DAYS = 300;
 
     // ── G$ reward pool ──────────────────────────────────────────────────────
     /// @notice G$ funded by sponsors for bonus payouts. Non-withdrawable.
@@ -192,43 +203,43 @@ contract GDSavings is ReentrancyGuard {
      *                   (canonical: 0x471EcE3750Da237f93B8E339c536989b8978a438).
      * @param _cusd      Address of the cUSD ERC-20 token on Celo
      *                   (canonical: 0x765DE816845861e75A25fCA122bb6898B8B1282a).
+     * @param _usdt      Address of the USDT ERC-20 token on Celo
+     *                   (canonical: 0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e).
      */
-    constructor(address _gd, address _celoToken, address _cusd) {
+    constructor(
+        address _gd,
+        address _celoToken,
+        address _cusd,
+        address _usdt
+    ) {
         require(_gd        != address(0), "Invalid G$ address");
         require(_celoToken != address(0), "Invalid CELO address");
         require(_cusd      != address(0), "Invalid cUSD address");
-        require(_gd != _celoToken && _gd != _cusd && _celoToken != _cusd, "Token addresses must be unique");
+        require(_usdt      != address(0), "Invalid USDT address");
+        require(
+            _gd != _celoToken &&
+            _gd != _cusd &&
+            _gd != _usdt &&
+            _celoToken != _cusd &&
+            _celoToken != _usdt &&
+            _cusd != _usdt,
+            "Token addresses must be unique"
+        );
 
         gd        = _gd;
         celoToken = _celoToken;
         cusd      = _cusd;
-
-        _validDurations[0]  = 1;
-        _validDurations[1]  = 30;
-        _validDurations[2]  = 60;
-        _validDurations[3]  = 90;
-        _validDurations[4]  = 120;
-        _validDurations[5]  = 150;
-        _validDurations[6]  = 180;
-        _validDurations[7]  = 210;
-        _validDurations[8]  = 240;
-        _validDurations[9]  = 270;
-        _validDurations[10] = 300;
-        _validDurations[11] = 330;
-        _validDurations[12] = 365;
+        usdt      = _usdt;
     }
 
     // ── Internal helpers ────────────────────────────────────────────────────
 
     function _isAllowedToken(address token) internal view returns (bool) {
-        return token == gd || token == celoToken || token == cusd;
+        return token == gd || token == celoToken || token == cusd || token == usdt;
     }
 
-    function _isValidDuration(uint256 days_) internal view returns (bool) {
-        for (uint256 i = 0; i < 13; i++) {
-            if (uint256(_validDurations[i]) == days_) return true;
-        }
-        return false;
+    function _isValidDuration(uint256 days_) internal pure returns (bool) {
+        return days_ >= MIN_LOCK_DAYS && days_ <= MAX_LOCK_DAYS;
     }
 
     function _minMaxFor(address token) internal view returns (uint256 minA, uint256 maxA) {
@@ -238,41 +249,54 @@ contract GDSavings is ReentrancyGuard {
         if (token == celoToken) {
             return (MIN_DEPOSIT_CELO, MAX_DEPOSIT_CELO);
         }
-        return (MIN_DEPOSIT_CUSD, MAX_DEPOSIT_CUSD);
+        if (token == cusd) {
+            return (MIN_DEPOSIT_CUSD, MAX_DEPOSIT_CUSD);
+        }
+        return (MIN_DEPOSIT_USDT, MAX_DEPOSIT_USDT);
+    }
+
+    function _midTierMinFor(address token) internal view returns (uint256) {
+        if (token == gd)             return MID_TIER_MIN_GD;
+        if (token == celoToken)      return MID_TIER_MIN_CELO;
+        if (token == cusd)           return MID_TIER_MIN_CUSD;
+        return MID_TIER_MIN_USDT;
+    }
+
+    function _longTierMinFor(address token) internal view returns (uint256) {
+        if (token == gd)             return LONG_TIER_MIN_GD;
+        if (token == celoToken)      return LONG_TIER_MIN_CELO;
+        if (token == cusd)           return LONG_TIER_MIN_CUSD;
+        return LONG_TIER_MIN_USDT;
     }
 
     function _bonusForSlot(address token, uint256 amount, uint256 lockDays) internal view returns (uint256) {
         if (!_isAllowedToken(token)) return 0;
+        if (!_isValidDuration(lockDays)) return 0;
 
-        // 1-day "tester" tier: any deposit >= per-token MIN earns 30 G$.
-        if (lockDays == 1) {
-            (uint256 minA, ) = _minMaxFor(token);
-            if (amount >= minA) return BONUS_1DAY;
+        (uint256 minA, ) = _minMaxFor(token);
+        if (amount < minA) return 0;
+
+        // 1..29-day "tester" tier: any deposit >= per-token MIN earns 30 G$.
+        if (lockDays < 30) {
+            return BONUS_TESTER;
+        }
+
+        // 30..360-day mid-tier: requires per-token "100k G$ equivalent".
+        if (amount < _midTierMinFor(token)) {
             return 0;
         }
 
-        // 365-day "loyalty" tier: 20,000 G$ if amount >= per-token 1M G$ eq.
-        if (lockDays == 365) {
-            uint256 longMin;
-            if (token == gd)             longMin = LONG_TIER_MIN_GD;
-            else if (token == celoToken) longMin = LONG_TIER_MIN_CELO;
-            else                         longMin = LONG_TIER_MIN_CUSD;
-            if (amount >= longMin) return BONUS_1YEAR;
-            return 0;
+        // >=300-day loyalty tier: when amount also clears per-token "1M G$
+        // equivalent", REPLACE the mid-tier value with the flat 20,000 G$
+        // loyalty bonus.
+        if (lockDays >= LOYALTY_MIN_DAYS && amount >= _longTierMinFor(token)) {
+            return BONUS_LOYALTY;
         }
 
-        // 30..330-day mid tiers (multiples of 30): require per-token 100k G$ eq.
-        // Bonus = (lockDays / 30) * 500 G$.
-        if (lockDays >= 30 && lockDays <= 330 && lockDays % 30 == 0) {
-            uint256 midMin;
-            if (token == gd)             midMin = MID_TIER_MIN_GD;
-            else if (token == celoToken) midMin = MID_TIER_MIN_CELO;
-            else                         midMin = MID_TIER_MIN_CUSD;
-            if (amount < midMin) return 0;
-            return (lockDays / 30) * BONUS_PER_30D_STEP;
-        }
-
-        return 0;
+        // Mid-tier: linear (lockDays * 500 / 30) G$. Integer division rounds
+        // down per day, so e.g. lockDays = 31 → 516 G$; lockDays = 30 → 500;
+        // lockDays = 360 → 6,000.
+        return (lockDays * BONUS_PER_30D_STEP) / 30;
     }
 
     function _trackSlotRef(address user, address token, uint256 lockDays) internal {
@@ -288,10 +312,10 @@ contract GDSavings is ReentrancyGuard {
      * @notice Deposit into a savings slot. Top-ups into an existing
      *         (msg.sender, token, lockDays) slot inherit the original
      *         unlocksAt — the lock period is NOT extended.
-     * @param token    Must be one of: gd, celoToken, cusd.
+     * @param token    Must be one of: gd, celoToken, cusd, usdt.
      * @param amount   Per-deposit amount (must satisfy per-token MIN/MAX).
      *                 The cumulative slot total must also stay within MAX.
-     * @param lockDays Must be one of the 13 valid durations.
+     * @param lockDays Any integer in [1, 360].
      */
     function depositSavings(address token, uint256 amount, uint256 lockDays) external nonReentrant {
         require(_isAllowedToken(token), "Token not allowed");
@@ -388,8 +412,12 @@ contract GDSavings is ReentrancyGuard {
         return _isAllowedToken(token);
     }
 
-    function getValidDurations() external view returns (uint16[13] memory) {
-        return _validDurations;
+    /**
+     * @notice Inclusive day range (min, max) the contract accepts as lock
+     *         duration. Any integer in [min, max] is valid.
+     */
+    function getDurationRange() external pure returns (uint256 minDays, uint256 maxDays) {
+        return (MIN_LOCK_DAYS, MAX_LOCK_DAYS);
     }
 
     function getMinMax(address token) external view returns (uint256 minA, uint256 maxA) {
@@ -487,38 +515,50 @@ contract GDSavings is ReentrancyGuard {
      *                            (= contract G$ balance minus rewardPool).
      * @return totalLockedCelo    Total CELO held by the contract.
      * @return totalLockedCusd    Total cUSD held by the contract.
+     * @return totalLockedUsdt    Total USDT held by the contract.
      * @return rewardPoolBalance  Current G$ reward pool.
      * @return contractGdBalance  Raw contract G$ balance.
      * @return contractCeloBalance Raw contract CELO balance.
      * @return contractCusdBalance Raw contract cUSD balance.
+     * @return contractUsdtBalance Raw contract USDT balance.
      * @return slotsOpenedTotal   Cumulative count of slot openings.
      */
     function getContractStats() external view returns (
         uint256 totalLockedGd,
         uint256 totalLockedCelo,
         uint256 totalLockedCusd,
+        uint256 totalLockedUsdt,
         uint256 rewardPoolBalance,
         uint256 contractGdBalance,
         uint256 contractCeloBalance,
         uint256 contractCusdBalance,
+        uint256 contractUsdtBalance,
         uint256 slotsOpenedTotal
     ) {
         uint256 balGd   = IERC20(gd).balanceOf(address(this));
         uint256 balCelo = IERC20(celoToken).balanceOf(address(this));
         uint256 balCusd = IERC20(cusd).balanceOf(address(this));
+        uint256 balUsdt = IERC20(usdt).balanceOf(address(this));
         return (
             balGd > rewardPool ? balGd - rewardPool : 0,
             balCelo,
             balCusd,
+            balUsdt,
             rewardPool,
             balGd,
             balCelo,
             balCusd,
+            balUsdt,
             totalSlotsOpened
         );
     }
 
-    function getTokens() external view returns (address gdAddr, address celoAddr, address cusdAddr) {
-        return (gd, celoToken, cusd);
+    function getTokens() external view returns (
+        address gdAddr,
+        address celoAddr,
+        address cusdAddr,
+        address usdtAddr
+    ) {
+        return (gd, celoToken, cusd, usdt);
     }
 }
