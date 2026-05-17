@@ -31,11 +31,18 @@ class MinigamesBlockchainService:
         # GAMES_KEY for withdrawals (sending winnings to users)
         games_key = os.getenv('GAMES_KEY')
         if games_key:
-            if not games_key.startswith('0x'):
-                games_key = '0x' + games_key
-            self.games_account = Account.from_key(games_key)
-            self.games_key_address = self.games_account.address
+            try:
+                if not games_key.startswith('0x'):
+                    games_key = '0x' + games_key
+                self.games_account = Account.from_key(games_key)
+                self.games_key_address = self.games_account.address
+                logger.info(f"✅ GAMES_KEY configured: {self.games_key_address}")
+            except Exception as e:
+                logger.error(f"❌ Error loading GAMES_KEY: {e}")
+                self.games_account = None
+                self.games_key_address = None
         else:
+            self.games_account = None
             self.games_key_address = None
             logger.warning("⚠️ GAMES_KEY not configured")
 
@@ -258,7 +265,7 @@ class MinigamesBlockchainService:
             amount_wei = int(amount * (10 ** 18))
 
             # Build transfer transaction
-            nonce = self.w3.eth.get_transaction_count(self.games_account.address)
+            nonce = self.w3.eth.get_transaction_count(self.games_key_address)
             gas_price = int(self.w3.eth.gas_price * 1.2)  # Add 20% buffer
 
             # Estimate gas dynamically instead of hardcoding a fixed limit.
@@ -269,7 +276,7 @@ class MinigamesBlockchainService:
                 estimated_gas = self.token_contract.functions.transfer(
                     recipient_checksum,
                     amount_wei
-                ).estimate_gas({'from': self.games_account.address})
+                ).estimate_gas({'from': self.games_key_address})
                 gas_limit = int(estimated_gas * 1.3)
                 logger.info(
                     f"⛽ Withdrawal gas estimate: {estimated_gas} "
@@ -285,7 +292,7 @@ class MinigamesBlockchainService:
                 recipient_checksum,
                 amount_wei
             ).build_transaction({
-                'from': self.games_account.address,
+                'from': self.games_key_address,
                 'nonce': nonce,
                 'gas': gas_limit,
                 'gasPrice': gas_price,
@@ -295,7 +302,7 @@ class MinigamesBlockchainService:
             # Sign and send
             signed_txn = self.w3.eth.account.sign_transaction(
                 transaction,
-                private_key=self.games_account.key
+                private_key=self.games_account.key if self.games_account else None
             )
 
             logger.info("📡 Sending withdrawal transaction from GAMES_KEY...")
@@ -369,7 +376,7 @@ class MinigamesBlockchainService:
             amount_wei = int(amount * (10 ** 18))
 
             # Get nonce and gas price for the transaction
-            nonce = self.w3.eth.get_transaction_count(self.games_account.address)
+            nonce = self.w3.eth.get_transaction_count(self.games_key_address)
             gas_price = int(self.w3.eth.gas_price * 1.2)  # Add 20% buffer for gas price
 
             # Estimate gas dynamically instead of hardcoding a fixed limit.
@@ -380,7 +387,7 @@ class MinigamesBlockchainService:
                 estimated_gas = self.token_contract.functions.transfer(
                     Web3.to_checksum_address(wallet_address),
                     amount_wei
-                ).estimate_gas({'from': self.games_account.address})
+                ).estimate_gas({'from': self.games_key_address})
                 gas_limit = int(estimated_gas * 1.3)
                 logger.info(
                     f"⛽ Minigame reward gas estimate: {estimated_gas} "
@@ -397,7 +404,7 @@ class MinigamesBlockchainService:
                 Web3.to_checksum_address(wallet_address),
                 amount_wei
             ).build_transaction({
-                'from': self.games_account.address,
+                'from': self.games_key_address,
                 'gas': gas_limit,
                 'gasPrice': gas_price,
                 'nonce': nonce,
@@ -407,7 +414,7 @@ class MinigamesBlockchainService:
             # Sign the transaction with the GAMES_KEY private key
             signed_txn = self.w3.eth.account.sign_transaction(
                 transaction,
-                private_key=self.games_account.key
+                private_key=self.games_account.key if self.games_account else None
             )
 
             # Send the signed transaction to the network
