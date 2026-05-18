@@ -469,28 +469,6 @@
             line-height: 1.2;
             white-space: normal;
         }
-        .action-item--coming-soon {
-            cursor: pointer;
-        }
-        .action-item--coming-soon .action-label-wrap {
-            display: flex;
-            flex-direction: column;
-            gap: 0.18rem;
-            min-width: 0;
-        }
-        .action-coming-soon-badge {
-            display: inline-flex;
-            width: fit-content;
-            padding: 0.12rem 0.42rem;
-            border-radius: 999px;
-            border: 1px solid rgba(251,191,36,0.38);
-            background: rgba(251,191,36,0.12);
-            color: #fde68a;
-            font-size: 0.55rem;
-            font-weight: 800;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-        }
         .wallet-layout {
             display: grid;
             grid-template-columns: minmax(140px, 38%) minmax(0, 1fr);
@@ -1264,12 +1242,9 @@
                     <div class="action-circle">⇌</div>
                     <span class="action-label">GoodSwap</span>
                 </div>
-                <div class="action-item action-item--coming-soon" id="actionBuyEth" role="button" tabindex="0" aria-label="Buy ETH coming soon" onclick="return handleBuyEthComingSoon(event)" onkeydown="return handleBuyEthComingSoonKey(event)">
+                <div class="action-item" id="actionBuyEth" onclick="return navigateWithFeedback('/swap?tab=squid', 'Opening Buy ETH…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#38bdf8,#2563eb);color:#fff;">Ξ</div>
-                    <span class="action-label-wrap">
-                        <span class="action-label">Buy ETH</span>
-                        <span class="action-coming-soon-badge">Coming Soon</span>
-                    </span>
+                    <span class="action-label">Buy ETH</span>
                 </div>
                 <div class="action-item" id="actionLearnEarn" onclick="return navigateWithFeedback('/learn-earn?from=wallet', 'Opening Learn &amp; Earn…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">📚</div>
@@ -2053,17 +2028,6 @@
         const totalGd = (gdBal || 0) + (xdcGdBal || 0) + (fuseGdBal || 0) + convertedToGd;
 
         totalBalanceEl.textContent = fmt(totalGd, 4) + ' G$';
-    }
-
-    function handleBuyEthComingSoon(event) {
-        if (event) event.preventDefault();
-        window.alert('Buy ETH is coming soon. Please check back soon.');
-        return false;
-    }
-
-    function handleBuyEthComingSoonKey(event) {
-        if (!event || (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar')) return true;
-        return handleBuyEthComingSoon(event);
     }
 
     async function handleVirtualCardAction() {
