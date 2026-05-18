@@ -6482,11 +6482,13 @@ def swap_page():
     fuse_wfuse_contract = os.getenv("FUSE_WFUSE_TOKEN", "0x0BE9e53fd7EDaC9F859882AfdDa116645287C629")
     voltage_router_contract = os.getenv("VOLTAGE_ROUTER", "0xE3F85aAd0c8DD7337427B9dF5d0fB741d65EEEB5")
 
-    # Squid Router Celo -> Base ETH widget configuration.  Keep this server-side
-    # configurable so production can rotate integrator IDs or switch the hosted
-    # Squid app URL without editing the template.  Source token defaults are the
-    # Celo assets requested for the first release; the destination is native ETH
-    # on Base using Squid's canonical native-token placeholder.
+    # Squid Router Celo -> Base ETH widget configuration.  These values have
+    # production-safe defaults, so Vercel does not need extra Squid env vars just
+    # to render the widget.  Keep them overrideable so production can add an
+    # official integrator ID or change Squid endpoints/tokens without editing the
+    # template.  Source token defaults are the Celo assets requested for the first
+    # release; the destination is native ETH on Base using Squid's canonical
+    # native-token placeholder.
     squid_integrator_id = os.getenv("SQUID_INTEGRATOR_ID", "")
     squid_api_url = os.getenv("SQUID_API_URL", "https://apiplus.squidrouter.com").rstrip("/")
     squid_iframe_base_url = os.getenv("SQUID_WIDGET_IFRAME_URL", "https://studio.squidrouter.com/iframe")
