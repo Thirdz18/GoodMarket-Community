@@ -51,7 +51,11 @@
     var DEFAULT_CHAIN_ID = 42220;
     var WC_CDN_URL = "https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js";
 
-    // Supported networks for WalletConnect chain switching
+    // Supported networks for WalletConnect chain switching.
+    // The bridge updates `_config.chainHex`/`chainId`/`rpcUrl` to match the
+    // chain selected via `wallet_switchEthereumChain` so subsequent
+    // `eth_sendTransaction` calls are relayed to the wallet under the
+    // correct `eip155:<chainId>` namespace.
     var SUPPORTED_NETWORKS = {
         "0xa4ec": { // Celo Mainnet
             name: "Celo",
@@ -74,8 +78,33 @@
                 decimals: 18
             },
             blockExplorerUrls: ["https://xdcscan.io"]
+        },
+        "0x2105": { // Base Mainnet (chain 8453)
+            name: "Base",
+            chainId: 8453,
+            rpc: "https://mainnet.base.org",
+            nativeCurrency: {
+                name: "ETH",
+                symbol: "ETH",
+                decimals: 18
+            },
+            blockExplorerUrls: ["https://basescan.org"]
         }
     };
+
+    // Apply a SUPPORTED_NETWORKS entry to the bridge's runtime config so
+    // subsequent JSON-RPC calls (eth_sendTransaction, eth_chainId,
+    // read-only RPC) are routed against the selected chain.
+    function _applyChainToConfig(chainHex, network) {
+        if (!network) return;
+        _config.chainHex = chainHex;
+        _config.chainId = Number(network.chainId) || _config.chainId;
+        if (network.rpc) {
+            _config.rpcUrl = network.rpc;
+        } else if (Array.isArray(network.rpcUrls) && network.rpcUrls.length > 0) {
+            _config.rpcUrl = network.rpcUrls[0];
+        }
+    }
 
     var _config = {
         walletAddress: "",
@@ -668,34 +697,49 @@
             return Promise.resolve(String(Number(_config.chainId || DEFAULT_CHAIN_ID)));
         }
         if (method === "wallet_switchEthereumChain") {
-            // Handle network switching for supported chains
+            // Handle network switching for supported chains. We update the
+            // bridge's runtime config so subsequent eth_sendTransaction
+            // requests are relayed to the wallet under the new chain's
+            // `eip155:<chainId>` topic — otherwise the WC client would keep
+            // sending Base/XDC transactions on Celo's namespace and the
+            // wallet would silently reject them.
             var chainId = (p && p[0] && p[0].chainId) ? String(p[0].chainId) : null;
             if (!chainId) {
                 return Promise.reject(_wcRpcError("Missing chainId parameter", null, -32602));
             }
-            // Validate that the network is supported
-            if (SUPPORTED_NETWORKS[chainId]) {
-                // Return success - let the wallet handle the actual switch
+            var entry = SUPPORTED_NETWORKS[chainId];
+            if (entry) {
+                _applyChainToConfig(chainId, entry);
                 return Promise.resolve(null);
             }
             // Return error code 4902 (unrecognized chain) per EIP-3326
             return Promise.reject(_wcRpcError("Unrecognized chain ID. Add the chain with wallet_addEthereumChain first.", null, 4902));
         }
         if (method === "wallet_addEthereumChain") {
-            // Handle adding a new network
+            // Handle adding a new network. We accept EIP-3085 parameters,
+            // register the chain in SUPPORTED_NETWORKS for the lifetime of
+            // the session, and update the bridge's runtime config so
+            // subsequent transactions are routed against the new chain.
             var chainData = (p && p[0]) ? p[0] : {};
             if (!chainData.chainId) {
                 return Promise.reject(_wcRpcError("Missing chainId in chain parameters", null, -32602));
             }
-            // Validate required fields per EIP-3085
             if (!chainData.chainName || !chainData.rpcUrls || chainData.rpcUrls.length === 0) {
                 return Promise.reject(_wcRpcError("Missing required chain parameters (chainName or rpcUrls)", null, -32602));
             }
             if (!chainData.nativeCurrency) {
                 return Promise.reject(_wcRpcError("Missing nativeCurrency in chain parameters", null, -32602));
             }
-            // For now, accept the chain addition (wallet will handle the actual add)
-            // In the future, could store in SUPPORTED_NETWORKS for future validation
+            var newHex = String(chainData.chainId);
+            var newEntry = SUPPORTED_NETWORKS[newHex] || {
+                name: chainData.chainName,
+                chainId: parseInt(newHex, 16),
+                rpc: chainData.rpcUrls[0],
+                nativeCurrency: chainData.nativeCurrency,
+                blockExplorerUrls: chainData.blockExplorerUrls || []
+            };
+            SUPPORTED_NETWORKS[newHex] = newEntry;
+            _applyChainToConfig(newHex, newEntry);
             return Promise.resolve(null);
         }
 

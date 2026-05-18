@@ -1518,10 +1518,10 @@
             <div class="modal-title">🌊 SUP Rewards</div>
 
             <div style="background:rgba(255,122,24,0.10);border:1px solid rgba(255,122,24,0.28);border-radius:16px;padding:1rem;margin-bottom:1rem;text-align:left;">
-                <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Superfluid on Base</div>
-                <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Native on-chain claim</div>
+                <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Native claim · Superfluid on Base</div>
+                <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Claim inside GoodMarket — no redirect</div>
                 <div style="color:var(--text-dim);font-size:0.84rem;line-height:1.45;">
-                    Reads your SUP wallet balance and every Superfluid GDA pool you have units in, then lets you claim directly with your connected wallet — no redirect needed.
+                    GoodMarket reads your SUP balance and every Superfluid GDA pool you have units in, then signs the claim directly with your connected wallet on Base. The Superfluid app is only used as a manual fallback if your wallet can't sign here.
                 </div>
             </div>
 
@@ -1561,8 +1561,8 @@
                 <span>🌊</span>
                 <span id="supClaimNativeLabel">Claim SUP</span>
             </button>
-            <button id="supClaimOpenBtn" class="btn-secondary" onclick="openOfficialSupClaim()" style="margin-top:0.55rem;">
-                Open on Superfluid app
+            <button id="supClaimOpenBtn" class="btn-secondary" onclick="openOfficialSupClaim()" style="margin-top:0.55rem;display:none;">
+                Open on Superfluid app (fallback)
             </button>
             <button class="btn-secondary" onclick="closeModal('supClaimModal')">Close</button>
         </div>
@@ -2172,6 +2172,14 @@
         if (btn) btn.disabled = !!disabled;
     }
 
+    function _supSetOpenButton(show) {
+        // The Superfluid app handoff is a last-resort fallback for users
+        // whose wallet can't sign on Base inside GoodMarket. Hidden by
+        // default so the native flow doesn't look like a redirect button.
+        const btn = document.getElementById('supClaimOpenBtn');
+        if (btn) btn.style.display = show ? '' : 'none';
+    }
+
     function _supShortAddr(addr) {
         if (!addr) return '';
         return addr.slice(0, 6) + '…' + addr.slice(-4);
@@ -2226,6 +2234,7 @@
         _supSetDetails('Please wait while GoodMarket checks your SUP status on Base.');
         _supSetProgress('');
         _supSetClaimButton('Claim SUP', true);
+        _supSetOpenButton(false);
         const summaryEl = document.getElementById('supClaimSummary');
         if (summaryEl) summaryEl.style.display = 'none';
         const listEl = document.getElementById('supClaimPoolList');
@@ -2308,6 +2317,9 @@
                 'The official Superfluid app remains a safe fallback for checking eligibility and claiming.'
             );
             _supSetClaimButton('Claim SUP', true);
+            // Subgraph/RPC unreachable → surface the manual fallback so the
+            // user still has a way to claim while we recover.
+            _supSetOpenButton(true);
         }
     }
 
@@ -2419,18 +2431,22 @@
             const provider = await _supGetWalletProvider();
             if (!provider) {
                 _supSetProgress(
-                    'No wallet provider detected in the browser. Open GoodMarket from your wallet app, or use the “Open on Superfluid app” button below.'
+                    'No wallet provider detected in this browser. Open GoodMarket from inside your wallet app (Trust / MetaMask Mobile / Valora) so it can sign on Base, or use the fallback button below.'
                 );
                 _supSetClaimButton(`Claim ${prep.total_claimable_formatted || ''} SUP`.trim(), false);
+                // Only surface the Superfluid app fallback when the native
+                // flow can't proceed — keeps the primary path unambiguous.
+                _supSetOpenButton(true);
                 return;
             }
 
-            _supSetProgress('Switching your wallet to Base network…');
+            _supSetProgress('Asking your wallet to switch to Base network… please confirm the prompt.');
             try {
                 await _supEnsureBaseChain(provider);
             } catch (chainErr) {
                 _supSetProgress(`⚠️ ${chainErr.message || chainErr}`);
                 _supSetClaimButton(`Claim ${prep.total_claimable_formatted || ''} SUP`.trim(), false);
+                _supSetOpenButton(true);
                 return;
             }
 
@@ -2488,6 +2504,7 @@
             console.warn('[sup-claim] native claim failed:', e);
             _supSetProgress(`⚠️ ${(e && e.message) || 'Could not start SUP claim.'}`);
             _supSetClaimButton('Try again', false);
+            _supSetOpenButton(true);
         } finally {
             _supClaimInFlight = false;
         }
