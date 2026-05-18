@@ -6303,25 +6303,12 @@ SUP_DEFAULT_SUBGRAPH_URL = (
 # See https://docs.superfluid.org/docs/technical-reference/GDAv1Forwarder
 SUP_GDA_FORWARDER_ADDRESS = "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08"
 SUP_OFFICIAL_CLAIM_URL = "https://claim.superfluid.org/claim"
-SUP_MONTH_SECONDS = 30 * 24 * 60 * 60
 
 _SUP_TOKEN_ABI = [
     {
         "inputs": [{"name": "account", "type": "address"}],
         "name": "balanceOf",
         "outputs": [{"name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "inputs": [{"name": "account", "type": "address"}],
-        "name": "realtimeBalanceOfNow",
-        "outputs": [
-            {"name": "availableBalance", "type": "int256"},
-            {"name": "deposit", "type": "uint256"},
-            {"name": "owedDeposit", "type": "uint256"},
-            {"name": "timestamp", "type": "uint256"},
-        ],
         "stateMutability": "view",
         "type": "function",
     },
@@ -6376,23 +6363,6 @@ def _sup_format_balance(raw: int, decimals: int = 18) -> str:
     value = Decimal(raw) / (Decimal(10) ** Decimal(decimals))
     formatted = f"{value:.6f}".rstrip("0").rstrip(".")
     return formatted or "0"
-
-
-def _sup_parse_int(value, default: int = 0) -> int:
-    """Parse subgraph/RPC integer strings without letting malformed data break UI."""
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _sup_member_flow_rate(pool_meta: dict, units: int) -> int:
-    """Return the member's proportional SUP flow rate in raw token units/second."""
-    pool_flow_rate = _sup_parse_int(pool_meta.get("flowRate"))
-    total_units = _sup_parse_int(pool_meta.get("totalUnits"))
-    if pool_flow_rate <= 0 or units <= 0 or total_units <= 0:
-        return 0
-    return int((Decimal(pool_flow_rate) * Decimal(units)) / Decimal(total_units))
 
 
 def _sup_fetch_pool_memberships(wallet: str, token_address: str, subgraph_url: str) -> list:
@@ -6457,21 +6427,10 @@ def _sup_read_pools_claimable(
         pool_address = pool_meta.get("id")
         if not pool_address or not Web3.is_address(pool_address):
             continue
-        units_int = _sup_parse_int(membership.get("units"))
-        total_units_int = _sup_parse_int(pool_meta.get("totalUnits"))
-        member_flow_rate = _sup_member_flow_rate(pool_meta, units_int)
-        member_flow_month = member_flow_rate * SUP_MONTH_SECONDS
         entry = {
             "pool_address": Web3.to_checksum_address(pool_address),
             "pool_admin": (pool_meta.get("admin") or {}).get("id"),
-            "units": str(units_int),
-            "total_units": str(total_units_int),
-            "pool_flow_rate": str(_sup_parse_int(pool_meta.get("flowRate"))),
-            "member_flow_rate": str(member_flow_rate),
-            "member_flow_rate_formatted": _sup_format_balance(member_flow_rate, decimals),
-            "member_flow_monthly": str(member_flow_month),
-            "member_flow_monthly_formatted": _sup_format_balance(member_flow_month, decimals),
-            "flow_period_days": 30,
+            "units": str(membership.get("units") or "0"),
             "is_connected": bool(membership.get("isConnected")),
             "total_amount_claimed": str(membership.get("totalAmountClaimed") or "0"),
             "total_amount_received_until_updated_at": str(
@@ -6553,18 +6512,12 @@ def sup_claim_availability():
         "message": (
             "SUP rewards stream from Superfluid GDA pools. GoodMarket reads "
             "the official Superfluid subgraph for the pools your wallet has "
-            "units in, computes your proportional flow per month, checks the "
-            "SuperToken realtime reserve balance, then calls "
-            "`getClaimableNow(member)` on each pool. Tap Claim to sign one "
-            "transaction per pool through your connected wallet."
+            "units in, then checks `getClaimableNow(member)` on each pool to "
+            "show the exact pending amount. Tap Claim to sign one transaction "
+            "per pool through your connected wallet."
         ),
         "sup_balance": None,
         "sup_balance_formatted": None,
-        "reserve_balance": None,
-        "reserve_balance_formatted": None,
-        "available_balance": None,
-        "available_balance_formatted": None,
-        "realtime_balance_timestamp": None,
         "total_claimable": "0",
         "total_claimable_formatted": "0",
         "total_units": "0",
@@ -6599,26 +6552,6 @@ def sup_claim_availability():
         result["decimals"] = decimals
         result["sup_balance"] = str(raw_balance)
         result["sup_balance_formatted"] = _sup_format_balance(raw_balance, decimals)
-        try:
-            available_balance, _deposit, _owed_deposit, rt_ts = (
-                token.functions.realtimeBalanceOfNow(member_addr).call()
-            )
-            reserve_balance = max(int(available_balance), 0)
-            result["reserve_balance"] = str(reserve_balance)
-            result["reserve_balance_formatted"] = _sup_format_balance(reserve_balance, decimals)
-            result["available_balance"] = str(reserve_balance)
-            result["available_balance_formatted"] = result["reserve_balance_formatted"]
-            result["realtime_balance_timestamp"] = int(rt_ts)
-        except Exception as rt_err:
-            logger.info(
-                "sup realtimeBalanceOfNow unavailable for %s: %s", wallet, rt_err
-            )
-            # Not every ERC20-like token exposes the SuperToken realtime read.
-            # Fall back to balanceOf so the UI still has a reserve number.
-            result["reserve_balance"] = str(raw_balance)
-            result["reserve_balance_formatted"] = result["sup_balance_formatted"]
-            result["available_balance"] = str(raw_balance)
-            result["available_balance_formatted"] = result["sup_balance_formatted"]
     except Exception as e:
         logger.warning("sup_claim_availability balanceOf failed for %s: %s", wallet, e)
         result["balance_warning"] = "Could not read SUP wallet balance from Base RPC right now."
@@ -6632,16 +6565,9 @@ def sup_claim_availability():
         result["pool_count"] = len(pools)
         total_units = sum(int(p.get("units") or 0) for p in pools)
         total_claimable = sum(int(p.get("claimable_now") or 0) for p in pools)
-        total_monthly_flow = sum(int(p.get("member_flow_monthly") or 0) for p in pools)
-        total_flow_rate = sum(int(p.get("member_flow_rate") or 0) for p in pools)
         result["total_units"] = str(total_units)
         result["total_claimable"] = str(total_claimable)
         result["total_claimable_formatted"] = _sup_format_balance(total_claimable, decimals)
-        result["total_flow_rate"] = str(total_flow_rate)
-        result["total_flow_rate_formatted"] = _sup_format_balance(total_flow_rate, decimals)
-        result["total_flow_monthly"] = str(total_monthly_flow)
-        result["total_flow_monthly_formatted"] = _sup_format_balance(total_monthly_flow, decimals)
-        result["flow_period_days"] = 30
         result["claimable_pool_count"] = sum(
             1 for p in pools if int(p.get("claimable_now") or 0) > 0
         )

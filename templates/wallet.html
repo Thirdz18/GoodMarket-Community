@@ -1521,7 +1521,7 @@
                 <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Native claim · Superfluid on Base</div>
                 <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Claim inside GoodMarket — no redirect</div>
                 <div style="color:var(--text-dim);font-size:0.84rem;line-height:1.45;">
-                    GoodMarket reads your SUP wallet/reserve balance, claimable GDA pool rewards, and estimated monthly stream rate, then signs the claim directly with your connected wallet on Base. The Superfluid app is only used as a manual fallback if your wallet can't sign here.
+                    GoodMarket reads your SUP balance and every Superfluid GDA pool you have units in, then signs the claim directly with your connected wallet on Base. The Superfluid app is only used as a manual fallback if your wallet can't sign here.
                 </div>
             </div>
 
@@ -1538,22 +1538,14 @@
                 </div>
             </div>
 
-            <div id="supClaimSummary" style="display:none;margin-top:0.85rem;grid-template-columns:1fr 1fr;gap:0.55rem;text-align:left;">
+            <div id="supClaimSummary" style="display:none;margin-top:0.85rem;display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;text-align:left;">
                 <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:0.7rem 0.85rem;">
                     <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem;">In wallet</div>
                     <div style="font-weight:800;font-size:1.05rem;color:#fff;"><span id="supWalletBalance">0</span> SUP</div>
                 </div>
-                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:0.7rem 0.85rem;">
-                    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem;">Reserve balance</div>
-                    <div style="font-weight:800;font-size:1.05rem;color:#fff;"><span id="supReserveBalance">0</span> SUP</div>
-                </div>
                 <div style="background:rgba(255,122,24,0.10);border:1px solid rgba(255,122,24,0.28);border-radius:12px;padding:0.7rem 0.85rem;">
                     <div style="font-size:0.7rem;color:#fed7aa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem;">Claimable now</div>
                     <div style="font-weight:800;font-size:1.05rem;color:#fff;"><span id="supClaimableBalance">0</span> SUP</div>
-                </div>
-                <div style="background:rgba(255,122,24,0.10);border:1px solid rgba(255,122,24,0.28);border-radius:12px;padding:0.7rem 0.85rem;">
-                    <div style="font-size:0.7rem;color:#fed7aa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem;">Flow / month</div>
-                    <div style="font-weight:800;font-size:1.05rem;color:#fff;"><span id="supMonthlyFlow">0</span> SUP</div>
                 </div>
             </div>
 
@@ -2205,7 +2197,6 @@
         listEl.style.display = 'block';
         const rows = pools.map((p) => {
             const claimable = p.claimable_now_formatted || '0';
-            const monthlyFlow = p.member_flow_monthly_formatted || '0';
             const pill = parseFloat(claimable) > 0 ? '#fed7aa' : 'var(--text-muted)';
             const claimableHtml = p.error
                 ? `<span style="color:#fbbf24;font-size:0.72rem;">unavailable</span>`
@@ -2214,7 +2205,7 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:0.45rem;padding:0.4rem 0.25rem;border-bottom:1px solid rgba(255,255,255,0.05);">
                     <div style="min-width:0;">
                         <div style="font-size:0.78rem;color:#fff;font-weight:600;">Pool ${_supShortAddr(p.pool_address)}</div>
-                        <div style="font-size:0.68rem;color:var(--text-muted);">${p.is_connected ? 'connected stream' : 'instant distribution'} · ${p.units} units · ~${monthlyFlow} SUP/month</div>
+                        <div style="font-size:0.68rem;color:var(--text-muted);">${p.is_connected ? 'connected stream' : 'instant distribution'} · ${p.units} units</div>
                     </div>
                     <div style="text-align:right;white-space:nowrap;font-size:0.82rem;">${claimableHtml}</div>
                 </div>
@@ -2223,17 +2214,13 @@
         listEl.innerHTML = rows;
     }
 
-    function _supShowSummary(walletFmt, reserveFmt, claimableFmt, monthlyFlowFmt) {
+    function _supShowSummary(walletFmt, claimableFmt) {
         const summaryEl = document.getElementById('supClaimSummary');
         const walletEl = document.getElementById('supWalletBalance');
-        const reserveEl = document.getElementById('supReserveBalance');
         const claimableEl = document.getElementById('supClaimableBalance');
-        const monthlyFlowEl = document.getElementById('supMonthlyFlow');
         if (summaryEl) summaryEl.style.display = 'grid';
         if (walletEl) walletEl.textContent = walletFmt || '0';
-        if (reserveEl) reserveEl.textContent = reserveFmt || walletFmt || '0';
         if (claimableEl) claimableEl.textContent = claimableFmt || '0';
-        if (monthlyFlowEl) monthlyFlowEl.textContent = monthlyFlowFmt || '0';
     }
 
     async function openSupClaimModal() {
@@ -2262,10 +2249,8 @@
             supClaimUrl = data.official_claim_url || supClaimUrl;
 
             const walletFmt = data.sup_balance_formatted || '0';
-            const reserveFmt = data.reserve_balance_formatted || data.available_balance_formatted || walletFmt;
             const claimableFmt = data.total_claimable_formatted || '0';
-            const monthlyFlowFmt = data.total_flow_monthly_formatted || '0';
-            _supShowSummary(walletFmt, reserveFmt, claimableFmt, monthlyFlowFmt);
+            _supShowSummary(walletFmt, claimableFmt);
             _supRenderPoolList(data.pools || [], data.decimals || 18);
 
             const totalClaimable = parseFloat(claimableFmt) || 0;
@@ -2277,8 +2262,6 @@
                 detailParts.push(`<div><strong>Wallet:</strong> ${_supShortAddr(data.wallet)}</div>`);
             }
             detailParts.push(`<div><strong>Network:</strong> Base (chain ${data.chain_id || 8453})</div>`);
-            detailParts.push(`<div><strong>Reserve balance:</strong> ${reserveFmt} SUP realtime available</div>`);
-            detailParts.push(`<div><strong>Estimated flow:</strong> ~${monthlyFlowFmt} SUP/month from indexed pools</div>`);
             detailParts.push(`<div><strong>Pools indexed:</strong> ${poolCount} · ${claimablePoolCount} with claimable balance</div>`);
             if (data.balance_warning) {
                 detailParts.push(`<div style="color:#fbbf24;margin-top:0.35rem;">${data.balance_warning}</div>`);
@@ -2300,7 +2283,7 @@
                 _supSetState(
                     '🌊',
                     'No pending SUP right now',
-                    `You are streaming about ${monthlyFlowFmt} SUP/month; claimable balance will appear as rewards accrue.`,
+                    'You are a member of Superfluid pools, but nothing is claimable yet. Keep earning!',
                     'Up to date'
                 );
                 _supSetClaimButton('Nothing to claim', true);
