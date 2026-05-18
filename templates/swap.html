@@ -733,22 +733,50 @@
             border: 0;
             background: #07111f;
         }
-        .squid-external-row {
+        .squid-wallet-hint {
+            margin-bottom: 0.9rem;
+            padding: 0.85rem 1rem;
+            border-radius: 12px;
+            background: rgba(34,197,94,0.08);
+            border: 1px solid rgba(34,197,94,0.28);
+            color: rgba(255,255,255,0.85);
+            font-size: 0.85rem;
+            line-height: 1.5;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+        .squid-wallet-hint.is-wc { background: rgba(56,189,248,0.08); border-color: rgba(56,189,248,0.30); }
+        .squid-wallet-hint-row {
+            display: flex;
             align-items: center;
-            gap: 0.75rem;
-            margin-top: 0.75rem;
-            color: rgba(255,255,255,0.55);
-            font-size: 0.78rem;
+            flex-wrap: wrap;
+            gap: 0.5rem 0.6rem;
         }
-        .squid-open-link {
-            color: #7dd3fc;
-            text-decoration: none;
+        .squid-wallet-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.15rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(34,197,94,0.18);
+            color: #bbf7d0;
             font-weight: 700;
-            white-space: nowrap;
+            font-size: 0.78rem;
+            letter-spacing: 0.01em;
         }
-        .squid-open-link:hover { text-decoration: underline; }
+        .squid-wallet-hint.is-wc .squid-wallet-badge {
+            background: rgba(56,189,248,0.18);
+            color: #bae6fd;
+        }
+        .squid-wallet-hint code {
+            color: #e2e8f0;
+            background: rgba(15,23,42,0.55);
+            padding: 0.12rem 0.45rem;
+            border-radius: 6px;
+            font-size: 0.80rem;
+        }
+        .squid-wallet-hint-note { color: rgba(255,255,255,0.65); font-size: 0.80rem; }
         @media(max-width: 560px) {
             .squid-token-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .squid-frame-wrap, .squid-frame { min-height: 690px; }
@@ -1184,6 +1212,17 @@
                     </div>
                 </div>
 
+                <div id="squidWalletHint" class="squid-wallet-hint" hidden>
+                    <div class="squid-wallet-hint-row">
+                        <span class="squid-wallet-badge">
+                            <span id="squidWalletBadgeIcon">🔗</span>
+                            <span id="squidWalletBadgeLabel">Wallet</span>
+                        </span>
+                        <code id="squidWalletAddress">{{ wallet }}</code>
+                    </div>
+                    <div class="squid-wallet-hint-note" id="squidWalletHintNote"></div>
+                </div>
+
                 <div class="squid-frame-wrap">
                     <iframe
                         id="squidCeloBaseFrame"
@@ -1193,11 +1232,6 @@
                         referrerpolicy="strict-origin-when-cross-origin"
                         allow="clipboard-read; clipboard-write; payment; web-share"
                     ></iframe>
-                </div>
-
-                <div class="squid-external-row">
-                    <span>If the embedded widget is blocked by your wallet browser, open the same Squid route in a new tab.</span>
-                    <a id="squidOpenLink" class="squid-open-link" href="https://app.squidrouter.com/" target="_blank" rel="noopener">Open Route ↗</a>
                 </div>
             </div>
 
@@ -3982,25 +4016,10 @@
             return url.toString();
         }
 
-        function buildSquidExternalUrl(sourceToken) {
-            const token = sourceToken || squidSelectedSource;
-            const url = _safeSquidUrl(SQUID_CONFIG.appUrl, "https://app.squidrouter.com/");
-            url.searchParams.set("chains", `${SQUID_CONFIG.fromChainId},${SQUID_CONFIG.toChainId}`);
-            url.searchParams.set("tokens", `${token.address},${SQUID_CONFIG.toToken}`);
-            if (SQUID_CONFIG.integratorId) url.searchParams.set("integratorId", SQUID_CONFIG.integratorId);
-            if (WALLET_ADDRESS && WALLET_ADDRESS !== "None") {
-                url.searchParams.set("toAddress", WALLET_ADDRESS);
-            }
-            return url.toString();
-        }
-
         function refreshSquidWidget() {
             const frame = document.getElementById("squidCeloBaseFrame");
-            const link = document.getElementById("squidOpenLink");
             const iframeUrl = buildSquidIframeUrl(squidSelectedSource);
-            const externalUrl = buildSquidExternalUrl(squidSelectedSource);
             if (frame && frame.src !== iframeUrl) frame.src = iframeUrl;
-            if (link) link.href = externalUrl;
         }
 
         function setSquidSourceToken(symbol, address) {
@@ -4011,13 +4030,46 @@
             refreshSquidWidget();
         }
 
-        // Preload the initial Celo → Base ETH route URL so the external-link
-        // fallback is always correct, but only load the iframe when the user
-        // opens the Squid pane to avoid slowing the default Celo swap page.
-        try {
-            const squidLink = document.getElementById("squidOpenLink");
-            if (squidLink) squidLink.href = buildSquidExternalUrl(squidSelectedSource);
-        } catch (_) {}
+        // Detect which connection method the user used to sign in to
+        // GoodMarket and surface a hint inside the Squid pane. The Squid
+        // iframe is cross-origin (studio.squidrouter.com) so the parent
+        // page cannot inject its EIP-1193 provider into the widget; the
+        // widget always renders its own wallet picker. The next-best UX
+        // is to tell the user which option to pick inside the widget so
+        // they connect with the same wallet they used on GoodMarket.
+        function renderSquidWalletHint() {
+            const hint = document.getElementById("squidWalletHint");
+            const icon = document.getElementById("squidWalletBadgeIcon");
+            const label = document.getElementById("squidWalletBadgeLabel");
+            const addr = document.getElementById("squidWalletAddress");
+            const note = document.getElementById("squidWalletHintNote");
+            if (!hint || !icon || !label || !addr || !note) return;
+            const hasWallet = WALLET_ADDRESS && WALLET_ADDRESS !== "None";
+            if (!hasWallet) { hint.hidden = true; return; }
+            const short = WALLET_ADDRESS.slice(0, 6) + "\u2026" + WALLET_ADDRESS.slice(-4);
+            addr.textContent = short;
+            const login = (LOGIN_METHOD || "").toLowerCase();
+            const isWC = ["walletconnect", "manual", "manual_address"].includes(login);
+            const ua = (navigator.userAgent || "").toLowerCase();
+            const isMiniPay = ua.indexOf("minipay") !== -1;
+            hint.classList.toggle("is-wc", isWC);
+            if (isWC) {
+                icon.textContent = "\ud83d\udd17";
+                label.textContent = "WalletConnect";
+                note.textContent = "Naka-connect ka sa GoodMarket via WalletConnect. Sa loob ng Squid widget, piliin din ang WalletConnect at i-scan ang QR gamit ang parehong wallet app.";
+            } else if (isMiniPay) {
+                icon.textContent = "\ud83d\udcb3";
+                label.textContent = "MiniPay";
+                note.textContent = "Naka-connect ka via MiniPay. Sa Squid widget, piliin ang Injected Wallet (MiniPay) para gamitin ang parehong account.";
+            } else {
+                icon.textContent = "\ud83e\uddea";
+                label.textContent = "Injected Wallet";
+                note.textContent = "Naka-connect ka via injected wallet (MetaMask / Rabby / Trust, etc.). Sa loob ng Squid widget, piliin ang parehong injected wallet para gamitin ang account mo.";
+            }
+            hint.hidden = false;
+        }
+
+        try { renderSquidWalletHint(); } catch (_) {}
 
         // Toggle the active sub-pane inside the Bridge tab. Each direction
         // owns its own DOM (Celo → XDC was already on /swap; XDC → Celo
