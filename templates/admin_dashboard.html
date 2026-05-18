@@ -2149,6 +2149,13 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                             </div>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px; flex: 1; min-width: 200px;">
+                            <span style="font-size: 1.5rem;">Ξ</span>
+                            <div>
+                                <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem;">Buy ETH button (wallet)</div>
+                                <span id="buy-eth-status-badge" style="padding: 0.3rem 0.75rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem;"></span>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 10px; flex: 1; min-width: 200px;">
                             <span style="font-size: 1.5rem;">🏦</span>
                             <div>
                                 <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem;">Savings Page (/savings)</div>
@@ -2232,6 +2239,24 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                         💾 Save Wallet Setting
                     </button>
                     <div id="wallet-visibility-result" style="margin-top: 1rem; display: none;"></div>
+                </div>
+
+                <div class="content-box" style="margin-bottom: 1.5rem;">
+                    <h2 style="margin-bottom: 1rem;">Ξ Buy ETH Button (Wallet Sidebar)</h2>
+                    <div style="margin-bottom: 0.75rem; padding: 0.75rem 1rem; background: rgba(56,189,248,0.10); border-radius: 8px; border-left: 3px solid #38bdf8; font-size: 0.88rem; color: rgba(241,245,249,0.85);">
+                        Controls whether the <strong>Buy ETH</strong> action tile on the wallet sidebar is shown. When hidden, the tile is removed from the wallet page entirely.
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; color: rgba(241, 245, 249, 0.9); font-weight: 600;">Visibility</label>
+                        <select id="buy-eth-visibility-select" style="width: 100%; padding: 0.75rem; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: #f1f5f9; font-size: 1rem;">
+                            <option value="true">✅ Visible — Buy ETH tile shown on the wallet sidebar</option>
+                            <option value="false">🚫 Hidden — Buy ETH tile removed from the wallet sidebar</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="saveFeatureVisibility('wallet_buy_eth', 'buy-eth-visibility-select', 'buy-eth-visibility-result')" style="width: 100%; padding: 0.9rem; font-size: 1rem;">
+                        💾 Save Buy ETH Setting
+                    </button>
+                    <div id="buy-eth-visibility-result" style="margin-top: 1rem; display: none;"></div>
                 </div>
 
                 <div class="content-box" style="margin-bottom: 1.5rem;">
@@ -2817,6 +2842,7 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                 _applyVisibilityBadge('virtualcard-status-badge', data.virtualcard_visible);
                 _applyVisibilityBadge('utility-status-badge', data.utility_visible);
                 _applyVisibilityBadge('reserve-swap-status-badge', data.reserve_swap_visible);
+                _applyVisibilityBadge('buy-eth-status-badge', data.buy_eth_visible);
 
                 document.getElementById('swap-visibility-select').value = data.swap_visible !== false ? 'true' : 'false';
                 document.getElementById('wallet-visibility-select').value = data.wallet_visible !== false ? 'true' : 'false';
@@ -2826,6 +2852,7 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                 document.getElementById('virtualcard-visibility-select').value = data.virtualcard_visible !== false ? 'true' : 'false';
                 document.getElementById('utility-visibility-select').value = data.utility_visible !== false ? 'true' : 'false';
                 document.getElementById('reserve-swap-visibility-select').value = data.reserve_swap_visible === true ? 'true' : 'false';
+                document.getElementById('buy-eth-visibility-select').value = data.buy_eth_visible !== false ? 'true' : 'false';
             } catch (e) {
                 statusDiv.innerHTML = '<p style="color:#ef4444;">❌ Failed to load settings</p>';
             }
@@ -2856,7 +2883,8 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                         savings_feature: 'Savings page',
                         store_topup: 'Mobile Top-Up tab', store_giftcard: 'Gift Cards tab',
                         store_virtualcard: 'Virtual Card tab', store_utility: 'Utility tab',
-                        reserve_swap_feature: 'GoodReserve tab'
+                        reserve_swap_feature: 'GoodReserve tab',
+                        wallet_buy_eth: 'Buy ETH wallet button'
                     };
                     const featureLabel = labelMap[feature] || feature;
                     resultDiv.textContent = visible

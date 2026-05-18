@@ -1325,11 +1325,11 @@ def public_feature_visibility():
             return jsonify({"success": True, "swap_visible": True, "wallet_visible": True,
                             "savings_visible": True, "topup_visible": True, "giftcard_visible": True,
                             "virtualcard_visible": True, "utility_visible": True,
-                            "reserve_swap_visible": False})
+                            "reserve_swap_visible": False, "buy_eth_visible": True})
         result = safe_supabase_operation(
             lambda: supabase.table('maintenance_settings')
                 .select('feature_name,is_maintenance')
-                .in_('feature_name', ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature'])
+                .in_('feature_name', ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature', 'wallet_buy_eth'])
                 .execute(),
             operation_name="get feature visibility"
         )
@@ -1341,6 +1341,7 @@ def public_feature_visibility():
         virtualcard_visible = True
         utility_visible = True
         reserve_swap_visible = False
+        buy_eth_visible = True
         if result and result.data:
             for row in result.data:
                 fn = row['feature_name']
@@ -1361,11 +1362,14 @@ def public_feature_visibility():
                     utility_visible = val
                 elif fn == 'reserve_swap_feature':
                     reserve_swap_visible = val
+                elif fn == 'wallet_buy_eth':
+                    buy_eth_visible = val
         data = {"success": True, "swap_visible": swap_visible, "wallet_visible": wallet_visible,
                 "savings_visible": savings_visible,
                 "topup_visible": topup_visible, "giftcard_visible": giftcard_visible,
                 "virtualcard_visible": virtualcard_visible, "utility_visible": utility_visible,
-                "reserve_swap_visible": reserve_swap_visible}
+                "reserve_swap_visible": reserve_swap_visible,
+                "buy_eth_visible": buy_eth_visible}
         _feature_visibility_cache["data"] = data
         _feature_visibility_cache["expires"] = now + _PUBLIC_ENDPOINT_CACHE_TTL
         return jsonify(data)
@@ -1374,7 +1378,7 @@ def public_feature_visibility():
         return jsonify({"success": True, "swap_visible": True, "wallet_visible": True,
                         "savings_visible": True, "topup_visible": True, "giftcard_visible": True,
                         "virtualcard_visible": True, "utility_visible": True,
-                        "reserve_swap_visible": False})
+                        "reserve_swap_visible": False, "buy_eth_visible": True})
 
 
 @routes.route("/api/admin/feature-visibility", methods=["GET"])
@@ -1388,7 +1392,7 @@ def get_feature_visibility():
         result = safe_supabase_operation(
             lambda: supabase.table('maintenance_settings')
                 .select('feature_name,is_maintenance')
-                .in_('feature_name', ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature'])
+                .in_('feature_name', ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature', 'wallet_buy_eth'])
                 .execute(),
             operation_name="get feature visibility admin"
         )
@@ -1400,6 +1404,7 @@ def get_feature_visibility():
         virtualcard_visible = True
         utility_visible = True
         reserve_swap_visible = False
+        buy_eth_visible = True
         if result and result.data:
             for row in result.data:
                 fn = row['feature_name']
@@ -1420,11 +1425,14 @@ def get_feature_visibility():
                     utility_visible = val
                 elif fn == 'reserve_swap_feature':
                     reserve_swap_visible = val
+                elif fn == 'wallet_buy_eth':
+                    buy_eth_visible = val
         return jsonify({"success": True, "swap_visible": swap_visible, "wallet_visible": wallet_visible,
                         "savings_visible": savings_visible,
                         "topup_visible": topup_visible, "giftcard_visible": giftcard_visible,
                         "virtualcard_visible": virtualcard_visible, "utility_visible": utility_visible,
-                        "reserve_swap_visible": reserve_swap_visible})
+                        "reserve_swap_visible": reserve_swap_visible,
+                        "buy_eth_visible": buy_eth_visible})
     except Exception as e:
         logger.error(f"Admin feature visibility fetch error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1444,7 +1452,7 @@ def set_feature_visibility():
         is_hidden = not visible
         admin_wallet = session.get('wallet')
 
-        if feature not in ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature']:
+        if feature not in ['swap_feature', 'wallet_feature', 'savings_feature', 'store_topup', 'store_giftcard', 'store_virtualcard', 'store_utility', 'reserve_swap_feature', 'wallet_buy_eth']:
             return jsonify({"success": False, "error": "Invalid feature name"}), 400
 
         existing = safe_supabase_operation(
@@ -6408,18 +6416,24 @@ def wallet_page():
     wallet = session.get("wallet")
     if not wallet or not session.get("verified"):
         return redirect(url_for("routes.index"))
+    buy_eth_visible = True
     try:
         supabase = get_supabase_client()
         if supabase:
             result = safe_supabase_operation(
                 lambda: supabase.table('maintenance_settings')
-                    .select('is_maintenance')
-                    .eq('feature_name', 'wallet_feature')
+                    .select('feature_name,is_maintenance')
+                    .in_('feature_name', ['wallet_feature', 'wallet_buy_eth'])
                     .execute(),
                 operation_name="check wallet feature visibility"
             )
-            if result and result.data and result.data[0].get('is_maintenance', False):
-                return render_template("feature_unavailable.html", feature_name="Wallet", wallet=wallet)
+            if result and result.data:
+                for row in result.data:
+                    fn = row.get('feature_name')
+                    if fn == 'wallet_feature' and row.get('is_maintenance', False):
+                        return render_template("feature_unavailable.html", feature_name="Wallet", wallet=wallet)
+                    if fn == 'wallet_buy_eth' and row.get('is_maintenance', False):
+                        buy_eth_visible = False
     except Exception:
         pass
     return render_template(
@@ -6428,6 +6442,7 @@ def wallet_page():
         login_method=session.get("login_method", "walletconnect"),
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
+        buy_eth_visible=buy_eth_visible,
     )
 
 

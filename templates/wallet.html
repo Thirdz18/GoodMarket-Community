@@ -1242,10 +1242,12 @@
                     <div class="action-circle">⇌</div>
                     <span class="action-label">GoodSwap</span>
                 </div>
+                {% if buy_eth_visible %}
                 <div class="action-item" id="actionBuyEth" onclick="return navigateWithFeedback('/swap?tab=squid', 'Opening Buy ETH…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#38bdf8,#2563eb);color:#fff;">Ξ</div>
                     <span class="action-label">Buy ETH</span>
                 </div>
+                {% endif %}
                 <div class="action-item" id="actionLearnEarn" onclick="return navigateWithFeedback('/learn-earn?from=wallet', 'Opening Learn &amp; Earn…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">📚</div>
                     <span class="action-label">Learn &amp; Earn</span>
