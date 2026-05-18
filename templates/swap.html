@@ -1196,8 +1196,8 @@
                 </div>
 
                 <div class="squid-external-row">
-                    <span>If the embedded widget is blocked by your wallet browser, open the same route in a new tab.</span>
-                    <a id="squidOpenLink" class="squid-open-link" href="https://apiplus.squidrouter.com/" target="_blank" rel="noopener">Open Route ↗</a>
+                    <span>If the embedded widget is blocked by your wallet browser, open the same Squid route in a new tab.</span>
+                    <a id="squidOpenLink" class="squid-open-link" href="https://app.squidrouter.com/" target="_blank" rel="noopener">Open Route ↗</a>
                 </div>
             </div>
 
@@ -1554,12 +1554,15 @@
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
         const SQUID_CONFIG = {
-            baseUrl: {{ squid_base_url|default('https://apiplus.squidrouter.com/', true)|tojson }},
+            iframeBaseUrl: {{ squid_iframe_base_url|default('https://studio.squidrouter.com/iframe', true)|tojson }},
+            appUrl: {{ squid_app_url|default('https://app.squidrouter.com/', true)|tojson }},
+            apiUrl: {{ squid_api_url|default('https://apiplus.squidrouter.com', true)|tojson }},
             integratorId: {{ squid_integrator_id|default('', true)|tojson }},
             fromChainId: {{ squid_from_chain_id|default(42220) }},
             toChainId: {{ squid_to_chain_id|default(8453) }},
             toToken: {{ squid_to_token|default('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', true)|tojson }},
-            sourceTokens: {{ squid_source_tokens|default([])|tojson }}
+            sourceTokens: {{ squid_source_tokens|default([])|tojson }},
+            widgetConfig: {{ squid_widget_config|default({}, true)|tojson }}
         };
         const CELO_CHAIN_ID  = 42220;
         // Pure self-custody mode: never use server-side signing.
@@ -3942,19 +3945,46 @@
             ? SQUID_CONFIG.sourceTokens[0]
             : { symbol: "CELO", address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" };
 
-        function _safeSquidBaseUrl() {
-            const fallback = "https://apiplus.squidrouter.com/";
+        function _safeSquidUrl(raw, fallback) {
             try {
-                const raw = SQUID_CONFIG.baseUrl || fallback;
-                return new URL(raw, fallback);
+                return new URL(raw || fallback, fallback);
             } catch (_) {
                 return new URL(fallback);
             }
         }
 
-        function buildSquidUrl(sourceToken) {
+        function buildSquidWidgetConfig(sourceToken) {
             const token = sourceToken || squidSelectedSource;
-            const url = _safeSquidBaseUrl();
+            const baseConfig = SQUID_CONFIG.widgetConfig || {};
+            const sourceChainId = String(SQUID_CONFIG.fromChainId);
+            const destinationChainId = String(SQUID_CONFIG.toChainId);
+            const config = {
+                ...baseConfig,
+                apiUrl: SQUID_CONFIG.apiUrl || baseConfig.apiUrl || "https://apiplus.squidrouter.com",
+                themeType: baseConfig.themeType || "dark",
+                initialAssets: {
+                    ...(baseConfig.initialAssets || {}),
+                    from: { address: token.address, chainId: sourceChainId },
+                    to: { address: SQUID_CONFIG.toToken, chainId: destinationChainId }
+                }
+            };
+            if (SQUID_CONFIG.integratorId) config.integratorId = SQUID_CONFIG.integratorId;
+            if (WALLET_ADDRESS && WALLET_ADDRESS !== "None") {
+                config.initialRecipientAddress = WALLET_ADDRESS;
+                config.toAddress = WALLET_ADDRESS;
+            }
+            return config;
+        }
+
+        function buildSquidIframeUrl(sourceToken) {
+            const url = _safeSquidUrl(SQUID_CONFIG.iframeBaseUrl, "https://studio.squidrouter.com/iframe");
+            url.searchParams.set("config", JSON.stringify(buildSquidWidgetConfig(sourceToken)));
+            return url.toString();
+        }
+
+        function buildSquidExternalUrl(sourceToken) {
+            const token = sourceToken || squidSelectedSource;
+            const url = _safeSquidUrl(SQUID_CONFIG.appUrl, "https://app.squidrouter.com/");
             url.searchParams.set("chains", `${SQUID_CONFIG.fromChainId},${SQUID_CONFIG.toChainId}`);
             url.searchParams.set("tokens", `${token.address},${SQUID_CONFIG.toToken}`);
             if (SQUID_CONFIG.integratorId) url.searchParams.set("integratorId", SQUID_CONFIG.integratorId);
@@ -3967,9 +3997,10 @@
         function refreshSquidWidget() {
             const frame = document.getElementById("squidCeloBaseFrame");
             const link = document.getElementById("squidOpenLink");
-            const url = buildSquidUrl(squidSelectedSource);
-            if (frame && frame.src !== url) frame.src = url;
-            if (link) link.href = url;
+            const iframeUrl = buildSquidIframeUrl(squidSelectedSource);
+            const externalUrl = buildSquidExternalUrl(squidSelectedSource);
+            if (frame && frame.src !== iframeUrl) frame.src = iframeUrl;
+            if (link) link.href = externalUrl;
         }
 
         function setSquidSourceToken(symbol, address) {
@@ -3985,7 +4016,7 @@
         // opens the Squid pane to avoid slowing the default Celo swap page.
         try {
             const squidLink = document.getElementById("squidOpenLink");
-            if (squidLink) squidLink.href = buildSquidUrl(squidSelectedSource);
+            if (squidLink) squidLink.href = buildSquidExternalUrl(squidSelectedSource);
         } catch (_) {}
 
         // Toggle the active sub-pane inside the Bridge tab. Each direction
