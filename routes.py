@@ -6482,6 +6482,43 @@ def swap_page():
     fuse_wfuse_contract = os.getenv("FUSE_WFUSE_TOKEN", "0x0BE9e53fd7EDaC9F859882AfdDa116645287C629")
     voltage_router_contract = os.getenv("VOLTAGE_ROUTER", "0xE3F85aAd0c8DD7337427B9dF5d0fB741d65EEEB5")
 
+    # Squid Router Celo -> Base ETH widget configuration.  Keep this server-side
+    # configurable so production can rotate integrator IDs or switch the hosted
+    # Squid app URL without editing the template.  Source token defaults are the
+    # Celo assets requested for the first release; the destination is native ETH
+    # on Base using Squid's canonical native-token placeholder.
+    squid_integrator_id = os.getenv("SQUID_INTEGRATOR_ID", "")
+    squid_base_url = os.getenv("SQUID_WIDGET_BASE_URL", "https://apiplus.squidrouter.com/")
+    squid_from_chain_id = int(os.getenv("SQUID_FROM_CHAIN_ID", str(celo_chain_id)))
+    squid_to_chain_id = int(os.getenv("SQUID_TO_CHAIN_ID", "8453"))
+    squid_to_token = os.getenv("SQUID_TO_TOKEN", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")
+    squid_source_tokens = [
+        {
+            "symbol": "CELO",
+            "name": "Celo",
+            "address": os.getenv("SQUID_CELO_TOKEN", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"),
+            "note": "Native gas token on Celo",
+        },
+        {
+            "symbol": "cUSD",
+            "name": "Celo Dollar",
+            "address": os.getenv("SQUID_CUSD_TOKEN", "0x765DE816845861e75A25fCA122bb6898B8B1282a"),
+            "note": "Celo-native stablecoin",
+        },
+        {
+            "symbol": "USDC",
+            "name": "USD Coin",
+            "address": os.getenv("SQUID_USDC_TOKEN", "0xcebA9300f2b948710d2653dD7B07f33A8B32118C"),
+            "note": "Native Circle USDC on Celo",
+        },
+        {
+            "symbol": "USDT",
+            "name": "Tether USD",
+            "address": os.getenv("SQUID_USDT_TOKEN", "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e"),
+            "note": "Tether on Celo",
+        },
+    ]
+
     return render_template(
         "swap.html",
         wallet=wallet,
@@ -6501,6 +6538,12 @@ def swap_page():
         fuse_gd_decimals=fuse_gd_decimals,
         fuse_wfuse_contract=fuse_wfuse_contract,
         voltage_router_contract=voltage_router_contract,
+        squid_integrator_id=squid_integrator_id,
+        squid_base_url=squid_base_url,
+        squid_from_chain_id=squid_from_chain_id,
+        squid_to_chain_id=squid_to_chain_id,
+        squid_to_token=squid_to_token,
+        squid_source_tokens=squid_source_tokens,
     )
 
 

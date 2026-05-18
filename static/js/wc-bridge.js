@@ -74,6 +74,17 @@
                 decimals: 18
             },
             blockExplorerUrls: ["https://xdcscan.io"]
+        },
+        "0x2105": { // Base Mainnet
+            name: "Base",
+            chainId: 8453,
+            rpc: "https://mainnet.base.org",
+            nativeCurrency: {
+                name: "Ether",
+                symbol: "ETH",
+                decimals: 18
+            },
+            blockExplorerUrls: ["https://basescan.org"]
         }
     };
 

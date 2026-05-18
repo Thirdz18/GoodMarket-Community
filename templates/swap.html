@@ -683,6 +683,76 @@
             font-weight: 600;
             margin-bottom: 0.85rem;
         }
+
+
+        /* Celo → Base ETH purchase widget */
+        .squid-pane .swap-card {
+            border: 1px solid rgba(56,189,248,0.32);
+            background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(124,58,237,0.08));
+        }
+        .squid-token-buttons {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.45rem;
+            margin: 0.85rem 0 1rem;
+        }
+        .squid-token-btn {
+            border: 1px solid rgba(255,255,255,0.11);
+            background: rgba(255,255,255,0.045);
+            color: rgba(255,255,255,0.72);
+            border-radius: 12px;
+            padding: 0.55rem 0.35rem;
+            font-family: inherit;
+            font-size: 0.82rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.18s;
+        }
+        .squid-token-btn:hover {
+            border-color: rgba(56,189,248,0.45);
+            color: #e0f2fe;
+            background: rgba(14,165,233,0.12);
+        }
+        .squid-token-btn.active {
+            border-color: rgba(56,189,248,0.7);
+            background: rgba(14,165,233,0.22);
+            color: #fff;
+            box-shadow: 0 0 0 1px rgba(56,189,248,0.15) inset;
+        }
+        .squid-frame-wrap {
+            overflow: hidden;
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(15,23,42,0.58);
+            min-height: 720px;
+        }
+        .squid-frame {
+            display: block;
+            width: 100%;
+            min-height: 720px;
+            border: 0;
+            background: #07111f;
+        }
+        .squid-external-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.75rem;
+            margin-top: 0.75rem;
+            color: rgba(255,255,255,0.55);
+            font-size: 0.78rem;
+        }
+        .squid-open-link {
+            color: #7dd3fc;
+            text-decoration: none;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .squid-open-link:hover { text-decoration: underline; }
+        @media(max-width: 560px) {
+            .squid-token-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .squid-frame-wrap, .squid-frame { min-height: 690px; }
+        }
     </style>
     <!-- WalletConnect bridge for users without injected wallet -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
@@ -727,7 +797,7 @@
         <!-- Header -->
         <div class="page-header">
             <h1 class="page-title">🔄 Swap</h1>
-            <p class="page-subtitle">Swap G$ on Celo via Uniswap/GoodReserve, bridge G$, or swap Fuse G$ to FUSE via Voltage on Fuse Network</p>
+            <p class="page-subtitle">Swap on Celo, bridge G$, or buy Base ETH from Celo tokens</p>
         </div>
 
         <!-- Top-level tabs: [ GoodSwap ] [ Bridge ]. GoodSwap groups
@@ -738,6 +808,7 @@
              users too — Uniswap V3 here uses CIP-64 fee abstraction. -->
         <div id="swapTabSwitcher" class="swap-tabs" role="tablist" aria-label="Swap mode">
             <button type="button" id="tabBtnGoodSwap" class="swap-tab-btn active" role="tab" aria-selected="true" onclick="setSwapTab('goodswap')">GoodSwap</button>
+            <button type="button" id="tabBtnSquid" class="swap-tab-btn" role="tab" aria-selected="false" onclick="setSwapTab('squid')">Buy ETH</button>
             <button type="button" id="tabBtnBridge" class="swap-tab-btn" role="tab" aria-selected="false" onclick="setSwapTab('bridge')">Bridge</button>
         </div>
 
@@ -1080,6 +1151,62 @@
         </div><!-- /.goodswap-sub-pane-fuse -->
 
         </div><!-- /.pane-goodswap -->
+
+        <!-- Celo assets → native ETH on Base purchase pane. -->
+        <div id="swapPaneSquid" class="pane pane-squid squid-pane hidden-tab">
+            <div class="swap-card">
+                <div class="network-badge" style="background:rgba(14,165,233,0.15); border-color:rgba(14,165,233,0.32); color:#7dd3fc;">
+                    <span class="network-dot" style="background:#38bdf8;"></span>
+                    Celo Mainnet → Base
+                </div>
+
+                <div class="info-box-bridge" style="margin-bottom:0.9rem; padding:0.78rem 0.9rem; border-radius:12px; background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); color:rgba(255,255,255,0.8); font-size:0.84rem; line-height:1.58;">
+                    Buy <strong>ETH on Base</strong> using your Celo assets. Pick your Celo source token below; the cross-chain route and wallet confirmation happen securely in one flow.
+                    Destination wallet defaults to your GoodMarket wallet: <code style="color:#bae6fd;">{{ wallet }}</code>.
+                </div>
+
+                <div class="token-box" style="margin-bottom:0.75rem;">
+                    <div class="token-box-label">You pay from Celo</div>
+                    <div class="squid-token-buttons" id="squidSourceTokenButtons">
+                        {% for token in squid_source_tokens %}
+                        <button
+                            type="button"
+                            class="squid-token-btn{% if loop.first %} active{% endif %}"
+                            data-symbol="{{ token.symbol }}"
+                            data-address="{{ token.address }}"
+                            onclick='setSquidSourceToken({{ token.symbol|tojson }}, {{ token.address|tojson }})' 
+                            title="{{ token.name }} · {{ token.note }}"
+                        >{{ token.symbol }}</button>
+                        {% endfor %}
+                    </div>
+                    <div style="font-size:0.77rem; color:rgba(255,255,255,0.48); line-height:1.5;">
+                        Supported Celo sources for this launch: <strong style="color:#e2e8f0;">cUSD, USDC, USDT, and CELO</strong>. Destination is fixed to native ETH on Base.
+                    </div>
+                </div>
+
+                <div class="squid-frame-wrap">
+                    <iframe
+                        id="squidCeloBaseFrame"
+                        class="squid-frame"
+                        title="Celo to Base ETH purchase"
+                        loading="lazy"
+                        referrerpolicy="strict-origin-when-cross-origin"
+                        allow="clipboard-read; clipboard-write; payment; web-share"
+                    ></iframe>
+                </div>
+
+                <div class="squid-external-row">
+                    <span>If the embedded widget is blocked by your wallet browser, open the same route in a new tab.</span>
+                    <a id="squidOpenLink" class="squid-open-link" href="https://apiplus.squidrouter.com/" target="_blank" rel="noopener">Open Route ↗</a>
+                </div>
+            </div>
+
+            <div class="info-card" style="margin-top:1rem;">
+                <div class="info-card-title">About Buy ETH</div>
+                This is a non-custodial flow restricted by GoodMarket defaults to <strong style="color:#e2e8f0;">Celo → Base ETH</strong>.
+                You sign from your wallet, and the bridge + swap route completes cross-chain. Keep enough CELO or fee currency on Celo for source-chain gas.
+            </div>
+        </div><!-- /.pane-squid -->
 
         <!-- Bridge Pane (Celo G$ ↔ XDC G$) -->
         <div id="swapPaneBridge" class="pane pane-bridge hidden-tab">
@@ -1426,6 +1553,14 @@
     <script>
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
+        const SQUID_CONFIG = {
+            baseUrl: {{ squid_base_url|default('https://apiplus.squidrouter.com/', true)|tojson }},
+            integratorId: {{ squid_integrator_id|default('', true)|tojson }},
+            fromChainId: {{ squid_from_chain_id|default(42220) }},
+            toChainId: {{ squid_to_chain_id|default(8453) }},
+            toToken: {{ squid_to_token|default('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', true)|tojson }},
+            sourceTokens: {{ squid_source_tokens|default([])|tojson }}
+        };
         const CELO_CHAIN_ID  = 42220;
         // Pure self-custody mode: never use server-side signing.
         window.useServerSigning = false;
@@ -3616,6 +3751,8 @@
 
                 if (want === "bridge" || want === "xdc" || want === "bridge-xdc") {
                     target = "bridge";
+                } else if (want === "squid" || want === "buy" || want === "buy-eth" || want === "buy_eth" || want === "buy-tokens" || want === "buy_tokens") {
+                    target = "squid";
                 } else if (want === "goodswap" || want === "swap") {
                     target = "goodswap";
                 } else if (want === "reserve" || want === "goodreserve") {
@@ -3669,11 +3806,13 @@
                 // existing bookmarks / power-user navigation stay
                 // intact.
                 const focusBridge   = (target === "bridge") || !!bridgeDir;
-                const focusGoodSwap = !focusBridge && ((target === "goodswap") || !!goodswapPane);
+                const focusSquid    = target === "squid";
+                const focusGoodSwap = !focusBridge && !focusSquid && ((target === "goodswap") || !!goodswapPane);
 
                 const apply = () => {
                     if (typeof setSwapTab !== "function") return;
                     if (target === "bridge" && !document.querySelector(".pane-bridge")) return;
+                    if (target === "squid" && !document.querySelector(".pane-squid")) return;
                     if (bridgeDir && !document.querySelector(".pane-bridge")) return;
                     if (target) setSwapTab(target);
                     if (goodswapPane && typeof setGoodSwapSubTab === "function") {
@@ -3681,17 +3820,18 @@
                     }
                     if (bridgeDir && typeof setBridgeSubTab === "function") setBridgeSubTab(bridgeDir);
 
-                    if (focusBridge || focusGoodSwap) {
+                    if (focusBridge || focusGoodSwap || focusSquid) {
                         const switcher = document.getElementById("swapTabSwitcher");
                         if (switcher) switcher.style.display = "none";
-                        // Hide the inactive top pane outright so it
-                        // can't be reached even by toggling a stale
-                        // top-tab button (defensive: setSwapTab already
-                        // adds .hidden-tab to it).
-                        const otherPane = focusBridge
-                            ? document.getElementById("swapPaneGoodSwap")
-                            : document.getElementById("swapPaneBridge");
-                        if (otherPane) otherPane.style.display = "none";
+                        // Hide inactive top panes outright so they cannot be
+                        // reached by toggling a stale top-tab button.
+                        ["swapPaneGoodSwap", "swapPaneSquid", "swapPaneBridge"].forEach((id) => {
+                            const pane = document.getElementById(id);
+                            const keep = (focusBridge && id === "swapPaneBridge")
+                                || (focusSquid && id === "swapPaneSquid")
+                                || (focusGoodSwap && id === "swapPaneGoodSwap");
+                            if (pane && !keep) pane.style.display = "none";
+                        });
                     }
                 };
                 if (document.readyState === "loading") {
@@ -3704,28 +3844,38 @@
 
         function setSwapTab(name) {
             const goodswapPane = document.querySelector(".pane-goodswap");
+            const squidPane    = document.querySelector(".pane-squid");
             const bridgePane   = document.querySelector(".pane-bridge");
             const goodswapBtn  = document.getElementById("tabBtnGoodSwap");
+            const squidBtn     = document.getElementById("tabBtnSquid");
             const bridgeBtn    = document.getElementById("tabBtnBridge");
             if (!goodswapPane) return;
 
             const isBridge   = name === "bridge";
+            const isSquid    = name === "squid" || name === "buy" || name === "buy-eth" || name === "buy_eth" || name === "buy_tokens" || name === "buy-tokens";
             // Back-compat: 'dex' / 'reserve' aliases route to GoodSwap top
             // tab and leave the sub-tab choice up to the caller (or
             // setGoodSwapSubTab() invoked by autoSelectSwapTab).
-            const isGoodSwap = !isBridge;
+            const isGoodSwap = !isBridge && !isSquid;
 
             goodswapPane.classList.toggle("hidden-tab", !isGoodSwap);
+            if (squidPane) squidPane.classList.toggle("hidden-tab", !isSquid);
             if (bridgePane) bridgePane.classList.toggle("hidden-tab", !isBridge);
 
             if (goodswapBtn) {
                 goodswapBtn.classList.toggle("active", isGoodSwap);
                 goodswapBtn.setAttribute("aria-selected", String(isGoodSwap));
             }
+            if (squidBtn) {
+                squidBtn.classList.toggle("active", isSquid);
+                squidBtn.setAttribute("aria-selected", String(isSquid));
+            }
             if (bridgeBtn) {
                 bridgeBtn.classList.toggle("active", isBridge);
                 bridgeBtn.setAttribute("aria-selected", String(isBridge));
             }
+
+            if (isSquid) refreshSquidWidget();
 
             // Honour 'dex' / 'reserve' shorthand by also flipping the
             // GoodSwap sub-tab so e.g. setSwapTab('reserve') from a button
@@ -3787,6 +3937,56 @@
             if (isReserve) updateReserveBalanceDisplay();
             if (isFuse) loadFuseSwapBalances();
         }
+
+        let squidSelectedSource = (SQUID_CONFIG.sourceTokens && SQUID_CONFIG.sourceTokens[0])
+            ? SQUID_CONFIG.sourceTokens[0]
+            : { symbol: "CELO", address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" };
+
+        function _safeSquidBaseUrl() {
+            const fallback = "https://apiplus.squidrouter.com/";
+            try {
+                const raw = SQUID_CONFIG.baseUrl || fallback;
+                return new URL(raw, fallback);
+            } catch (_) {
+                return new URL(fallback);
+            }
+        }
+
+        function buildSquidUrl(sourceToken) {
+            const token = sourceToken || squidSelectedSource;
+            const url = _safeSquidBaseUrl();
+            url.searchParams.set("chains", `${SQUID_CONFIG.fromChainId},${SQUID_CONFIG.toChainId}`);
+            url.searchParams.set("tokens", `${token.address},${SQUID_CONFIG.toToken}`);
+            if (SQUID_CONFIG.integratorId) url.searchParams.set("integratorId", SQUID_CONFIG.integratorId);
+            if (WALLET_ADDRESS && WALLET_ADDRESS !== "None") {
+                url.searchParams.set("toAddress", WALLET_ADDRESS);
+            }
+            return url.toString();
+        }
+
+        function refreshSquidWidget() {
+            const frame = document.getElementById("squidCeloBaseFrame");
+            const link = document.getElementById("squidOpenLink");
+            const url = buildSquidUrl(squidSelectedSource);
+            if (frame && frame.src !== url) frame.src = url;
+            if (link) link.href = url;
+        }
+
+        function setSquidSourceToken(symbol, address) {
+            squidSelectedSource = { symbol, address };
+            document.querySelectorAll(".squid-token-btn").forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.symbol === symbol);
+            });
+            refreshSquidWidget();
+        }
+
+        // Preload the initial Celo → Base ETH route URL so the external-link
+        // fallback is always correct, but only load the iframe when the user
+        // opens the Squid pane to avoid slowing the default Celo swap page.
+        try {
+            const squidLink = document.getElementById("squidOpenLink");
+            if (squidLink) squidLink.href = buildSquidUrl(squidSelectedSource);
+        } catch (_) {}
 
         // Toggle the active sub-pane inside the Bridge tab. Each direction
         // owns its own DOM (Celo → XDC was already on /swap; XDC → Celo
