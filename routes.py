@@ -6280,6 +6280,92 @@ def ubi_entitlement():
         return jsonify({"success": False, "error": str(e), "entitlement": 0, "can_claim": False}), 500
 
 
+@routes.route("/api/sup/claim/availability", methods=["GET"])
+@auth_required
+def sup_claim_availability():
+    """Return non-custodial SUP claim guidance for the logged-in wallet.
+
+    Superfluid's public claim flow is wallet-signed on Base, but the native
+    eligibility/signature payload is not documented as a public API. GoodMarket
+    therefore verifies the logged-in wallet context, reads the public SUP token
+    balance when possible, and routes the user to the official Superfluid claim
+    app for the authoritative daily eligibility check and claim transaction.
+    """
+    wallet = session.get("wallet")
+    base_rpc_url = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+    sup_token_address = os.getenv("SUP_TOKEN_ADDRESS", "0xa69f80524381275A7fFdb3AE01c54150644c8792")
+    official_claim_url = os.getenv("SUP_CLAIM_URL", "https://claim.superfluid.org/claim")
+
+    result = {
+        "success": True,
+        "wallet": (wallet or "").lower(),
+        "network": "base",
+        "chain_id": 8453,
+        "token_symbol": "SUP",
+        "token_address": sup_token_address,
+        "official_claim_url": official_claim_url,
+        "claim_cadence": "daily",
+        "can_claim": None,
+        "eligible": None,
+        "integration_type": "official_claim_handoff",
+        "public_claim_api_found": False,
+        "native_claim_supported": False,
+        "eligibility_check_supported": False,
+        "requires_wallet_signature": True,
+        "reason": (
+            "Superfluid eligibility and claim payloads are checked by the official "
+            "Superfluid claim app. GoodMarket keeps this non-custodial by using "
+            "the already connected wallet and sending the user to the official "
+            "wallet-signed Base claim flow."
+        ),
+        "message": "No public Superfluid SUP claim API is integrated in GoodMarket yet. SUP rewards are checked daily in the official claim app; open it to confirm eligibility and sign any claim with your wallet.",
+        "sup_balance": None,
+        "sup_balance_formatted": None,
+    }
+
+    try:
+        if wallet and Web3.is_address(wallet) and Web3.is_address(sup_token_address):
+            w3 = Web3(Web3.HTTPProvider(base_rpc_url, request_kwargs={"timeout": 8}))
+            token = w3.eth.contract(
+                address=Web3.to_checksum_address(sup_token_address),
+                abi=[
+                    {
+                        "constant": True,
+                        "inputs": [{"name": "account", "type": "address"}],
+                        "name": "balanceOf",
+                        "outputs": [{"name": "", "type": "uint256"}],
+                        "payable": False,
+                        "stateMutability": "view",
+                        "type": "function",
+                    },
+                    {
+                        "constant": True,
+                        "inputs": [],
+                        "name": "decimals",
+                        "outputs": [{"name": "", "type": "uint8"}],
+                        "payable": False,
+                        "stateMutability": "view",
+                        "type": "function",
+                    },
+                ],
+            )
+            raw_balance = int(token.functions.balanceOf(Web3.to_checksum_address(wallet)).call())
+            try:
+                decimals = int(token.functions.decimals().call())
+            except Exception:
+                decimals = 18
+            formatted = Decimal(raw_balance) / (Decimal(10) ** Decimal(decimals))
+            result.update({
+                "sup_balance": str(raw_balance),
+                "sup_balance_formatted": f"{formatted:.6f}".rstrip("0").rstrip(".") or "0",
+            })
+    except Exception as e:
+        logger.warning("sup_claim_availability balance check failed for %s: %s", wallet, e)
+        result["balance_warning"] = "Could not read SUP balance from Base RPC right now."
+
+    return jsonify(result)
+
+
 @routes.route("/api/claim/availability", methods=["GET"])
 @auth_required
 def claim_availability():

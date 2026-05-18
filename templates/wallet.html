@@ -1261,6 +1261,12 @@
                     </div>
                     <span class="action-label">Claim</span>
                 </div>
+                <div class="action-item" id="actionClaimSup" onclick="openSupClaimModal()">
+                    <div class="action-circle" style="background:linear-gradient(135deg,#ff7a18,#af002d 70%,#319197);color:#fff;font-weight:900;letter-spacing:-0.04em;">
+                        SUP
+                    </div>
+                    <span class="action-label">Check SUP</span>
+                </div>
                 <div class="action-item" id="actionBridge" onclick="return navigateWithFeedback('/swap?tab=bridge', 'Opening Bridge…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">🌉</div>
                     <span class="action-label">Bridge</span>
@@ -1501,6 +1507,47 @@
             </div>
 
             <button class="btn-secondary" onclick="closeModal('claimModal')">Close</button>
+        </div>
+    </div>
+
+
+    <!-- SUP Claim Modal -->
+    <div class="modal-overlay" id="supClaimModal">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div class="modal-title">🌊 Check SUP Rewards</div>
+
+            <div style="background:rgba(255,122,24,0.10);border:1px solid rgba(255,122,24,0.28);border-radius:16px;padding:1rem;margin-bottom:1rem;text-align:left;">
+                <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Superfluid on Base</div>
+                <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Official claim-app handoff</div>
+                <div style="color:var(--text-dim);font-size:0.84rem;line-height:1.45;">
+                    GoodMarket does not currently have a public Superfluid SUP claim API to call directly.
+                    We use your already connected wallet for context, then send you to Superfluid's official app to check eligibility and sign any claim.
+                </div>
+            </div>
+
+            <div class="claim-network-list" aria-live="polite">
+                <div class="claim-network-card">
+                    <div class="claim-network-main">
+                        <div class="claim-network-icon" id="supClaimIcon">⏳</div>
+                        <div>
+                            <div class="claim-network-name" id="supClaimTitle">Preparing SUP check…</div>
+                            <div class="claim-network-hint" id="supClaimHint">Reading your GoodMarket session wallet and public SUP balance on Base when available.</div>
+                        </div>
+                    </div>
+                    <div class="claim-network-status" id="supClaimStatusPill">Loading</div>
+                </div>
+            </div>
+
+            <div id="supClaimDetails" style="margin-top:0.85rem;color:var(--text-dim);font-size:0.8rem;line-height:1.5;text-align:left;">
+                Please wait while GoodMarket prepares the non-custodial SUP claim handoff.
+            </div>
+
+            <button id="supClaimOpenBtn" class="btn-primary" onclick="openOfficialSupClaim()" disabled style="margin-top:1rem;background:linear-gradient(135deg,#ff7a18,#af002d);">
+                <span>🌊</span>
+                <span>Check / Claim on Superfluid</span>
+            </button>
+            <button class="btn-secondary" onclick="closeModal('supClaimModal')">Close</button>
         </div>
     </div>
 
@@ -2058,6 +2105,77 @@
             // If the visibility check fails, keep existing behavior and allow navigation.
         }
         navigateWithFeedback('/reloadly/#topup', 'Opening Mobile Top-Up…');
+    }
+
+
+    // ── SUP Claim handoff ───────────────────────────────────────
+    let supClaimUrl = 'https://claim.superfluid.org/claim';
+
+    function setSupClaimState(icon, title, hint, pill, details, canOpen) {
+        const iconEl = document.getElementById('supClaimIcon');
+        const titleEl = document.getElementById('supClaimTitle');
+        const hintEl = document.getElementById('supClaimHint');
+        const pillEl = document.getElementById('supClaimStatusPill');
+        const detailsEl = document.getElementById('supClaimDetails');
+        const openBtn = document.getElementById('supClaimOpenBtn');
+        if (iconEl) iconEl.textContent = icon;
+        if (titleEl) titleEl.textContent = title;
+        if (hintEl) hintEl.textContent = hint;
+        if (pillEl) pillEl.textContent = pill;
+        if (detailsEl) detailsEl.innerHTML = details;
+        if (openBtn) openBtn.disabled = !canOpen;
+    }
+
+    async function openSupClaimModal() {
+        openModal('supClaimModal');
+        setSupClaimState(
+            '⏳',
+            'Checking SUP status…',
+            'Using your already connected GoodMarket wallet — no reconnect needed.',
+            'Loading',
+            'GoodMarket is preparing the official Superfluid handoff. There is no direct public SUP claim API integrated yet.',
+            false
+        );
+
+        try {
+            const res = await fetch('/api/sup/claim/availability', { cache: 'no-store' });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.error || 'SUP check failed');
+
+            supClaimUrl = data.official_claim_url || supClaimUrl;
+            const balance = data.sup_balance_formatted || '0';
+            const balanceLine = data.balance_warning
+                ? `<div style="color:#fbbf24;">${data.balance_warning}</div>`
+                : `<div><strong>Current SUP balance:</strong> ${balance} SUP</div>`;
+            const walletLine = data.wallet
+                ? `<div><strong>Wallet:</strong> ${data.wallet.slice(0, 6)}…${data.wallet.slice(-4)}</div>`
+                : '';
+
+            setSupClaimState(
+                '🌊',
+                'Ready to open official SUP claim check',
+                'GoodMarket has not integrated a direct public SUP claim API; Superfluid’s official app remains the eligibility source of truth.',
+                'Handoff',
+                `${walletLine}${balanceLine}` +
+                `<div><strong>Network:</strong> Base (${data.chain_id || 8453})</div>` +
+                `<div style="margin-top:0.55rem;color:#fed7aa;">This is an official-app handoff, not a native SUP claim API integration. Tap below to check eligibility and sign any claim on Superfluid.</div>`,
+                true
+            );
+        } catch (e) {
+            console.warn('[sup-claim] availability check failed:', e);
+            setSupClaimState(
+                '⚠️',
+                'SUP status check unavailable',
+                'You can still open the official Superfluid claim app and check there.',
+                'Open app',
+                'GoodMarket could not reach the SUP status endpoint right now. The official Superfluid app remains the source of truth for daily eligibility and wallet-signed claiming.',
+                true
+            );
+        }
+    }
+
+    function openOfficialSupClaim() {
+        window.open(supClaimUrl || 'https://claim.superfluid.org/claim', '_blank', 'noopener,noreferrer');
     }
 
     // ── Modal ────────────────────────────────────────────────
