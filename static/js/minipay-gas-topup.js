@@ -87,15 +87,55 @@
     }
 
     // ─── MiniPay detection ────────────────────────────────────────────────
+    //
+    // Detection is intentionally permissive — a false negative here means
+    // the user pays the price (their swap fails at the wallet RPC layer
+    // with an opaque "insufficient funds for gas" message and they have
+    // no in-app recovery path). A false positive is harmless: the cUSD
+    // faucet endpoint is idempotent under its own cooldown, and the
+    // CELO -> cUSD autoswap prompt is skipped automatically when the
+    // wallet already holds enough stablecoin.
+    //
+    // The result is cached on first detection so the flag stays stable
+    // across the preflight + retry chain even if a downstream EIP-6963
+    // race re-shuffles `window.ethereum.providers`.
+    let _isMiniPayCached = null;
+
     function _isMiniPay() {
+        if (_isMiniPayCached !== null) return _isMiniPayCached;
         try {
             const eth = global.ethereum;
-            if (eth && eth.isMiniPay) return true;
+            if (eth && eth.isMiniPay) { _isMiniPayCached = true; return true; }
             if (eth && Array.isArray(eth.providers)
-                && eth.providers.some(p => p && p.isMiniPay)) return true;
-            if (typeof navigator !== 'undefined'
-                && /minipay/i.test(navigator.userAgent || '')) return true;
+                && eth.providers.some(p => p && p.isMiniPay)) {
+                _isMiniPayCached = true;
+                return true;
+            }
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+            if (/minipay/i.test(ua)) { _isMiniPayCached = true; return true; }
+            // MiniPay mini-apps launch inside Opera Mini's WebView. The
+            // window.ethereum injection sometimes drops the `isMiniPay`
+            // flag in that context (e.g. when the user opens the mini app
+            // through a WalletConnect-style session bridge rather than a
+            // direct in-wallet open). Treat Opera Mini UA as MiniPay when
+            // it has an injected provider — pure desktop Opera does not
+            // ship one.
+            const isOperaMini = /opera mini|opr\/.*mini|opt\/mini|operamini/i.test(ua);
+            if (isOperaMini && eth) { _isMiniPayCached = true; return true; }
+            // Manual override for QA / mini-app preview environments where
+            // none of the heuristics above fire. Setting `gm_force_minipay`
+            // to `1` (or `true`) in localStorage forces MiniPay mode.
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    const flag = localStorage.getItem('gm_force_minipay');
+                    if (flag === '1' || flag === 'true') {
+                        _isMiniPayCached = true;
+                        return true;
+                    }
+                }
+            } catch (_) { /* swallow storage errors */ }
         } catch (_) { /* swallow */ }
+        _isMiniPayCached = false;
         return false;
     }
 
@@ -653,7 +693,7 @@
     // ─── Public: ensureToppedUp ───────────────────────────────────────────
     async function ensureToppedUp(walletAddr, opts) {
         opts = opts || {};
-        if (!_isMiniPay()) {
+        if (!opts.force && !_isMiniPay()) {
             return { proceed: true, skipped: true, reason: 'not-minipay' };
         }
         if (!walletAddr) {
@@ -833,6 +873,21 @@
         }
     }
 
+    // ─── Public: forceEnsureToppedUp ──────────────────────────────────────
+    //
+    // Same as ensureToppedUp but bypasses the _isMiniPay() gate. Use this
+    // for reactive recovery after a transaction fails with "insufficient
+    // funds for gas" on Celo: at that point we already know the wallet
+    // ran out of fee currency, so it is safe (and necessary) to run the
+    // cUSD-faucet + autoswap flow regardless of which wallet brand the
+    // user is on. The faucet endpoint enforces its own per-wallet cooldown
+    // and the autoswap prompt is skipped automatically when the wallet
+    // already holds enough stablecoin.
+    async function forceEnsureToppedUp(walletAddr, opts) {
+        opts = opts || {};
+        return ensureToppedUp(walletAddr, Object.assign({}, opts, { force: true }));
+    }
+
     // ─── Public: runWithGasTopUp ──────────────────────────────────────────
     async function runWithGasTopUp(walletAddr, action, opts) {
         const result = await ensureToppedUp(walletAddr, opts);
@@ -901,6 +956,7 @@
         needsTopUpFromBalances: needsTopUpFromBalances,
         hasStablecoinGasBalance: hasStablecoinGasBalance,
         ensureToppedUp: ensureToppedUp,
+        forceEnsureToppedUp: forceEnsureToppedUp,
         runWithGasTopUp: runWithGasTopUp,
         maybeShowBanner: maybeShowBanner,
         constants: {

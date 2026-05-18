@@ -173,7 +173,15 @@
             return "WalletConnect session is not active. Please reconnect and try again.";
         }
         if (_isInsufficientFunds(joined)) {
-            if (/celo|gas/i.test(joined)) return "Insufficient CELO for gas fees. Please top up CELO and try again.";
+            if (/celo|gas/i.test(joined)) {
+                // The wallet RPC reports "insufficient funds" without naming
+                // the asset. On Celo this is ambiguous: regular wallets pay
+                // gas in CELO, but MiniPay pays gas in stablecoin (cUSD /
+                // USDT / USDC) via CIP-64. Mention both so the message is
+                // accurate either way and points to the cUSD-faucet recovery
+                // path the swap pages now offer automatically.
+                return "Insufficient gas balance. MiniPay pays gas in cUSD/USDT/USDC; other wallets pay in CELO. Top up the right asset and try again.";
+            }
             return "Insufficient balance for this transaction.";
         }
         if (_isAllowanceIssue(joined)) return "Token approval is missing or too low. Please re-approve and try again.";

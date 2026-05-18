@@ -3031,6 +3031,83 @@
             document.getElementById("quoteBox").classList.remove("hidden");
         }
 
+        // ─── Reactive gas-recovery for MiniPay ────────────────────────────────────
+        //
+        // The MiniPay-only pre-flight in startSwap() / startReserveSwap()
+        // only runs when MPGasTopUp.isMiniPay() returns true. That heuristic
+        // can miss in edge cases (Opera Mini WebView session bridges, mini-
+        // app preview shells, custom MiniPay forks that don't set the
+        // `isMiniPay` flag), and when it misses the swap reaches the wallet
+        // RPC layer and fails with a generic "insufficient funds for gas"
+        // error even though the user has plenty of CELO — they just have no
+        // stablecoin to pay gas with under CIP-64.
+        //
+        // _isCeloGasInsufficientError() recognises every variant of that
+        // wallet RPC error we've seen in the wild. _recoverFromInsufficientGas()
+        // forces the cUSD-faucet + CELO→cUSD autoswap flow regardless of
+        // wallet detection. The faucet endpoint enforces its own per-wallet
+        // cooldown, and the autoswap prompt is skipped automatically when
+        // the wallet already holds enough stablecoin, so calling this on a
+        // non-MiniPay wallet is harmless.
+        function _isCeloGasInsufficientError(err) {
+            try {
+                const parts = [];
+                const visit = (v, depth) => {
+                    if (depth > 4 || v == null) return;
+                    if (typeof v === 'string') { parts.push(v); return; }
+                    if (typeof v === 'object') {
+                        for (const k of ['message', 'shortMessage', 'reason', 'data', 'details']) {
+                            try { visit(v[k], depth + 1); } catch (_) {}
+                        }
+                        try { if (v.error) visit(v.error, depth + 1); } catch (_) {}
+                        try { if (v.cause) visit(v.cause, depth + 1); } catch (_) {}
+                    }
+                };
+                visit(err, 0);
+                const joined = parts.join(' ').toLowerCase();
+                if (!joined) return false;
+                if (/insufficient\s+funds/.test(joined)
+                    && /(gas|celo|fee|max\s*fee)/.test(joined)) return true;
+                if (/no\s+fee\s+currency/.test(joined)) return true;
+                if (/fee\s+currency.*not.*allow/.test(joined)) return true;
+                if (/cip[-\s]?64/.test(joined)
+                    && /(insufficient|no balance|empty)/.test(joined)) return true;
+                return false;
+            } catch (_) { return false; }
+        }
+
+        async function _recoverFromInsufficientGas(context) {
+            if (!window.MPGasTopUp || !window.MPGasTopUp.forceEnsureToppedUp) {
+                return { recovered: false, reason: 'no-helper' };
+            }
+            if (!WALLET_ADDRESS) {
+                return { recovered: false, reason: 'no-wallet' };
+            }
+            try {
+                const body =
+                    'Your swap failed because your wallet has no <strong>stablecoin '
+                    + '(cUSD/USDT/USDC) to pay gas with</strong>. On Celo, MiniPay '
+                    + 'pays gas in stablecoin instead of CELO (CIP-64).<br><br>'
+                    + 'We\'ll convert a small amount of your CELO to cUSD so you can '
+                    + 'pay gas and retry. We\'ll keep ~0.09 CELO untouched as your '
+                    + 'reserve. ⚠️ <strong>Do not transfer the resulting cUSD to '
+                    + 'another wallet</strong> — it\'s needed as gas for your next '
+                    + 'transactions.';
+                const r = await window.MPGasTopUp.forceEnsureToppedUp(WALLET_ADDRESS, {
+                    body,
+                    title: 'Top up gas to retry'
+                });
+                return {
+                    recovered: !!(r && (r.swapped || r.stableReady)),
+                    proceed: !!(r && r.proceed),
+                    raw: r,
+                };
+            } catch (e) {
+                console.warn('[' + (context || 'swap') + '] gas recovery error:', e);
+                return { recovered: false, error: e };
+            }
+        }
+
         // ─── Execute Swap ──────────────────────────────────────────────────────────
         async function startSwap() {
             if (!currentQuote) { showAlert("alert-error", "Please enter an amount first."); return; }
@@ -3257,6 +3334,14 @@
                     }
                     if (currentQuote) setSwapBtnState("ready");
                     else setSwapBtnState("enter");
+                    if (_isCeloGasInsufficientError(err)) {
+                        const rec = await _recoverFromInsufficientGas('swap-server');
+                        if (rec.recovered) {
+                            try { await loadBalances(); } catch (_) {}
+                            showAlert("alert-success",
+                                "✅ Gas topped up. Tap Swap again to retry.");
+                        }
+                    }
                 }
                 return;
             }
@@ -3366,6 +3451,14 @@
                     }
                     if (currentQuote) setSwapBtnState("ready");
                     else setSwapBtnState("enter");
+                    if (_isCeloGasInsufficientError(err)) {
+                        const rec = await _recoverFromInsufficientGas('swap-minipay');
+                        if (rec.recovered) {
+                            try { await loadBalances(); } catch (_) {}
+                            showAlert("alert-success",
+                                "✅ Gas topped up. Tap Swap again to retry.");
+                        }
+                    }
                 }
                 return;
             }
@@ -3490,6 +3583,14 @@
                 showAlert("alert-error", `❌ Swap failed: ${friendly}`);
                 if (currentQuote) setSwapBtnState("ready");
                 else setSwapBtnState("enter");
+                if (_isCeloGasInsufficientError(err)) {
+                    const rec = await _recoverFromInsufficientGas('swap-eoa');
+                    if (rec.recovered) {
+                        try { await loadBalances(); } catch (_) {}
+                        showAlert("alert-success",
+                            "✅ Gas topped up. Tap Swap again to retry.");
+                    }
+                }
             }
         }
 
@@ -4406,6 +4507,15 @@
                 const friendly = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err?.shortMessage || err?.message || "Unknown error");
                 showReserveAlert("alert-error", `❌ ${reserveDirection === "buy" ? "Buy" : "Sell"} failed: ${friendly}`);
                 setReserveBtnState(reserveQuote ? "ready" : "enter");
+                if (_isCeloGasInsufficientError(err)) {
+                    const rec = await _recoverFromInsufficientGas('reserve');
+                    if (rec.recovered) {
+                        try { await loadBalances(); } catch (_) {}
+                        const label = reserveDirection === "buy" ? "Buy" : "Sell";
+                        showReserveAlert("alert-success",
+                            `✅ Gas topped up. Tap ${label} again to retry.`);
+                    }
+                }
             }
         }
 
