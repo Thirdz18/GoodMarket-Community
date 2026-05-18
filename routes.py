@@ -6303,10 +6303,6 @@ SUP_DEFAULT_SUBGRAPH_URL = (
 # See https://docs.superfluid.org/docs/technical-reference/GDAv1Forwarder
 SUP_GDA_FORWARDER_ADDRESS = "0x6DA13Bde224A05a288748d857b9e7DDEffd1dE08"
 SUP_OFFICIAL_CLAIM_URL = "https://claim.superfluid.org/claim"
-SUP_GOODDOLLAR_CAMPAIGN_URL = "https://claim.superfluid.org/apps"
-SUP_GOODDOLLAR_STREAMING_DOCS_URL = (
-    "https://docs.gooddollar.org/for-developers/developer-guides/use-gusd-streaming"
-)
 
 _SUP_TOKEN_ABI = [
     {
@@ -6469,78 +6465,6 @@ def _sup_read_pools_claimable(
     return pools
 
 
-def _sup_get_gooddollar_qualifier(wallet: str) -> dict:
-    """Best-effort GoodDollar activity signal for the SUP campaign.
-
-    Superfluid's public campaign copy says GoodDollar claimers and
-    GoodCollective users can qualify for SUP. That eligibility is ultimately
-    resolved by the official Superfluid claim app / reserve flow, not by merely
-    holding SUP on Base or already belonging to a Base GDA pool. This helper
-    therefore does not mark a wallet as definitively claimable; it gives the UI
-    enough context to avoid the misleading "No SUP detected" message for
-    GoodDollar users.
-    """
-    qualifier = {
-        "campaign": "GoodDollar",
-        "possible_qualifier": False,
-        "verified": None,
-        "has_gd_balance": False,
-        "gd_balance": 0,
-        "gd_balance_formatted": "0",
-        "can_claim_gd": False,
-        "claimable_gd": 0,
-        "claimable_gd_formatted": "0.00",
-        "campaign_url": SUP_GOODDOLLAR_CAMPAIGN_URL,
-        "docs_url": SUP_GOODDOLLAR_STREAMING_DOCS_URL,
-        "message": (
-            "GoodDollar is an active Superfluid SUP campaign. GoodDollar claimers, "
-            "GoodCollective donors, GoodWallet users, and invite activity may qualify "
-            "on the official Superfluid claim app."
-        ),
-        "warnings": [],
-    }
-
-    if not wallet or not Web3.is_address(wallet):
-        qualifier["warnings"].append("missing_wallet")
-        return qualifier
-
-    try:
-        from blockchain import (
-            get_gooddollar_balance,
-            get_ubi_entitlement,
-            is_identity_verified,
-        )
-
-        identity = is_identity_verified(wallet) or {}
-        if "verified" in identity:
-            qualifier["verified"] = bool(identity.get("verified"))
-
-        gd_balance = get_gooddollar_balance(wallet, include_price=False) or {}
-        balance_value = float(gd_balance.get("balance") or 0)
-        qualifier["gd_balance"] = balance_value
-        qualifier["gd_balance_formatted"] = f"{balance_value:.2f}"
-        qualifier["has_gd_balance"] = balance_value > 0
-
-        entitlement = get_ubi_entitlement(wallet) or {}
-        claimable_value = float(entitlement.get("entitlement") or 0)
-        qualifier["claimable_gd"] = claimable_value
-        qualifier["claimable_gd_formatted"] = (
-            entitlement.get("entitlement_formatted") or f"{claimable_value:.2f}"
-        )
-        qualifier["can_claim_gd"] = bool(entitlement.get("can_claim"))
-
-        qualifier["possible_qualifier"] = bool(
-            qualifier["verified"]
-            or qualifier["has_gd_balance"]
-            or qualifier["can_claim_gd"]
-        )
-    except Exception as e:
-        logger.warning("sup GoodDollar qualifier lookup failed for %s: %s", wallet, e)
-        qualifier["warnings"].append("gooddollar_lookup_unavailable")
-
-    return qualifier
-
-
 def _sup_runtime_config() -> dict:
     """Resolve the runtime configuration used by both SUP endpoints."""
     return {
@@ -6585,16 +6509,12 @@ def sup_claim_availability():
         "native_claim_supported": True,
         "eligibility_check_supported": True,
         "requires_wallet_signature": True,
-        "claim_model": "superfluid_spr_reserve_plus_gda_pool_probe",
-        "gooddollar_campaign_url": SUP_GOODDOLLAR_CAMPAIGN_URL,
-        "gooddollar_docs_url": SUP_GOODDOLLAR_STREAMING_DOCS_URL,
-        "gooddollar_qualifier": None,
         "message": (
-            "SUP rewards are earned through Superfluid Streaming Programmatic "
-            "Rewards campaigns. GoodDollar is one of those campaigns, but the "
-            "official Superfluid claim app determines final wallet eligibility "
-            "and starts streams to a Reserve. GoodMarket also checks Base GDA "
-            "pools so already-streaming rewards can be surfaced when present."
+            "SUP rewards stream from Superfluid GDA pools. GoodMarket reads "
+            "the official Superfluid subgraph for the pools your wallet has "
+            "units in, then checks `getClaimableNow(member)` on each pool to "
+            "show the exact pending amount. Tap Claim to sign one transaction "
+            "per pool through your connected wallet."
         ),
         "sup_balance": None,
         "sup_balance_formatted": None,
@@ -6612,8 +6532,6 @@ def sup_claim_availability():
             "No wallet found in the GoodMarket session. Log in again to refresh your wallet."
         )
         return jsonify(result)
-    result["gooddollar_qualifier"] = _sup_get_gooddollar_qualifier(wallet)
-
     if not Web3.is_address(cfg["sup_token_address"]):
         result["balance_warning"] = "SUP_TOKEN_ADDRESS is misconfigured on the server."
         return jsonify(result)

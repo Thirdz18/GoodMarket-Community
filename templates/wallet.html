@@ -1518,10 +1518,10 @@
             <div class="modal-title">🌊 SUP Rewards</div>
 
             <div style="background:rgba(255,122,24,0.10);border:1px solid rgba(255,122,24,0.28);border-radius:16px;padding:1rem;margin-bottom:1rem;text-align:left;">
-                <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Superfluid SPR · GoodDollar campaign</div>
-                <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Check SUP rewards without hiding GoodDollar eligibility</div>
+                <div style="font-size:0.78rem;color:#fed7aa;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.35rem;">Native claim · Superfluid on Base</div>
+                <div style="color:#fff;font-weight:800;font-size:1.05rem;margin-bottom:0.45rem;">Claim inside GoodMarket — no redirect</div>
                 <div style="color:var(--text-dim);font-size:0.84rem;line-height:1.45;">
-                    GoodDollar is part of Superfluid Streaming Programmatic Rewards. GoodMarket checks Base SUP balances and GDA pools, plus GoodDollar activity, but final campaign eligibility and Reserve setup still happen in the official Superfluid claim app.
+                    GoodMarket reads your SUP balance and every Superfluid GDA pool you have units in, then signs the claim directly with your connected wallet on Base. The Superfluid app is only used as a manual fallback if your wallet can't sign here.
                 </div>
             </div>
 
@@ -1538,7 +1538,7 @@
                 </div>
             </div>
 
-            <div id="supClaimSummary" style="display:none;margin-top:0.85rem;grid-template-columns:1fr 1fr;gap:0.55rem;text-align:left;">
+            <div id="supClaimSummary" style="display:none;margin-top:0.85rem;display:grid;grid-template-columns:1fr 1fr;gap:0.55rem;text-align:left;">
                 <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:0.7rem 0.85rem;">
                     <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.2rem;">In wallet</div>
                     <div style="font-weight:800;font-size:1.05rem;color:#fff;"><span id="supWalletBalance">0</span> SUP</div>
@@ -1551,8 +1551,6 @@
 
             <div id="supClaimPoolList" style="display:none;margin-top:0.7rem;text-align:left;max-height:180px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:0.45rem 0.55rem;"></div>
 
-            <div id="supGoodDollarCampaign" style="display:none;margin-top:0.7rem;text-align:left;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.24);border-radius:12px;padding:0.75rem 0.85rem;color:#dcfce7;font-size:0.82rem;line-height:1.45;"></div>
-
             <div id="supClaimDetails" style="margin-top:0.85rem;color:var(--text-dim);font-size:0.8rem;line-height:1.5;text-align:left;">
                 Please wait while GoodMarket checks your SUP status on Base.
             </div>
@@ -1564,7 +1562,7 @@
                 <span id="supClaimNativeLabel">Claim SUP</span>
             </button>
             <button id="supClaimOpenBtn" class="btn-secondary" onclick="openOfficialSupClaim()" style="margin-top:0.55rem;display:none;">
-                Open Superfluid claim app
+                Open on Superfluid app (fallback)
             </button>
             <button class="btn-secondary" onclick="closeModal('supClaimModal')">Close</button>
         </div>
@@ -2241,8 +2239,6 @@
         if (summaryEl) summaryEl.style.display = 'none';
         const listEl = document.getElementById('supClaimPoolList');
         if (listEl) { listEl.style.display = 'none'; listEl.innerHTML = ''; }
-        const campaignEl = document.getElementById('supGoodDollarCampaign');
-        if (campaignEl) { campaignEl.style.display = 'none'; campaignEl.innerHTML = ''; }
 
         try {
             const res = await fetch('/api/sup/claim/availability', { cache: 'no-store' });
@@ -2261,33 +2257,12 @@
             const poolCount = data.pool_count || 0;
             const claimablePoolCount = data.claimable_pool_count || 0;
 
-            const gd = data.gooddollar_qualifier || {};
-            const gdPossible = !!gd.possible_qualifier;
-            if (campaignEl && (gdPossible || gd.message)) {
-                const gdFacts = [];
-                if (gd.verified === true) gdFacts.push('GoodDollar face-verified');
-                if (gd.has_gd_balance) gdFacts.push(`${gd.gd_balance_formatted || '0'} G$ on Celo`);
-                if (gd.can_claim_gd) gdFacts.push(`${gd.claimable_gd_formatted || '0.00'} G$ claimable now`);
-                const factsHtml = gdFacts.length
-                    ? `<div style="margin-top:0.35rem;color:#bbf7d0;"><strong>Detected:</strong> ${gdFacts.join(' · ')}</div>`
-                    : '<div style="margin-top:0.35rem;color:#fde68a;">GoodMarket could not prove GoodDollar activity from Base SUP data alone.</div>';
-                campaignEl.innerHTML = `
-                    <div style="font-weight:800;color:#fff;margin-bottom:0.25rem;">GoodDollar SUP campaign</div>
-                    <div>${gd.message || 'GoodDollar users may qualify for SUP through the official Superfluid campaign flow.'}</div>
-                    ${factsHtml}
-                `;
-                campaignEl.style.display = 'block';
-            }
-
             let detailParts = [];
             if (data.wallet) {
                 detailParts.push(`<div><strong>Wallet:</strong> ${_supShortAddr(data.wallet)}</div>`);
             }
-            detailParts.push(`<div><strong>Network checked:</strong> Base (chain ${data.chain_id || 8453}) for SUP token/pools</div>`);
-            detailParts.push(`<div><strong>Base pools indexed:</strong> ${poolCount} · ${claimablePoolCount} with claimable balance</div>`);
-            if (gdPossible) {
-                detailParts.push('<div style="color:#bbf7d0;margin-top:0.35rem;">GoodDollar activity detected. Use the official Superfluid app to complete Reserve/delegation/claim steps if needed.</div>');
-            }
+            detailParts.push(`<div><strong>Network:</strong> Base (chain ${data.chain_id || 8453})</div>`);
+            detailParts.push(`<div><strong>Pools indexed:</strong> ${poolCount} · ${claimablePoolCount} with claimable balance</div>`);
             if (data.balance_warning) {
                 detailParts.push(`<div style="color:#fbbf24;margin-top:0.35rem;">${data.balance_warning}</div>`);
             }
@@ -2320,24 +2295,14 @@
                     'Holding'
                 );
                 _supSetClaimButton('Nothing to claim', true);
-            } else if (gdPossible) {
-                _supSetState(
-                    '🌊',
-                    'GoodDollar activity detected',
-                    'No Base SUP stream is visible yet. Open Superfluid to check campaign eligibility and set up/claim your Reserve.',
-                    'Check app'
-                );
-                _supSetClaimButton('Claim on Superfluid', true);
-                _supSetOpenButton(true);
             } else {
                 _supSetState(
                     '🌊',
-                    'No Base SUP stream found yet',
-                    'This does not prove GoodDollar campaign ineligibility. Open Superfluid to check the official eligibility result.',
-                    'Check app'
+                    'No SUP detected for this wallet',
+                    'Earn SUP by using Superfluid-powered apps, then come back to claim.',
+                    'Empty'
                 );
-                _supSetClaimButton('Check on Superfluid', true);
-                _supSetOpenButton(true);
+                _supSetClaimButton('Nothing to claim', true);
             }
         } catch (e) {
             console.warn('[sup-claim] availability check failed:', e);
