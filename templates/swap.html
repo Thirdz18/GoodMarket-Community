@@ -719,20 +719,31 @@
             color: #fff;
             box-shadow: 0 0 0 1px rgba(56,189,248,0.15) inset;
         }
-        .squid-frame-wrap {
+        .squid-widget-wrap {
             overflow: hidden;
             border-radius: 18px;
             border: 1px solid rgba(255,255,255,0.12);
             background: rgba(15,23,42,0.58);
             min-height: 720px;
         }
-        .squid-frame {
-            display: block;
-            width: 100%;
-            min-height: 720px;
-            border: 0;
-            background: #07111f;
+        .squid-react-shell { min-height: 690px; }
+        .squid-react-status {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+            padding: 0.65rem 0.8rem;
+            border-radius: 12px;
+            background: rgba(34,197,94,0.08);
+            border: 1px solid rgba(34,197,94,0.26);
+            color: rgba(255,255,255,0.78);
+            font-size: 0.78rem;
+            line-height: 1.35;
         }
+        .squid-react-status strong { color: #bbf7d0; white-space: nowrap; }
+        .squid-react-status[data-connected="false"] { background: rgba(56,189,248,0.08); border-color: rgba(56,189,248,0.28); }
+        .squid-react-status[data-connected="false"] strong { color: #bae6fd; }
         .squid-wallet-hint {
             margin-bottom: 0.9rem;
             padding: 0.85rem 1rem;
@@ -779,7 +790,8 @@
         .squid-wallet-hint-note { color: rgba(255,255,255,0.65); font-size: 0.80rem; }
         @media(max-width: 560px) {
             .squid-token-buttons { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .squid-frame-wrap, .squid-frame { min-height: 690px; }
+            .squid-widget-wrap { min-height: 690px; }
+            .squid-react-status { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
         }
     </style>
     <!-- WalletConnect bridge for users without injected wallet -->
@@ -1223,15 +1235,8 @@
                     <div class="squid-wallet-hint-note" id="squidWalletHintNote"></div>
                 </div>
 
-                <div class="squid-frame-wrap">
-                    <iframe
-                        id="squidCeloBaseFrame"
-                        class="squid-frame"
-                        title="Celo to Base ETH purchase"
-                        loading="lazy"
-                        referrerpolicy="strict-origin-when-cross-origin"
-                        allow="clipboard-read; clipboard-write; payment; web-share"
-                    ></iframe>
+                <div class="squid-widget-wrap">
+                    <div id="squidReactWidgetRoot" aria-live="polite"></div>
                 </div>
             </div>
 
@@ -1584,12 +1589,22 @@
         gas top-up (3-day coverage / 48h cooldown reminder).
     -->
     <script src="/static/js/gas-coverage-banner.js?v={{ ASSET_VERSION }}"></script>
+    <script type="application/json" id="squidWidgetBootstrap">{{ {
+        "apiUrl": squid_api_url|default("https://apiplus.squidrouter.com", true),
+        "integratorId": squid_integrator_id|default("", true),
+        "fromChainId": squid_from_chain_id|default(42220),
+        "toChainId": squid_to_chain_id|default(8453),
+        "toToken": squid_to_token|default("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE", true),
+        "sourceTokens": squid_source_tokens|default([]),
+        "widgetConfig": squid_widget_config|default({}, true),
+        "walletAddress": wallet,
+        "loginMethod": login_method
+    }|tojson }}</script>
+    <script type="module" src="{{ url_for('static', filename='js/squid-widget-react.js', v=ASSET_VERSION) }}"></script>
     <script>
         // ─── Constants ────────────────────────────────────────────────────────────
         const WALLET_ADDRESS = "{{ wallet }}";
         const SQUID_CONFIG = {
-            iframeBaseUrl: {{ squid_iframe_base_url|default('https://studio.squidrouter.com/iframe', true)|tojson }},
-            appUrl: {{ squid_app_url|default('https://app.squidrouter.com/', true)|tojson }},
             apiUrl: {{ squid_api_url|default('https://apiplus.squidrouter.com', true)|tojson }},
             integratorId: {{ squid_integrator_id|default('', true)|tojson }},
             fromChainId: {{ squid_from_chain_id|default(42220) }},
@@ -1602,6 +1617,7 @@
         // Pure self-custody mode: never use server-side signing.
         window.useServerSigning = false;
         const LOGIN_METHOD = '{{ login_method }}';
+        window.GMSquidBootstrap = { ...SQUID_CONFIG, walletAddress: WALLET_ADDRESS, loginMethod: LOGIN_METHOD };
         const WC_PROJECT_ID = '{{ walletconnect_project_id }}';
         const PREFER_WC_SIGNING = ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
         const CELO_RPC       = "https://forno.celo.org";
@@ -3979,47 +3995,10 @@
             ? SQUID_CONFIG.sourceTokens[0]
             : { symbol: "CELO", address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE" };
 
-        function _safeSquidUrl(raw, fallback) {
-            try {
-                return new URL(raw || fallback, fallback);
-            } catch (_) {
-                return new URL(fallback);
-            }
-        }
-
-        function buildSquidWidgetConfig(sourceToken) {
-            const token = sourceToken || squidSelectedSource;
-            const baseConfig = SQUID_CONFIG.widgetConfig || {};
-            const sourceChainId = String(SQUID_CONFIG.fromChainId);
-            const destinationChainId = String(SQUID_CONFIG.toChainId);
-            const config = {
-                ...baseConfig,
-                apiUrl: SQUID_CONFIG.apiUrl || baseConfig.apiUrl || "https://apiplus.squidrouter.com",
-                themeType: baseConfig.themeType || "dark",
-                initialAssets: {
-                    ...(baseConfig.initialAssets || {}),
-                    from: { address: token.address, chainId: sourceChainId },
-                    to: { address: SQUID_CONFIG.toToken, chainId: destinationChainId }
-                }
-            };
-            if (SQUID_CONFIG.integratorId) config.integratorId = SQUID_CONFIG.integratorId;
-            if (WALLET_ADDRESS && WALLET_ADDRESS !== "None") {
-                config.initialRecipientAddress = WALLET_ADDRESS;
-                config.toAddress = WALLET_ADDRESS;
-            }
-            return config;
-        }
-
-        function buildSquidIframeUrl(sourceToken) {
-            const url = _safeSquidUrl(SQUID_CONFIG.iframeBaseUrl, "https://studio.squidrouter.com/iframe");
-            url.searchParams.set("config", JSON.stringify(buildSquidWidgetConfig(sourceToken)));
-            return url.toString();
-        }
-
         function refreshSquidWidget() {
-            const frame = document.getElementById("squidCeloBaseFrame");
-            const iframeUrl = buildSquidIframeUrl(squidSelectedSource);
-            if (frame && frame.src !== iframeUrl) frame.src = iframeUrl;
+            if (window.GMSquidReactWidget && typeof window.GMSquidReactWidget.refresh === "function") {
+                window.GMSquidReactWidget.refresh();
+            }
         }
 
         function setSquidSourceToken(symbol, address) {
@@ -4027,16 +4006,18 @@
             document.querySelectorAll(".squid-token-btn").forEach((btn) => {
                 btn.classList.toggle("active", btn.dataset.symbol === symbol);
             });
-            refreshSquidWidget();
+            if (window.GMSquidReactWidget && typeof window.GMSquidReactWidget.setSourceToken === "function") {
+                window.GMSquidReactWidget.setSourceToken(symbol, address);
+            } else {
+                refreshSquidWidget();
+            }
         }
 
         // Detect which connection method the user used to sign in to
-        // GoodMarket and surface a hint inside the Squid pane. The Squid
-        // iframe is cross-origin (studio.squidrouter.com) so the parent
-        // page cannot inject its EIP-1193 provider into the widget; the
-        // widget always renders its own wallet picker. The next-best UX
-        // is to tell the user which option to pick inside the widget so
-        // they connect with the same wallet they used on GoodMarket.
+        // GoodMarket and surface the provider that is now passed into
+        // the React Squid widget. The old cross-origin iframe could only
+        // show a hint; the React SDK lives in this page, so it can reuse
+        // the same EIP-1193 provider that powers the rest of /swap.
         function renderSquidWalletHint() {
             const hint = document.getElementById("squidWalletHint");
             const icon = document.getElementById("squidWalletBadgeIcon");
@@ -4056,20 +4037,24 @@
             if (isWC) {
                 icon.textContent = "\ud83d\udd17";
                 label.textContent = "WalletConnect";
-                note.textContent = "Naka-connect ka sa GoodMarket via WalletConnect. Sa loob ng Squid widget, piliin din ang WalletConnect at i-scan ang QR gamit ang parehong wallet app.";
+                note.textContent = "Naka-connect ka sa GoodMarket via WalletConnect. Ipapasa ito direkta sa React Squid widget para auto-connected ang parehong wallet.";
             } else if (isMiniPay) {
                 icon.textContent = "\ud83d\udcb3";
                 label.textContent = "MiniPay";
-                note.textContent = "Naka-connect ka via MiniPay. Sa Squid widget, piliin ang Injected Wallet (MiniPay) para gamitin ang parehong account.";
+                note.textContent = "Naka-connect ka via MiniPay. Ire-reuse ng React Squid widget ang MiniPay provider sa page na ito.";
             } else {
                 icon.textContent = "\ud83e\uddea";
                 label.textContent = "Injected Wallet";
-                note.textContent = "Naka-connect ka via injected wallet (MetaMask / Rabby / Trust, etc.). Sa loob ng Squid widget, piliin ang parehong injected wallet para gamitin ang account mo.";
+                note.textContent = "Naka-connect ka via injected wallet (MetaMask / Rabby / Trust, etc.). Ipinapasa ito sa React Squid widget para sa in-widget auto-connect.";
             }
             hint.hidden = false;
         }
 
         try { renderSquidWalletHint(); } catch (_) {}
+        window.GMSquidResolveProvider = async function() {
+            if (typeof _awaitEthProvider === "function") return await _awaitEthProvider(4200);
+            return (typeof _getEthProvider === "function") ? _getEthProvider() : (window.ethereum || null);
+        };
 
         // Toggle the active sub-pane inside the Bridge tab. Each direction
         // owns its own DOM (Celo → XDC was already on /swap; XDC → Celo
