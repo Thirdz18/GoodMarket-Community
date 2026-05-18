@@ -3045,16 +3045,17 @@
             // wallet-side "no fee currency available" error. Offer to convert
             // the CELO above the 0.09 CELO reserve to cUSD first, then resume
             // the user's intended swap.
-            // Skipped when:
-            //   - user is not in MiniPay (browser/MetaMask/etc. pay gas in CELO)
-            //   - user is already swapping CELO -> cUSD (redundant; if it
-            //     succeeds the user will have stablecoin gas anyway)
+            // MiniPay must run this even for CELO -> cUSD swaps: MiniPay
+            // does not accept native CELO as gas, so a CELO-only wallet cannot
+            // sign the very swap that would create cUSD. For CELO -> cUSD we
+            // request only the GoodMarket cUSD gas faucet and skip the extra
+            // auto-swap prompt because the user's intended swap already does it.
             const isCeloToCusdSwap = fromToken === "CELO" && toToken === "CUSD";
-            if (!isCeloToCusdSwap
-                && window.MPGasTopUp
-                && window.MPGasTopUp.isMiniPay()) {
+            if (window.MPGasTopUp && window.MPGasTopUp.isMiniPay()) {
                 try {
                     const r = await window.MPGasTopUp.ensureToppedUp(WALLET_ADDRESS, {
+                        stableGasOnly: isCeloToCusdSwap,
+                        skipAutoSwap: isCeloToCusdSwap,
                         body: 'You\'re about to swap. MiniPay pays gas in '
                             + '<strong>stablecoin (cUSD/USDT/USDC), not in CELO</strong> — '
                             + 'you need to convert your CELO to cUSD first to pay for gas.'

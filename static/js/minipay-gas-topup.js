@@ -11,6 +11,8 @@
  *   2) Request the GoodDollar CELO faucet best-effort when CELO is low.
  *   3) Always allow the direct cUSD gas faucet for wallets missing stablecoin gas.
  *   4) If extra CELO is available, optionally swap it to cUSD, then resume.
+ *      CELO -> cUSD swaps can opt out of this extra auto-swap while still
+ *      receiving the faucet cUSD needed to pay MiniPay gas.
  *
  * Constraint: every on-chain tx still requires user signature inside
  * MiniPay, so this is "auto-prompt + chained txs", not "zero-tap auto".
@@ -19,7 +21,7 @@
  *   - isMiniPay()                            -> bool
  *   - getBalances(walletAddr)                -> { celo, cusd, usdt, usdc } as bigint
  *   - needsTopUpFromBalances(balances)       -> bool
- *   - ensureToppedUp(walletAddr, opts)       -> Promise<{ proceed, swapped?, cancelled?, error? }>
+ *   - ensureToppedUp(walletAddr, opts)       -> Promise<{ proceed, swapped?, stableGasOnly?, cancelled?, error? }>
  *   - runWithGasTopUp(walletAddr, fn, opts)  -> Promise<{ ranAction, ... }>
  *   - maybeShowBanner(walletAddr, opts)      -> Promise<bool>
  */
@@ -49,11 +51,11 @@
 
     // MiniPay needs a small stablecoin balance to pay fee-currency gas.
     // Tuned to match the server-side MINIPAY_STABLECOIN_MIN_USD threshold.
-    // A typical claim() costs ~$0.006 cUSD at current Celo peak congestion
-    // and ~$0.001-$0.002 at normal gas. Keep this threshold below the
-    // server faucet amount so one refill can clear it.
+    // Keep this threshold below the server faucet amount so one refill can
+    // clear it. The faucet display amount mirrors the backend default and is
+    // sized for the approve + swap path needed by CELO-only MiniPay users.
     const STABLECOIN_GAS_MIN_USD = 0.01;
-    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.025';
+    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.05';
     // Match the backend FAUCET_MIN_CELO default. MiniPay still pays claim gas
     // in stablecoins, so the CELO faucet is a best-effort recovery path for
     // wallets below this floor; it must not block the cUSD gas budget.
@@ -748,8 +750,20 @@
                         5000
                     );
                 }
-                // Wallet has stablecoin gas now — fall through to the
-                // autoswap prompt below.
+                // Wallet has stablecoin gas now. Some callers (notably the
+                // user's own CELO -> cUSD swap) only need the GoodMarket cUSD
+                // faucet to unlock MiniPay gas; doing a separate auto-swap here
+                // would duplicate the action they already requested.
+                if (opts.stableGasOnly || opts.skipAutoSwap) {
+                    return {
+                        proceed: true,
+                        stableGasOnly: true,
+                        swapped: false,
+                        faucetResult: faucetResult,
+                    };
+                }
+
+                // Otherwise fall through to the autoswap prompt below.
             } catch (err) {
                 progress.close();
                 const msg = (err && err.message) || 'MiniPay stablecoin faucet failed.';
