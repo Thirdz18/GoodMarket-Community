@@ -39,8 +39,8 @@ function normalizeToken(token) {
 
 function makeConfig(bootstrap, sourceToken) {
     const baseConfig = bootstrap.widgetConfig || {};
-    const sourceChainId = String(bootstrap.fromChainId || 42220);
-    const destinationChainId = String(bootstrap.toChainId || 8453);
+    const sourceChainId = Number(bootstrap.fromChainId || 42220);
+    const destinationChainId = Number(bootstrap.toChainId || 8453);
     const token = normalizeToken(sourceToken || bootstrap.sourceTokens?.[0]);
     const config = {
         ...baseConfig,
@@ -48,8 +48,8 @@ function makeConfig(bootstrap, sourceToken) {
         themeType: baseConfig.themeType || "dark",
         initialAssets: {
             ...(baseConfig.initialAssets || {}),
-            from: { address: token.address, chainId: sourceChainId },
-            to: { address: bootstrap.toToken || NATIVE_TOKEN, chainId: destinationChainId },
+            from: { address: token.address, chainId: Number.isFinite(sourceChainId) ? sourceChainId : 42220 },
+            to: { address: bootstrap.toToken || NATIVE_TOKEN, chainId: Number.isFinite(destinationChainId) ? destinationChainId : 8453 },
         },
     };
     if (bootstrap.integratorId) config.integratorId = bootstrap.integratorId;

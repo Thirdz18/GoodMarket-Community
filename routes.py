@@ -6537,8 +6537,8 @@ def swap_page():
             "note": "Tether on Celo",
         },
     ]
-    squid_source_chain_id = str(squid_from_chain_id)
-    squid_destination_chain_id = str(squid_to_chain_id)
+    squid_source_chain_id = int(squid_from_chain_id)
+    squid_destination_chain_id = int(squid_to_chain_id)
     squid_widget_config = {
         "apiUrl": squid_api_url,
         "themeType": "dark",
@@ -6562,10 +6562,10 @@ def swap_page():
         },
         "availableTokens": {
             "source": {
-                squid_source_chain_id: [token["address"] for token in squid_source_tokens],
+                str(squid_source_chain_id): [token["address"] for token in squid_source_tokens],
             },
             "destination": {
-                squid_destination_chain_id: [squid_to_token],
+                str(squid_destination_chain_id): [squid_to_token],
             },
         },
     }
