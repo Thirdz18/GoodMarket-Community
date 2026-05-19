@@ -12,6 +12,40 @@ const CELO_CHAIN_PARAMS = {
     blockExplorerUrls: ["https://celoscan.io"],
 };
 
+function renderFallbackMessage(message) {
+    const rootEl = document.getElementById("squidReactWidgetRoot");
+    if (!rootEl) return;
+    rootEl.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "squid-react-status";
+    box.setAttribute("data-connected", "false");
+    box.style.marginBottom = "0.75rem";
+    box.innerHTML = `<strong>⚠️ Buy ETH widget unavailable</strong><span>${message}</span>`;
+    rootEl.appendChild(box);
+}
+
+class WidgetErrorBoundary extends React.Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false };
+    }
+    static getDerivedStateFromError() {
+        return { hasError: true };
+    }
+    componentDidCatch(error) {
+        console.error("[GoodMarket Squid] React widget render failed", error);
+    }
+    render() {
+        if (this.state.hasError) {
+            return React.createElement("div", { className: "squid-react-status", "data-connected": "false" },
+                React.createElement("strong", null, "⚠️ Buy ETH widget failed to render"),
+                React.createElement("span", null, "Please refresh the page. If this continues, reconnect your wallet and try again.")
+            );
+        }
+        return this.props.children;
+    }
+}
+
 function readBootstrap() {
     const node = document.getElementById("squidWidgetBootstrap");
     if (!node) return {};
@@ -184,8 +218,17 @@ function SquidGoodMarketWidget({ bootstrap }) {
 function mount() {
     const rootEl = document.getElementById("squidReactWidgetRoot");
     if (!rootEl) return;
-    const root = createRoot(rootEl);
-    root.render(React.createElement(SquidGoodMarketWidget, { bootstrap: readBootstrap() }));
+    try {
+        const root = createRoot(rootEl);
+        root.render(
+            React.createElement(WidgetErrorBoundary, null,
+                React.createElement(SquidGoodMarketWidget, { bootstrap: readBootstrap() })
+            )
+        );
+    } catch (err) {
+        console.error("[GoodMarket Squid] Widget mount failed", err);
+        renderFallbackMessage("Could not initialize the Squid integration script. Please hard refresh and try again.");
+    }
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
