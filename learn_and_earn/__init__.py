@@ -8,6 +8,11 @@ from .blockchain import (
     learn_blockchain_service,
     disburse_rewards
 )
+from .stream_scheduler import (
+    init_learn_earn_stream_scheduler,
+    get_stream_scheduler,
+    LearnEarnStreamScheduler,
+)
 
 # Export the functions that main.py needs
 def get_random_questions():
@@ -24,7 +29,10 @@ def check_user_eligibility(wallet_address):
 
 __all__ = [
     'init_learn_and_earn',
-    'get_random_questions', 
+    'init_learn_earn_stream_scheduler',
+    'get_stream_scheduler',
+    'LearnEarnStreamScheduler',
+    'get_random_questions',
     'calculate_score',
     'check_user_eligibility',
     'quiz_manager',
