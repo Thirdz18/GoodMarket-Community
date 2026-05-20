@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template, session, redirect
 from blockchain import has_recent_ubi_claim, is_identity_verified, check_ubi_entitlement
 from analytics_service import analytics
 from routes import routes
-from learn_and_earn import init_learn_and_earn
+from learn_and_earn import init_learn_and_earn, init_learn_earn_stream_scheduler
 from web3 import Web3
 from datetime import datetime # Import datetime for session timestamp
 import os
@@ -661,6 +661,17 @@ if init_learn_and_earn(app):
     logger.info("✅ Learn & Earn system initialized")
 else:
     logger.error("❌ Learn & Earn initialization failed")
+
+# Spawn the in-process Learn & Earn stream worker. Self-gated: starts only
+# when LEARN_EARN_PAYOUT_MODE is a streaming alias (or LEARN_EARN_STREAM_SCHEDULER_ENABLED=1).
+# Each Gunicorn worker spawns its own thread; per-row OCC claims keep concurrent runs safe.
+try:
+    if init_learn_earn_stream_scheduler(app):
+        logger.info("✅ Learn & Earn stream scheduler started")
+    else:
+        logger.info("ℹ️ Learn & Earn stream scheduler not started (disabled or instant mode)")
+except Exception as e:
+    logger.error(f"❌ Learn & Earn stream scheduler initialization failed: {e}")
 
 # Initialize trustless P2P Trading (GoodMarketP2PEscrow contract)
 logger.info("🤝 Initializing P2P Trading system...")

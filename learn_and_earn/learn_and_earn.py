@@ -57,6 +57,35 @@ def _is_streaming_mode(mode: str) -> bool:
     return (mode or '').strip().lower() in STREAMING_MODE_ALIASES
 
 
+def _is_streaming_runtime_ready() -> tuple[bool, str | None]:
+    """Return (ready, reason) for the Superfluid stream runtime.
+
+    The streaming code path needs three things to actually settle on-chain:
+    - Superfluid host + CFA addresses (or createFlow has nowhere to go),
+    - a stream token address (SuperToken-compatible),
+    - a configured sender wallet on the blockchain service.
+
+    If any are missing we report not-ready so callers can fall back to the
+    instant reward instead of queuing rows that will never be settled.
+    """
+    host = os.getenv('SUPERFLUID_HOST_ADDRESS')
+    cfa = os.getenv('SUPERFLUID_CFA_V1_ADDRESS')
+    token = (
+        os.getenv('LEARN_EARN_STREAM_TOKEN_ADDRESS')
+        or os.getenv('GOODDOLLAR_SUPERTOKEN_ADDRESS')
+    )
+    if not host:
+        return False, 'SUPERFLUID_HOST_ADDRESS missing'
+    if not cfa:
+        return False, 'SUPERFLUID_CFA_V1_ADDRESS missing'
+    if not token:
+        return False, 'LEARN_EARN_STREAM_TOKEN_ADDRESS / GOODDOLLAR_SUPERTOKEN_ADDRESS missing'
+    sender = getattr(getattr(learn_blockchain_service, 'owner_account', None), 'address', None)
+    if not sender or not getattr(learn_blockchain_service, '_wallet_key', None):
+        return False, 'learn_blockchain_service wallet not configured'
+    return True, None
+
+
 class LearnEarnStreamingService:
     """Manage Learn & Earn streaming rows and lifecycle orchestration data in Supabase."""
 
@@ -66,6 +95,10 @@ class LearnEarnStreamingService:
             or os.getenv('GOODDOLLAR_SUPERTOKEN_ADDRESS')
             or _get_gooddollar_contract_address()
         )
+
+    @staticmethod
+    def is_runtime_ready() -> tuple[bool, str | None]:
+        return _is_streaming_runtime_ready()
 
     @staticmethod
     def compute_flow_rate_wei(amount_gd: float, duration_seconds: int) -> int:
@@ -128,6 +161,151 @@ class LearnEarnStreamingService:
             'last_error': error,
             'retry_count': 1
         }).eq('id', stream_id).execute()
+
+    def _claim_row(self, supabase, row: dict, expected_status: str) -> bool:
+        """Atomically claim a stream row by bumping retry_count via OCC.
+
+        Returns True if this worker won the claim. Multiple gunicorn workers
+        may race on the same row; only one will succeed because the WHERE
+        clause matches the observed retry_count value.
+        """
+        row_id = row.get('id')
+        if not row_id:
+            return False
+        observed_retry = int(row.get('retry_count') or 0)
+        try:
+            resp = supabase.table('learn_earn_streams').update({
+                'retry_count': observed_retry + 1,
+                'last_error': f"inflight:{expected_status}:{datetime.now(timezone.utc).isoformat()}",
+            }).eq('id', row_id).eq('status', expected_status).eq('retry_count', observed_retry).execute()
+            return bool(resp.data)
+        except Exception as e:
+            logger.warning(f"⚠️ stream claim failed for {row_id}: {e}")
+            return False
+
+    def _start_one(self, supabase, row: dict) -> bool:
+        """Submit createFlow for one claimed pending_start row. Returns success."""
+        row_id = row['id']
+        try:
+            flow_rate_wei = int(row.get('flow_rate_wei') or 0)
+        except (TypeError, ValueError):
+            flow_rate_wei = 0
+        if flow_rate_wei <= 0:
+            supabase.table('learn_earn_streams').update({
+                'status': 'start_failed',
+                'last_error': 'invalid flow_rate_wei',
+            }).eq('id', row_id).execute()
+            return False
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                learn_blockchain_service.start_reward_stream(row['user_wallet'], flow_rate_wei)
+            )
+        except Exception as e:
+            result = {'success': False, 'error': str(e)}
+        finally:
+            loop.close()
+
+        if result.get('success'):
+            supabase.table('learn_earn_streams').update({
+                'status': 'active',
+                'create_tx_hash': result.get('tx_hash'),
+                'last_error': None,
+            }).eq('id', row_id).execute()
+            return True
+        supabase.table('learn_earn_streams').update({
+            'status': 'start_failed',
+            'last_error': (result.get('error') or 'start failed')[:500],
+        }).eq('id', row_id).execute()
+        return False
+
+    def _stop_one(self, supabase, row: dict) -> bool:
+        """Submit deleteFlow for one claimed due row. Returns success."""
+        row_id = row['id']
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                learn_blockchain_service.stop_reward_stream(row['user_wallet'])
+            )
+        except Exception as e:
+            result = {'success': False, 'error': str(e)}
+        finally:
+            loop.close()
+
+        if result.get('success'):
+            supabase.table('learn_earn_streams').update({
+                'status': 'stopped',
+                'stop_tx_hash': result.get('tx_hash'),
+                'last_error': None,
+            }).eq('id', row_id).execute()
+            return True
+        supabase.table('learn_earn_streams').update({
+            'status': 'stop_failed',
+            'last_error': (result.get('error') or 'stop failed')[:500],
+        }).eq('id', row_id).execute()
+        return False
+
+    def process_streams_once(self, start_limit: int = 50, stop_limit: int = 100) -> dict:
+        """Single processing cycle: start queued streams + stop due streams.
+
+        Safe to call from both the manual /process-streams endpoint and the
+        in-process scheduler. Each row is claimed atomically via OCC so two
+        workers racing on the same row will not double-submit on-chain.
+        """
+        supabase = get_supabase_client()
+        if not supabase:
+            return {'success': False, 'error': 'Database not available',
+                    'started': 0, 'stopped': 0, 'failed': 0, 'checked': 0}
+
+        ready, reason = self.is_runtime_ready()
+        if not ready:
+            return {'success': False, 'error': f'Stream runtime not ready: {reason}',
+                    'started': 0, 'stopped': 0, 'failed': 0, 'checked': 0}
+
+        started = stopped = failed = checked = 0
+
+        try:
+            pending = supabase.table('learn_earn_streams').select('*') \
+                .eq('status', 'pending_start') \
+                .order('created_at', desc=False) \
+                .limit(start_limit).execute().data or []
+        except Exception as e:
+            logger.warning(f"⚠️ fetch pending_start failed: {e}")
+            pending = []
+
+        for row in pending:
+            checked += 1
+            if not self._claim_row(supabase, row, 'pending_start'):
+                continue
+            if self._start_one(supabase, row):
+                started += 1
+            else:
+                failed += 1
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            due = supabase.table('learn_earn_streams').select('*') \
+                .in_('status', ['active', 'pending_stop', 'stop_failed']) \
+                .lte('end_at', now_iso) \
+                .order('end_at', desc=False) \
+                .limit(stop_limit).execute().data or []
+        except Exception as e:
+            logger.warning(f"⚠️ fetch due stops failed: {e}")
+            due = []
+
+        for row in due:
+            checked += 1
+            if not self._claim_row(supabase, row, row.get('status') or 'active'):
+                continue
+            if self._stop_one(supabase, row):
+                stopped += 1
+            else:
+                failed += 1
+
+        return {'success': True, 'started': started, 'stopped': stopped,
+                'failed': failed, 'checked': checked}
 
 
 def _get_gooddollar_contract_address() -> str:
@@ -1603,27 +1781,45 @@ def submit_quiz(current_user):
         # Prefer validated questions from scoring path to avoid missing-session save failures
         questions_for_log = quiz_result.get('questions') or stored_questions or []
 
-        # Process instant G$ reward disbursement only when there is a positive reward.
+        # Process G$ reward disbursement only when there is a positive reward.
         # Failed quiz attempts can validly earn 0 G$, so we should still record completion
-        # without attempting an on-chain transfer.
+        # without attempting an on-chain transfer. Streaming mode queues a row that the
+        # in-process scheduler (or the /process-streams admin endpoint) will pick up and
+        # settle on-chain via Superfluid CFA. If the streaming runtime is not configured
+        # (missing Superfluid env vars / SuperToken address / wallet key), or the queue
+        # insert fails for any reason, we fall back to the legacy instant transfer so the
+        # quiz submit path never hard-fails the user — they always get paid one way or the
+        # other.
         disbursement_result = None
         tx_hash = None
         stream_job = None
+        effective_mode = 'instant'
         payout_mode = STREAMING_PAYOUT_MODE
-        if reward_amount > 0 and _is_streaming_mode(payout_mode):
-            stream_job = streaming_service.create_stream_job(
-                current_user,
-                reward_amount,
-                reward_id=f"quiz:{quiz_session_id}"
-            )
-            if not stream_job.get('success'):
-                err = stream_job.get('error', 'Failed to queue streaming reward')
-                logger.error(f"❌ Stream queue failed for {current_user[:8]}...: {err}")
-                return jsonify({'success': False, 'error': err, 'message': 'Quiz submitted but streaming queue failed.'}), 500
 
-            # MVP start marker: tx hash references queue id until on-chain stream worker is wired.
-            tx_hash = f"queued:{stream_job['stream'].get('id', '')}"
-        elif reward_amount > 0:
+        if reward_amount > 0 and _is_streaming_mode(payout_mode):
+            ready, reason = streaming_service.is_runtime_ready()
+            if not ready:
+                logger.warning(
+                    f"⚠️ Streaming mode requested but runtime not ready ({reason}); "
+                    f"falling back to instant reward for {current_user[:8]}..."
+                )
+            else:
+                stream_job = streaming_service.create_stream_job(
+                    current_user,
+                    reward_amount,
+                    reward_id=f"quiz:{quiz_session_id}"
+                )
+                if stream_job.get('success'):
+                    effective_mode = 'stream'
+                    tx_hash = f"queued:{stream_job['stream'].get('id', '')}"
+                else:
+                    err = stream_job.get('error', 'Failed to queue streaming reward')
+                    logger.error(
+                        f"❌ Stream queue failed for {current_user[:8]}...: {err}; "
+                        "falling back to instant reward."
+                    )
+
+        if reward_amount > 0 and effective_mode == 'instant':
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -1652,7 +1848,7 @@ def submit_quiz(current_user):
                 }), 500
 
             tx_hash = disbursement_result.get('tx_hash')
-        else:
+        elif reward_amount <= 0:
             logger.info(
                 f"ℹ️ Quiz completed with 0 reward for {current_user[:8]}...; "
                 "skipping blockchain disbursement."
@@ -1685,9 +1881,10 @@ def submit_quiz(current_user):
         _quiz_history_cache.pop(current_user, None)
 
         if tx_hash:
+            label = 'Stream queued' if effective_mode == 'stream' else 'Instant reward sent'
             logger.info(
                 f"✅ Quiz completed for {current_user} — {score}/{total_questions}. "
-                f"Instant reward sent: {reward_amount} G$ tx={tx_hash}"
+                f"{label}: {reward_amount} G$ tx={tx_hash}"
             )
         else:
             logger.info(
@@ -1706,7 +1903,7 @@ def submit_quiz(current_user):
             'message': (
                 (
                     f'Quiz completed! You earned {reward_amount} G$ via 1-day stream payout.'
-                    if _is_streaming_mode(payout_mode)
+                    if effective_mode == 'stream'
                     else f'Quiz completed! You earned {reward_amount} G$ instantly.'
                 )
                 if reward_amount > 0
@@ -1714,7 +1911,8 @@ def submit_quiz(current_user):
             ),
             'transaction_hash': tx_hash,
             'explorer_url': f'https://celoscan.io/tx/{tx_hash}' if tx_hash and not str(tx_hash).startswith('queued:') else '',
-            'payout_mode': payout_mode,
+            'payout_mode': effective_mode,
+            'requested_payout_mode': payout_mode,
             'feature_status': 'completed_successfully',
             'blocked_for_24h': True,
             'can_retry_immediately': False,
@@ -1723,7 +1921,7 @@ def submit_quiz(current_user):
             'notification_message': (
                 (
                     f'Quiz completed! {score}/{total_questions} correct. Stream payout queued: {reward_amount} G$ over 1 day.'
-                    if _is_streaming_mode(payout_mode)
+                    if effective_mode == 'stream'
                     else f'Quiz completed! {score}/{total_questions} correct. Reward sent instantly: {reward_amount} G$.'
                 )
                 if reward_amount > 0
@@ -2204,51 +2402,22 @@ def stream_history(current_user):
 
 @learn_earn_bp.route('/process-streams', methods=['POST'])
 def process_streams():
-    """Process queued stream starts/stops. Protect with admin bearer token."""
+    """Manually drive one stream worker cycle. Useful for ops / external cron.
+
+    Delegates to ``streaming_service.process_streams_once`` so this endpoint
+    and the in-process scheduler share the exact same atomic claim + on-chain
+    settlement logic. Gated by ``LEARN_EARN_STREAM_WORKER_TOKEN`` for ops use;
+    the in-process scheduler bypasses the token because it calls the function
+    directly.
+    """
     admin_token = os.getenv('LEARN_EARN_STREAM_WORKER_TOKEN', '')
     req_token = (request.headers.get('Authorization', '').replace('Bearer', '').strip())
     if not admin_token or req_token != admin_token:
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
 
-    supabase = get_supabase_client()
-    if not supabase:
-        return jsonify({'success': False, 'error': 'Database not available'}), 500
-
-    started = 0
-    stopped = 0
-    failed = 0
-
-    pending_start = supabase.table('learn_earn_streams').select('*').eq('status', 'pending_start').order('created_at', desc=False).limit(50).execute().data or []
-    for row in pending_start:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(learn_blockchain_service.start_reward_stream(row['user_wallet'], int(row['flow_rate_wei'])))
-        finally:
-            loop.close()
-        if result.get('success'):
-            supabase.table('learn_earn_streams').update({'status': 'active', 'create_tx_hash': result.get('tx_hash'), 'last_error': None}).eq('id', row['id']).execute()
-            started += 1
-        else:
-            supabase.table('learn_earn_streams').update({'status': 'start_failed', 'last_error': result.get('error', 'start failed'), 'retry_count': (row.get('retry_count') or 0) + 1}).eq('id', row['id']).execute()
-            failed += 1
-
-    due_stops = supabase.table('learn_earn_streams').select('*').in_('status', ['active', 'pending_stop', 'stop_failed']).lte('end_at', datetime.now(timezone.utc).isoformat()).order('end_at', desc=False).limit(100).execute().data or []
-    for row in due_stops:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(learn_blockchain_service.stop_reward_stream(row['user_wallet']))
-        finally:
-            loop.close()
-        if result.get('success'):
-            supabase.table('learn_earn_streams').update({'status': 'stopped', 'stop_tx_hash': result.get('tx_hash'), 'last_error': None}).eq('id', row['id']).execute()
-            stopped += 1
-        else:
-            supabase.table('learn_earn_streams').update({'status': 'stop_failed', 'last_error': result.get('error', 'stop failed'), 'retry_count': (row.get('retry_count') or 0) + 1}).eq('id', row['id']).execute()
-            failed += 1
-
-    return jsonify({'success': True, 'started': started, 'stopped': stopped, 'failed': failed}), 200
+    summary = streaming_service.process_streams_once()
+    status_code = 200 if summary.get('success') else 503
+    return jsonify(summary), status_code
 
 @learn_earn_bp.route('/stats', methods=['GET'])
 @learn_earn_token_required

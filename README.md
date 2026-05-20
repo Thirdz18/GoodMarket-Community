@@ -70,6 +70,25 @@ The app gracefully degrades when these are missing, but full functionality requi
 - `COMMUNITY_KEY` — Private key for community stories rewards
 - `PRODUCTION_DOMAIN` — Production domain (defaults to `https://goodmarket.live`)
 
+### Learn & Earn Streaming Payouts (optional)
+
+Learn & Earn supports paying quiz rewards as a Superfluid stream over a configurable duration instead of as a single instant transfer. The flow is off by default and falls back to the legacy instant transfer automatically when any prerequisite is missing, so leaving these env vars unset keeps the current behaviour intact.
+
+- `LEARN_EARN_PAYOUT_MODE` — `instant` (default) or one of `stream` / `stream_1day` / `streaming` / `stream_payout` to enable streaming. When set to a streaming alias, the quiz submit path queues a row in `learn_earn_streams` instead of sending G$ directly.
+- `LEARN_EARN_STREAM_DURATION_SECONDS` — Stream duration. Default `86400` (1 day).
+- `LEARN_EARN_STREAM_TOKEN_ADDRESS` — Address of the GoodDollar SuperToken (Superfluid-compatible wrapper) on Celo. Required.
+- `GOODDOLLAR_SUPERTOKEN_ADDRESS` — Alternate name accepted for the SuperToken address above (the first one set wins).
+- `SUPERFLUID_HOST_ADDRESS` — Superfluid Host contract on Celo. Required.
+- `SUPERFLUID_CFA_V1_ADDRESS` — Superfluid Constant Flow Agreement v1 contract on Celo. Required.
+- `LEARN_EARN_STREAM_SCHEDULER_ENABLED` — Force the in-process stream worker on (`1`) or off (`0`). Defaults to ON whenever `LEARN_EARN_PAYOUT_MODE` is a streaming alias.
+- `LEARN_EARN_STREAM_WORKER_INTERVAL_SECONDS` — How often the in-process worker wakes up. Default `120` (2 min). Minimum `15`.
+- `LEARN_EARN_STREAM_WORKER_START_BATCH` — Max `pending_start` rows processed per cycle. Default `50`.
+- `LEARN_EARN_STREAM_WORKER_STOP_BATCH` — Max due `active`/`pending_stop` rows stopped per cycle. Default `100`.
+- `LEARN_EARN_STREAM_WORKER_BOOT_DELAY_SECONDS` — How long each worker waits before its first cycle on boot. Default `20`.
+- `LEARN_EARN_STREAM_WORKER_TOKEN` — Bearer token for `POST /learn-earn/process-streams`. Only needed if you want to trigger the worker manually from an external cron or ops shell; the in-process scheduler does not use it.
+
+Before flipping `LEARN_EARN_PAYOUT_MODE` to streaming, apply the migration in `sql/learn_earn_streaming_payouts.sql` to your Supabase project. If the table is missing the quiz submit path will log a warning and fall back to instant rewards automatically — users will not see an error, but no streaming will happen until the table exists.
+
 ## Admin Feature Visibility Controls
 
 Admins can show or hide the `/swap` and `/wallet` pages from the admin dashboard under the **Feature Visibility** section. When hidden, users visiting those pages are shown a friendly "Feature Unavailable" page instead.
