@@ -3187,7 +3187,7 @@
             const isTrustWallet = _isTrustWalletMobileContext && _isTrustWalletMobileContext();
             const hasInjected = !!provider || !!window.ethereum;
             const supportsFuse = !isMiniPay && !isTrustWallet && (isMetaMask || isWalletConnect || hasInjected);
-            const supportsXdc = !isMiniPay && !isTrustWallet && (isMetaMask || isWalletConnect);
+            const supportsXdc = !isMiniPay && !isTrustWallet && (isMetaMask || isWalletConnect || hasInjected);
             return { isMiniPay, isWalletConnect, isMetaMask, isTrustWallet, hasInjected, supportsFuse, supportsXdc };
         }
 
@@ -3218,6 +3218,12 @@
                 hint = caps.isMiniPay
                     ? 'MiniPay is Celo-only, so this network is hidden from the primary claim button.'
                     : 'Use MetaMask or a compatible WalletConnect wallet for this network.';
+            } else if (info && (info.reason === 'not_verified' || info.reason === 're_verification_needed')) {
+                statusText = (amount && Number(amount) > 0) ? `${amount} G$` : 'Claimable after Face ID';
+                statusClass = 'warning';
+                hint = info.reason === 're_verification_needed'
+                    ? 'Face Verification expired. Re-verify first, then claim on this network.'
+                    : 'Face Verification required first, then you can claim on this network.';
             } else if (info && info.success === false) {
                 statusText = 'Unavailable';
                 statusClass = 'warning';
@@ -4603,6 +4609,9 @@
             icon.textContent = network === 'fuse' ? '🔥' : '💠';
             label.textContent = network === 'fuse' ? 'Claiming on Fuse…' : 'Claiming on XDC…';
             setStatus(`Connecting wallet for ${network.toUpperCase()} claim…`, 'var(--text-dim)');
+            if (network === 'xdc') {
+                setStatus('Switching wallet to XDC network…', 'var(--text-dim)');
+            }
 
             try {
                 const { provider, from } = await getClaimProviderAndFrom();
