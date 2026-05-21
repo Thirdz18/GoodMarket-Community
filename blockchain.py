@@ -899,14 +899,30 @@ def get_ubi_entitlement(wallet_address: str) -> dict:
         )
         is_verified = identity_contract.functions.isWhitelisted(wallet_checksum).call()
 
+        # Compute entitlement even for unverified users so the UI can show the
+        # pending claim amount before Face Verification is completed.
+        entitlement_wei = 0
+        entitlement_g = 0.0
+        try:
+            ubi_contract = w3.eth.contract(
+                address=Web3.to_checksum_address(GOODDOLLAR_CONTRACTS["UBI_PROXY"]),
+                abi=UBI_SCHEME_ABI
+            )
+            entitlement_wei = ubi_contract.functions.checkEntitlement(wallet_checksum).call()
+            entitlement_g = entitlement_wei / (10 ** 18)
+        except Exception as entitlement_err:
+            logger.warning(
+                f"⚠️ Could not fetch entitlement for {wallet_address[:8]}... before FV check: {entitlement_err}"
+            )
+
         if not is_verified:
             result = {
                 "success": True,
                 "wallet": key,
                 "is_verified": False,
                 "can_claim": False,
-                "entitlement": 0,
-                "entitlement_formatted": "0.00",
+                "entitlement": float(entitlement_g),
+                "entitlement_formatted": f"{entitlement_g:.2f}",
                 "reason": "not_verified"
             }
             with _entitlement_cache_lock:
@@ -944,20 +960,13 @@ def get_ubi_entitlement(wallet_address: str) -> dict:
                 "wallet": key,
                 "is_verified": False,
                 "can_claim": False,
-                "entitlement": 0,
-                "entitlement_formatted": "0.00",
+                "entitlement": float(entitlement_g),
+                "entitlement_formatted": f"{entitlement_g:.2f}",
                 "reason": "re_verification_needed"
             }
             with _entitlement_cache_lock:
                 _entitlement_cache[key] = {"result": result, "expires_at": time.time() + ENTITLEMENT_CACHE_TTL}
             return result
-
-        ubi_contract = w3.eth.contract(
-            address=Web3.to_checksum_address(GOODDOLLAR_CONTRACTS["UBI_PROXY"]),
-            abi=UBI_SCHEME_ABI
-        )
-        entitlement_wei = ubi_contract.functions.checkEntitlement(wallet_checksum).call()
-        entitlement_g = entitlement_wei / (10 ** 18)
 
         result = {
             "success": True,
