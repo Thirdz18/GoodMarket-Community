@@ -7036,6 +7036,13 @@ def wallet_prepare_send():
                 "token": "CELO",
                 "recipient": to_checksum,
                 "amount": amount,
+                # MiniPay/CIP-64 hint so frontend can prioritize stablecoin gas
+                # currencies when sending native CELO.
+                "minipay_fee_currencies": {
+                    "cusd": "0x765DE816845861e75A25fCA122bb6898B8B1282a",
+                    "usdt_adapter": "0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72",
+                    "usdc_adapter": "0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B",
+                },
             })
         else:
             return jsonify({"success": False, "error": f"Unsupported token: {token}"}), 400

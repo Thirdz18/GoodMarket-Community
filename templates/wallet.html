@@ -2745,13 +2745,14 @@
                         }
                     }
 
-                    // MiniPay currently works best when feeCurrency is omitted
-                    // (auto-pick by wallet). Keep explicit adapters as fallback.
+                    // For MiniPay CELO sends, prefer stablecoin fee currencies first
+                    // so users with low CELO but enough cUSD/USDT/USDC can still send.
+                    const backendFeeHints = (txData && txData.minipay_fee_currencies) || {};
                     const feeCurrencies = [
+                        backendFeeHints.cusd || MINIPAY_FEE_CURRENCY.USDM,
+                        backendFeeHints.usdt_adapter || MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                        backendFeeHints.usdc_adapter || MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
                         null,
-                        MINIPAY_FEE_CURRENCY.USDM,
-                        MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
-                        MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
                     ];
                     let lastErr;
                     for (const fc of feeCurrencies) {
@@ -2770,7 +2771,8 @@
                             const code = err && err.code;
                             const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
                             if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
-                            if (/revert/i.test(msg)) throw err;
+                            // Keep trying the next feeCurrency candidate on execution/balance reverts.
+                            if (/revert/i.test(msg) && !/insufficient|funds|balance|fee/i.test(msg)) throw err;
                             console.warn('[MiniPay] send tx attempt failed with feeCurrency=' + fc + ':', msg || err);
                         }
                     }
