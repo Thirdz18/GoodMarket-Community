@@ -4706,14 +4706,25 @@
                             + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
                             + 'it\'s needed as gas for your next claims.',
                     });
-                    if (!r.proceed) return; // user cancelled or swap failed
+                    if (!r || !r.proceed) {
+                        setStatus('MiniPay gas pre-check did not complete. Claim cancelled.', '#fbbf24');
+                        return;
+                    }
+                    appendStatusLine('✅ MiniPay gas pre-check passed. Proceeding to wallet approval.', 'var(--green)');
                 } catch (e) {
                     console.warn('[claim] gas-top-up pre-flight error:', e);
-                    // Fall through to the normal claim path; the existing
-                    // CIP-64 fee-currency loop in sendClaimTransaction will
-                    // still try every supported stablecoin and CELO native.
+                    setStatus('MiniPay gas pre-check failed. Running direct fallback gas checks…', '#fbbf24');
+                    try {
+                        await ensureGasReadyBeforeClaim({ forceOnchain: true });
+                        appendStatusLine('✅ Fallback gas check passed. Proceeding to wallet approval.', 'var(--green)');
+                    } catch (fallbackErr) {
+                        const raw = (fallbackErr && (fallbackErr.shortMessage || fallbackErr.message)) || 'Unable to confirm MiniPay gas readiness.';
+                        setStatus('❌ ' + raw, 'var(--red)');
+                        return;
+                    }
                 }
             }
+
 
             if (!window.useServerSigning) {
                 ensureInjectedWalletClaim();
