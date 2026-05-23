@@ -666,8 +666,12 @@
         try {
             balances = await getBalances(walletAddr);
         } catch (err) {
-            console.warn('[MPGasTopUp] balance probe failed; skipping pre-flight:', err);
-            return { proceed: true, skipped: true, reason: 'balance-probe-failed' };
+            // Never silently continue to wallet approval on MiniPay when we
+            // cannot read balances. Throw so callers can run their server-side
+            // fallback (/api/faucet/status + /api/faucet/gas), which requests
+            // GoodDollar faucet + GoodMarket fallback before approval.
+            console.warn('[MPGasTopUp] balance probe failed; forcing fallback pre-flight:', err);
+            throw new Error('MiniPay gas pre-check could not read wallet balances.');
         }
 
         const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
