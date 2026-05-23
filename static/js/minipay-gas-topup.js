@@ -89,16 +89,41 @@
     }
 
     // ─── MiniPay detection ────────────────────────────────────────────────
+    // Check multiple signals to detect MiniPay: provider flag, user agent,
+    // and Opera Mini context (MiniPay runs inside Opera's mini-app shell).
+    // We cache the result after the first positive detection because provider
+    // injection can be delayed and we don't want flaky detection mid-flow.
+    let _miniPayDetectedCache = null;
     function _isMiniPay() {
+        // Return cached result if we already detected MiniPay
+        if (_miniPayDetectedCache === true) return true;
+        
         try {
             const eth = global.ethereum;
-            if (eth && eth.isMiniPay) return true;
+            if (eth && eth.isMiniPay) {
+                _miniPayDetectedCache = true;
+                return true;
+            }
             if (eth && Array.isArray(eth.providers)
-                && eth.providers.some(p => p && p.isMiniPay)) return true;
-            if (typeof navigator !== 'undefined'
-                && /minipay/i.test(navigator.userAgent || '')) return true;
+                && eth.providers.some(p => p && p.isMiniPay)) {
+                _miniPayDetectedCache = true;
+                return true;
+            }
+            // Check user agent for MiniPay or Opera Mini context
+            if (typeof navigator !== 'undefined') {
+                const ua = navigator.userAgent || '';
+                if (/minipay/i.test(ua) || /OPR.*Mini/i.test(ua) || /Opera.*Mini/i.test(ua)) {
+                    _miniPayDetectedCache = true;
+                    return true;
+                }
+            }
         } catch (_) { /* swallow */ }
         return false;
+    }
+    
+    // Force MiniPay detection to be set (used by callers that know they're in MiniPay)
+    function _setMiniPayDetected() {
+        _miniPayDetectedCache = true;
     }
 
     function _getProvider() {
@@ -778,6 +803,29 @@
 
         const shouldPromptSwap = startedWithoutStableGas || needsTopUpFromBalances(balances);
         const amountWei = getAutoSwapAmountWei(balances);
+        
+        // CRITICAL: Final gas readiness check before proceeding.
+        // If user has no stablecoin gas AND no CELO to swap, they CANNOT pay
+        // for any transaction. Block proceeding to wallet approval.
+        if (!hasStablecoinGasBalance(balances) && amountWei <= 0n) {
+            const msg = '⚠️ Insufficient gas for MiniPay\n\n'
+                + 'Your wallet has less than 0.01 cUSD (stablecoin gas) AND less than 0.09 CELO (nothing to swap).\n\n'
+                + 'MiniPay pays transaction fees in stablecoins (cUSD/USDT/USDC). '
+                + 'Please add some cUSD, USDT, or USDC to your wallet, or wait for the gas faucet cooldown to expire and retry.';
+            if (typeof global.alert === 'function') global.alert(msg);
+            return {
+                proceed: false,
+                error: 'Insufficient gas: no stablecoin and no CELO to swap.',
+                insufficientGas: true,
+                balances: {
+                    hasStablecoin: false,
+                    hasCeloToSwap: false,
+                    stablecoinUsd: _stablecoinUsdTotal(balances),
+                    celoWei: balances.celo ? balances.celo.toString() : '0',
+                },
+            };
+        }
+        
         if (!shouldPromptSwap || amountWei <= 0n) {
             return {
                 proceed: true,
@@ -915,9 +963,11 @@
 
     global.MPGasTopUp = {
         isMiniPay: _isMiniPay,
+        setMiniPayDetected: _setMiniPayDetected,
         getBalances: getBalances,
         needsTopUpFromBalances: needsTopUpFromBalances,
         hasStablecoinGasBalance: hasStablecoinGasBalance,
+        isBelowCeloFaucetFloor: isBelowCeloFaucetFloor,
         ensureToppedUp: ensureToppedUp,
         runWithGasTopUp: runWithGasTopUp,
         maybeShowBanner: maybeShowBanner,
@@ -925,6 +975,7 @@
             CELO: CELO, CUSD: CUSD, USDT: USDT, USDC: USDC,
             UNISWAP_ROUTER: UNISWAP_ROUTER,
             CELO_RESERVE_AFTER_TOPUP_STR: CELO_RESERVE_AFTER_TOPUP_STR,
+            CELO_FAUCET_TRIGGER_BELOW_STR: CELO_FAUCET_TRIGGER_BELOW_STR,
             STABLECOIN_GAS_MIN_USD: STABLECOIN_GAS_MIN_USD,
             CUSD_FAUCET_PROGRAM_LABEL: CUSD_FAUCET_PROGRAM_LABEL,
         },
