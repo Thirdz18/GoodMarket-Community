@@ -4735,6 +4735,17 @@
 
             showCeloBalanceWarningOnce();
 
+            // Debug logging for MiniPay detection
+            const hasMPGasTopUp = !!window.MPGasTopUp;
+            const isMiniPayDetected = hasMPGasTopUp && window.MPGasTopUp.isMiniPay ? window.MPGasTopUp.isMiniPay() : false;
+            console.log('[v0] doUbiClaim MiniPay check:', {
+                hasMPGasTopUp,
+                isMiniPayDetected,
+                hasEthereum: typeof window.ethereum !== 'undefined',
+                ethereumIsMiniPay: window.ethereum?.isMiniPay,
+                WALLET: WALLET
+            });
+
             // MiniPay-only pre-flight: use the shared helper before the claim.
             // It checks whether stablecoin gas is missing OR CELO is below the
             // 0.1 CELO faucet floor. If needed, it calls the same backend
@@ -4770,13 +4781,43 @@
                     appendStatusLine('✅ MiniPay gas pre-check passed. Proceeding to wallet approval.', 'var(--green)');
                 } catch (e) {
                     console.warn('[claim] gas-top-up pre-flight error:', e);
-                    setStatus('MiniPay gas pre-check failed. Running direct fallback gas checks…', '#fbbf24');
-                    try {
-                        await ensureGasReadyBeforeClaim({ forceOnchain: true });
-                        appendStatusLine('✅ Fallback gas check passed. Proceeding to wallet approval.', 'var(--green)');
-                    } catch (fallbackErr) {
-                        const raw = (fallbackErr && (fallbackErr.shortMessage || fallbackErr.message)) || 'Unable to confirm MiniPay gas readiness.';
-                        setStatus('❌ ' + raw, 'var(--red)');
+                    // For MiniPay, do NOT fall back to CELO gas check - MiniPay uses stablecoin gas.
+                    // Instead, re-check stablecoin balance and block if insufficient.
+                    if (window.MPGasTopUp && typeof window.MPGasTopUp.getBalances === 'function') {
+                        try {
+                            const mpBalances = await window.MPGasTopUp.getBalances(WALLET);
+                            const hasStable = window.MPGasTopUp.hasStablecoinGasBalance 
+                                ? window.MPGasTopUp.hasStablecoinGasBalance(mpBalances) 
+                                : false;
+                            const hasCeloToSwap = mpBalances && mpBalances.celo && mpBalances.celo > 90000000000000000n;
+                            
+                            console.log('[v0] MiniPay balance check:', {
+                                hasStable,
+                                hasCeloToSwap,
+                                celo: mpBalances?.celo?.toString(),
+                                cusd: mpBalances?.cusd?.toString(),
+                                usdt: mpBalances?.usdt?.toString(),
+                                usdc: mpBalances?.usdc?.toString()
+                            });
+                            
+                            if (!hasStable && !hasCeloToSwap) {
+                                setStatus('❌ MiniPay wallet has insufficient gas: You have less than 0.01 cUSD (stablecoin) AND less than 0.09 CELO. Please add cUSD/USDT/USDC or CELO to your wallet, or wait for faucet cooldown.', 'var(--red)');
+                                return;
+                            }
+                            if (!hasStable && hasCeloToSwap) {
+                                setStatus('⚠️ MiniPay needs stablecoin gas. You have CELO but no cUSD - please swap some CELO to cUSD first using the gas top-up flow.', '#fbbf24');
+                                return;
+                            }
+                            // hasStable is true - user has enough stablecoin gas, proceed
+                            appendStatusLine('✅ MiniPay stablecoin gas verified. Proceeding to wallet approval.', 'var(--green)');
+                        } catch (balanceErr) {
+                            console.warn('[claim] MiniPay balance re-check failed:', balanceErr);
+                            setStatus('❌ Could not verify MiniPay gas balance. Please refresh and try again.', 'var(--red)');
+                            return;
+                        }
+                    } else {
+                        // MPGasTopUp not available - this shouldn't happen but block to be safe
+                        setStatus('❌ MiniPay gas check module not available. Please refresh the page.', 'var(--red)');
                         return;
                     }
                 }
@@ -4784,6 +4825,44 @@
 
 
             if (!window.useServerSigning) {
+                // FINAL SAFETY CHECK: Before going to wallet approval, double-check
+                // if this is actually MiniPay (detection can be flaky). If it is,
+                // verify stablecoin gas is sufficient.
+                const finalMiniPayCheck = window.ethereum && window.ethereum.isMiniPay;
+                if (finalMiniPayCheck) {
+                    console.log('[v0] Final MiniPay safety check triggered');
+                    if (window.MPGasTopUp && window.MPGasTopUp.setMiniPayDetected) {
+                        window.MPGasTopUp.setMiniPayDetected();
+                    }
+                    if (window.MPGasTopUp && window.MPGasTopUp.getBalances && window.MPGasTopUp.hasStablecoinGasBalance) {
+                        try {
+                            const finalBalances = await window.MPGasTopUp.getBalances(WALLET);
+                            const hasStable = window.MPGasTopUp.hasStablecoinGasBalance(finalBalances);
+                            const hasCeloToSwap = finalBalances && finalBalances.celo && finalBalances.celo > 90000000000000000n;
+                            
+                            console.log('[v0] Final MiniPay balance check:', {
+                                hasStable,
+                                hasCeloToSwap,
+                                celo: finalBalances?.celo?.toString(),
+                                cusd: finalBalances?.cusd?.toString()
+                            });
+                            
+                            if (!hasStable && !hasCeloToSwap) {
+                                setStatus('❌ MiniPay detected: Your wallet needs either stablecoin (cUSD/USDT/USDC ≥ 0.01) OR CELO (≥ 0.09) to swap. Please add funds or wait for faucet cooldown.', 'var(--red)');
+                                return;
+                            }
+                            if (!hasStable && hasCeloToSwap) {
+                                setStatus('⚠️ MiniPay detected: You have CELO but need to swap it to cUSD first. Please refresh and use the gas top-up flow.', '#fbbf24');
+                                return;
+                            }
+                        } catch (finalCheckErr) {
+                            console.warn('[v0] Final MiniPay balance check failed:', finalCheckErr);
+                            setStatus('❌ Could not verify MiniPay gas. Please refresh and try again.', 'var(--red)');
+                            return;
+                        }
+                    }
+                }
+                
                 ensureInjectedWalletClaim();
                 return;
             }

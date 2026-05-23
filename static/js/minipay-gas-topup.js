@@ -680,16 +680,36 @@
     // ─── Public: ensureToppedUp ───────────────────────────────────────────
     async function ensureToppedUp(walletAddr, opts) {
         opts = opts || {};
-        if (!_isMiniPay()) {
+        
+        // Debug logging to trace MiniPay detection and flow
+        const isMiniPayResult = _isMiniPay();
+        console.log('[v0][MPGasTopUp] ensureToppedUp called:', {
+            walletAddr: walletAddr,
+            isMiniPay: isMiniPayResult,
+            cachedMiniPay: _miniPayDetectedCache,
+            hasEthereum: typeof global.ethereum !== 'undefined',
+            ethereumIsMiniPay: global.ethereum?.isMiniPay,
+            userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'
+        });
+        
+        if (!isMiniPayResult) {
+            console.log('[v0][MPGasTopUp] Skipping - not detected as MiniPay');
             return { proceed: true, skipped: true, reason: 'not-minipay' };
         }
         if (!walletAddr) {
+            console.log('[v0][MPGasTopUp] Skipping - no wallet address');
             return { proceed: true, skipped: true, reason: 'no-wallet' };
         }
 
         let balances;
         try {
             balances = await getBalances(walletAddr);
+            console.log('[v0][MPGasTopUp] Balance read:', {
+                celo: balances?.celo?.toString(),
+                cusd: balances?.cusd?.toString(),
+                usdt: balances?.usdt?.toString(),
+                usdc: balances?.usdc?.toString()
+            });
         } catch (err) {
             // Never silently continue to wallet approval on MiniPay when we
             // cannot read balances. Throw so callers can run their server-side
@@ -700,6 +720,14 @@
         }
 
         const startedWithoutStableGas = !hasStablecoinGasBalance(balances);
+        const belowCeloFaucetFloor = isBelowCeloFaucetFloor(balances);
+        console.log('[v0][MPGasTopUp] Gas status:', {
+            startedWithoutStableGas,
+            belowCeloFaucetFloor,
+            hasStablecoinGas: !startedWithoutStableGas,
+            celoForSwap: getAutoSwapAmountWei(balances)?.toString()
+        });
+        
         let faucetResult = null;
         let cooldownActive = false;
         let cooldownSeconds = 0;
