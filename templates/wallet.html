@@ -4406,6 +4406,20 @@
                 const isMiniPayClaim = _isMiniPay();
 
                 if (isMiniPayClaim) {
+                    // Defensive re-check for MiniPay before wallet approval:
+                    // never proceed when stablecoin gas is still below the
+                    // minimum. This prevents the "direct approve" bug where
+                    // users with 0 CELO and ~0 stablecoin were still being
+                    // pushed to sign a claim tx that cannot pay gas.
+                    if (window.MPGasTopUp
+                        && typeof window.MPGasTopUp.getBalances === 'function'
+                        && typeof window.MPGasTopUp.hasStablecoinGasBalance === 'function') {
+                        const mpBalances = await window.MPGasTopUp.getBalances(WALLET);
+                        if (!window.MPGasTopUp.hasStablecoinGasBalance(mpBalances)) {
+                            throw new Error('MiniPay stablecoin gas is still below 0.01 cUSD-equivalent. Please complete the gas top-up first.');
+                        }
+                    }
+
                     // MiniPay already ran the shared helper before entering
                     // this claim sender. Gas for the tx itself is paid in
                     // stablecoins via CIP-64 fee currencies.
