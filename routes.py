@@ -2333,6 +2333,65 @@ def get_admin_referral_stats():
         logger.error(f"❌ Get admin referral stats error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@routes.route("/api/admin/referral/disburse-by-code", methods=["POST"])
+@admin_required
+def admin_disburse_referral_by_code():
+    """Admin: trigger disbursement for a specific referral code."""
+    try:
+        from referral_program.referral_service import referral_service
+
+        data = request.get_json(silent=True) or {}
+        referral_code = (data.get("referral_code") or "").strip().upper()
+        if not referral_code:
+            return jsonify({"success": False, "error": "referral_code is required"}), 400
+
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({"success": False, "error": "Database unavailable"}), 500
+
+        referrals_result = supabase.table("referrals") \
+            .select("*") \
+            .eq("referral_code", referral_code) \
+            .in_("status", ["pending_face_verification", "pending_disbursed", "disbursing"]) \
+            .order("created_at", desc=False) \
+            .execute()
+        referrals = referrals_result.data if referrals_result and referrals_result.data else []
+        if not referrals:
+            return jsonify({
+                "success": False,
+                "error": f"No pending referral found for code {referral_code}"
+            }), 404
+
+        row = referrals[0]
+        referee_wallet = row.get("referee_wallet")
+        referrer_wallet = row.get("referrer_wallet")
+        if not referee_wallet or not referrer_wallet:
+            return jsonify({"success": False, "error": "Referral row missing wallet data"}), 400
+
+        current_status = row.get("status")
+        if current_status == "pending_face_verification":
+            claim = referral_service.claim_pending_referral_for_disbursement(referee_wallet)
+            if not claim.get("claimed"):
+                return jsonify({
+                    "success": False,
+                    "error": "Referral is already being processed. Please refresh and retry."
+                }), 409
+
+        disbursement = referral_service.process_referral_disbursement(
+            referrer_wallet=referrer_wallet,
+            referee_wallet=referee_wallet,
+            referral_code=referral_code
+        )
+        return jsonify({
+            "success": bool(disbursement.get("success")),
+            "referral_code": referral_code,
+            "previous_status": current_status,
+            "result": disbursement
+        }), (200 if disbursement.get("success") else 202)
+    except Exception as e:
+        logger.error(f"❌ Admin disburse referral by code error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @routes.route("/api/admin/set-admin", methods=["POST"])
 @admin_required
 def set_user_admin_status():

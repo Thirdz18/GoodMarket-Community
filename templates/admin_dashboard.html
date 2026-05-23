@@ -6367,6 +6367,11 @@ async function loadMinigamesMaintenance() {
                             <td><code style="background:rgba(255,255,255,0.08);padding:0.2rem 0.5rem;border-radius:4px">${r.referral_code || '—'}</code></td>
                             <td style="color:#10b981;font-weight:600">${Number(r.total_earned || 0).toFixed(2)} G$</td>
                             <td style="color:rgba(241,245,249,0.6);font-size:0.85rem">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
+                            <td>
+                                <button class="admin-btn" style="padding:0.35rem 0.6rem;font-size:0.78rem;" onclick="disburseReferralByCode('${(r.referral_code || '').replace(/'/g, '')}')">
+                                    💸 Disburse
+                                </button>
+                            </td>
                         </tr>
                     `).join('');
                     topEl.innerHTML = `
@@ -6377,6 +6382,7 @@ async function loadMinigamesMaintenance() {
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Code</th>
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Total Earned</th>
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Since</th>
+                                    <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Action</th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
@@ -6393,6 +6399,11 @@ async function loadMinigamesMaintenance() {
                             <td style="padding:0.6rem 0.5rem"><code style="background:rgba(255,255,255,0.08);padding:0.15rem 0.4rem;border-radius:4px;font-size:0.8rem">${r.referral_code || '—'}</code></td>
                             <td style="padding:0.6rem 0.5rem">${statusBadge(r.status)}</td>
                             <td style="padding:0.6rem 0.5rem;color:rgba(241,245,249,0.6);font-size:0.82rem">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
+                            <td style="padding:0.6rem 0.5rem;">
+                                <button class="admin-btn" style="padding:0.35rem 0.6rem;font-size:0.78rem;" onclick="disburseReferralByCode('${(r.referral_code || '').replace(/'/g, '')}')">
+                                    💸 Disburse
+                                </button>
+                            </td>
                         </tr>
                     `).join('');
                     recentEl.innerHTML = `
@@ -6405,6 +6416,7 @@ async function loadMinigamesMaintenance() {
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Code</th>
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Status</th>
                                     <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Date</th>
+                                    <th style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-weight:600">Action</th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
@@ -6415,6 +6427,31 @@ async function loadMinigamesMaintenance() {
                 }
             } catch (e) {
                 cardsEl.innerHTML = `<p style="color:#ef4444">❌ Error loading referral stats: ${e.message}</p>`;
+            }
+        }
+
+        async function disburseReferralByCode(referralCode) {
+            if (!referralCode || referralCode === '—') {
+                alert('No referral code found for this row.');
+                return;
+            }
+            if (!confirm(`Disburse rewards for referral code ${referralCode}?`)) return;
+            try {
+                const res = await fetch('/api/admin/referral/disburse-by-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ referral_code: referralCode })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    alert(`❌ Failed: ${data.error || 'Unable to disburse referral rewards.'}`);
+                    return;
+                }
+                alert(`✅ Disbursement processed for ${referralCode}.`);
+                loadReferralStats();
+                loadReferralKeyBalance();
+            } catch (e) {
+                alert(`❌ Error: ${e.message}`);
             }
         }
     </script>
