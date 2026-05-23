@@ -54,7 +54,10 @@
     // Keep this threshold below the server faucet amount so one refill can
     // clear it. The faucet display amount mirrors the backend default and is
     // sized for the approve + swap path needed by CELO-only MiniPay users.
-    const STABLECOIN_GAS_MIN_USD = 0.01;
+    // 0.01 was too tight in production: approve + claim can still fail when
+    // the wallet hovers around ~$0.01-$0.015 stablecoin gas. Require a safer
+    // minimum so the pre-check triggers faucet before wallet approval.
+    const STABLECOIN_GAS_MIN_USD = 0.02;
     const CUSD_FAUCET_DISPLAY_AMOUNT = '0.05';
     // Match the backend FAUCET_MIN_CELO default. MiniPay still pays claim gas
     // in stablecoins, so the CELO faucet is a best-effort recovery path for
@@ -837,7 +840,7 @@
         // for any transaction. Block proceeding to wallet approval.
         if (!hasStablecoinGasBalance(balances) && amountWei <= 0n) {
             const msg = '⚠️ Insufficient gas for MiniPay\n\n'
-                + 'Your wallet has less than 0.01 cUSD (stablecoin gas) AND less than 0.09 CELO (nothing to swap).\n\n'
+                + 'Your wallet has less than 0.02 cUSD (stablecoin gas) AND less than 0.09 CELO (nothing to swap).\n\n'
                 + 'MiniPay pays transaction fees in stablecoins (cUSD/USDT/USDC). '
                 + 'Please add some cUSD, USDT, or USDC to your wallet, or wait for the gas faucet cooldown to expire and retry.';
             if (typeof global.alert === 'function') global.alert(msg);

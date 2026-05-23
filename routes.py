@@ -7946,7 +7946,9 @@ MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # Must be <= MINIPAY_CUSD_FAUCET_AMOUNT so the user graduates to "stable_ready"
 # after a single faucet refill (otherwise they remain eligible forever and
 # only the cooldown gates further refills).
-MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.01"))
+# Keep in sync with static/js/minipay-gas-topup.js STABLECOIN_GAS_MIN_USD.
+# 0.01 can pass pre-check but still fail approve+claim due to fee volatility.
+MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.02"))
 # Per-wallet cooldown between successful refills. 48h matches our retention
 # expectation: a fresh MiniPay user who claims today should not be eligible
 # again until they actually return tomorrow + buffer.
