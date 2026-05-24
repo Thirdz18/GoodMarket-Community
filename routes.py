@@ -7948,7 +7948,7 @@ MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # only the cooldown gates further refills).
 # Keep in sync with static/js/minipay-gas-topup.js STABLECOIN_GAS_MIN_USD.
 # 0.01 can pass pre-check but still fail approve+claim due to fee volatility.
-MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.02"))
+MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.015"))
 # Per-wallet cooldown between successful refills. 48h matches our retention
 # expectation: a fresh MiniPay user who claims today should not be eligible
 # again until they actually return tomorrow + buffer.
@@ -8272,6 +8272,7 @@ def _get_minipay_stablecoin_balances(w3, checksum_wallet: str) -> dict:
     }
     balances = {}
     total_usd = Decimal("0")
+    stable_ready = False
     for symbol, (token_addr, decimals) in tokens.items():
         try:
             contract = w3.eth.contract(
@@ -8293,11 +8294,13 @@ def _get_minipay_stablecoin_balances(w3, checksum_wallet: str) -> dict:
             "contract": token_addr,
         }
         total_usd += amount
+        if amount >= MINIPAY_STABLECOIN_MIN_USD:
+            stable_ready = True
     return {
         "balances": balances,
         "total_usd": float(total_usd),
         "total_usd_exact": str(total_usd),
-        "stable_ready": total_usd >= MINIPAY_STABLECOIN_MIN_USD,
+        "stable_ready": stable_ready,
         "required_usd": float(MINIPAY_STABLECOIN_MIN_USD),
     }
 
