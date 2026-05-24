@@ -7980,6 +7980,13 @@ MINIPAY_CUSD_FAUCET_MODE = (os.getenv("GOODMARKETFAUCETMODE", "PRIVATEKEY") or "
 MINIPAY_CUSD_FAUCET_CONTRACT = (os.getenv("GOODMARKET_CUSD_FAUCET_CONTRACT_ADDRESS", "") or "").strip()
 _MINIPAY_CUSD_FAUCET_ABI = [
     {
+        "inputs": [{"internalType": "address", "name": "recipient", "type": "address"}],
+        "name": "cooldownRemaining",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
         "inputs": [
             {"internalType": "address", "name": "recipient", "type": "address"},
             {"internalType": "uint256", "name": "amount", "type": "uint256"},
@@ -8606,6 +8613,19 @@ def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd:
             address=Web3.to_checksum_address(MINIPAY_CUSD_FAUCET_CONTRACT),
             abi=_MINIPAY_CUSD_FAUCET_ABI,
         )
+        try:
+            onchain_remaining = int(target_contract.functions.cooldownRemaining(checksum_wallet).call())
+        except Exception:
+            onchain_remaining = 0
+        if onchain_remaining > 0:
+            return {
+                "success": False,
+                "status": "recent_refill",
+                "reason": "onchain_cooldown_active",
+                "error": f"On-chain faucet cooldown active. Retry after ~{onchain_remaining}s.",
+                "recent_refill_cooldown_seconds": onchain_remaining,
+                "cooldown_source": "onchain_contract",
+            }
         tx_builder = target_contract.functions.disburseCUSD(
             checksum_wallet,
             amount_raw,

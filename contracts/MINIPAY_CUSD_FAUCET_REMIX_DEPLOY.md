@@ -16,6 +16,7 @@
 Constructor:
 - `cUSDToken`: `0x765DE816845861e75A25fCA122bb6898B8B1282a` (Celo mainnet cUSD)
 - `fixedDisburser`: backend wallet address that will call `disburseCUSD` (usually `TOPWALLET_KEY` public address)
+- `fixedCooldownSeconds`: per-wallet on-chain cooldown (recommended: `172800` for 48h)
 
 Network:
 - Celo Mainnet (chainId `42220`)
@@ -64,3 +65,4 @@ Fallback / legacy mode:
 - Recommended: call `approve(faucetAddress, amount)` on cUSD, then call `depositCUSD(amount)` on faucet contract.
 - You can still send cUSD directly via `cUSD.transfer(faucetAddress, amount)` as normal ERC-20 transfer.
 - There is no withdraw/emergency-withdraw/admin function in the faucet contract.
+- Cooldown is also enforced on-chain via `disburseCUSD` and `cooldownRemaining(recipient)`.
