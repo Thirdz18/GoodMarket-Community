@@ -804,6 +804,12 @@
                         <span>Unified Treasury</span>
                     </a>
                 </li>
+                <li class="menu-item">
+                    <a class="menu-link" onclick="showSection('cusd-faucet-section')">
+                        <span class="menu-icon">💧</span>
+                        <span>cUSD Faucet</span>
+                    </a>
+                </li>
             </ul>
         </aside>
 
@@ -2559,6 +2565,97 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                     <div id="treasuryRecipientsTable">
                         <div class="loading"><div class="spinner"></div><p>Loading recipients...</p></div>
                     </div>
+                </div>
+            </section>
+
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <!-- cUSD Faucet Section (GoodMarketMiniPayCUSDFaucet)            -->
+            <!-- ═══════════════════════════════════════════════════════════ -->
+            <section id="cusd-faucet-section" class="section">
+                <div class="page-header">
+                    <h1 class="page-title">💧 MiniPay cUSD Faucet</h1>
+                    <p style="color: rgba(241, 245, 249, 0.7);">
+                        Deposit cUSD into the GoodMarketMiniPayCUSDFaucet pool. Funds in the pool are
+                        what powers <code>disburseCUSD()</code> top-ups for MiniPay users.
+                    </p>
+                </div>
+
+                <!-- Pool status -->
+                <div class="content-box" style="margin-bottom: 1.5rem;" id="cusdFaucetStatusBox">
+                    <h2 style="margin-bottom: 1rem;">📊 Pool Status</h2>
+                    <div id="cusdFaucetStatusContent">
+                        <div class="loading"><div class="spinner"></div><p>Loading faucet status...</p></div>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <button onclick="loadCusdFaucetStatus()" class="admin-btn" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">
+                            🔄 Refresh Status
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Deposit form -->
+                <div class="content-box" style="margin-bottom: 1.5rem;">
+                    <h2 style="margin-bottom: 0.5rem;">💰 Deposit cUSD into Pool</h2>
+                    <p style="color: rgba(241,245,249,0.6); font-size: 0.85rem; margin-bottom: 1.5rem;">
+                        The backend signs <code>approve()</code> + <code>depositCUSD()</code> using <code>TOPWALLET_KEY</code>.
+                        The on-chain <code>CUSDDeposited</code> event is emitted so each admin deposit is traceable.
+                    </p>
+
+                    <div style="margin-bottom: 1.25rem;">
+                        <label style="display:block; margin-bottom:0.4rem; font-weight:600; color:rgba(241,245,249,0.9);">
+                            Amount (cUSD)
+                        </label>
+                        <input type="number" id="cusdFaucetAmount" class="admin-input"
+                               placeholder="e.g. 5"
+                               min="0" step="any"
+                               style="max-width: 260px;"
+                               oninput="cusdFaucetCancelConfirm()">
+                        <small style="display:block; margin-top:0.3rem; color:rgba(241,245,249,0.5);">
+                            Enter amount in cUSD (e.g. <code>5</code> = 5 cUSD). Decimal allowed (e.g. <code>0.5</code>).
+                        </small>
+                    </div>
+
+                    <button onclick="cusdFaucetReviewDeposit()" class="admin-btn"
+                            style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; font-weight: 800; padding: 0.85rem 2rem;">
+                        🔍 Review Deposit
+                    </button>
+
+                    <div id="cusdFaucetConfirmPanel" style="display:none; margin-top:1.25rem; padding:1.2rem; background:rgba(251,191,36,0.1); border:1px solid rgba(251,191,36,0.4); border-radius:12px;">
+                        <div style="font-weight:700; color:#fbbf24; margin-bottom:0.75rem; font-size:1rem;">⚠️ Confirm Deposit</div>
+                        <div id="cusdFaucetConfirmDetails" style="color:rgba(241,245,249,0.85); font-size:0.92rem; margin-bottom:1rem; line-height:1.6;"></div>
+                        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+                            <button onclick="cusdFaucetConfirmDeposit()" class="admin-btn"
+                                    style="background: linear-gradient(135deg, #059669, #047857); color:#fff; font-weight:800; padding:0.75rem 1.75rem;">
+                                ✅ Confirm &amp; Deposit
+                            </button>
+                            <button onclick="cusdFaucetCancelConfirm()" class="admin-btn"
+                                    style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); padding:0.75rem 1.5rem;">
+                                ❌ Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="cusdFaucetDepositStatus" style="margin-top: 1rem;"></div>
+                </div>
+
+                <!-- Plain-send fallback info -->
+                <div class="content-box">
+                    <h2 style="margin-bottom: 0.5rem;">📥 Or send cUSD directly</h2>
+                    <p style="color: rgba(241,245,249,0.6); font-size: 0.85rem; margin-bottom: 1rem;">
+                        Any wallet can also fund the pool by doing a plain <code>cUSD.transfer(faucet, amount)</code>
+                        from MetaMask / Valora / MiniPay. The pool balance will go up, pero hindi
+                        magkakaroon ng <code>CUSDDeposited</code> event entry (less auditable).
+                    </p>
+                    <div style="padding:1rem; background:rgba(96,165,250,0.08); border:1px solid rgba(96,165,250,0.25); border-radius:10px;">
+                        <div style="font-size:0.78rem; color:rgba(241,245,249,0.5); margin-bottom:0.3rem; text-transform:uppercase; letter-spacing:0.05em;">Faucet Contract Address (Celo Mainnet)</div>
+                        <div id="cusdFaucetAddress" style="font-family:monospace; font-size:0.92rem; color:#60a5fa; word-break:break-all; font-weight:600;">Loading...</div>
+                        <button onclick="copyCusdFaucetAddress()" style="margin-top:0.6rem; padding:0.35rem 0.9rem; background:rgba(96,165,250,0.15); border:1px solid rgba(96,165,250,0.3); border-radius:6px; color:#93c5fd; font-size:0.82rem; cursor:pointer;">
+                            📋 Copy Address
+                        </button>
+                    </div>
+                    <p style="color:rgba(241,245,249,0.4); font-size:0.78rem; margin-top:0.75rem;">
+                        Token: cUSD · Network: Celo Mainnet · Token contract: 0x765DE816845861e75A25fCA122bb6898B8B1282a
+                    </p>
                 </div>
             </section>
 
@@ -6842,7 +6939,187 @@ async function loadMinigamesMaintenance() {
             if (sectionId === 'unified-treasury-section') {
                 loadTreasuryStatus();
             }
+            if (sectionId === 'cusd-faucet-section') {
+                loadCusdFaucetStatus();
+            }
         };
+
+        // ─── cUSD Faucet (GoodMarketMiniPayCUSDFaucet) ──────────────────────
+        let _cusdFaucetStatus = null;
+
+        function _cusdEscapeAddr(addr) {
+            if (!addr) return '—';
+            return String(addr);
+        }
+
+        async function loadCusdFaucetStatus() {
+            const content = document.getElementById('cusdFaucetStatusContent');
+            const addrBox = document.getElementById('cusdFaucetAddress');
+            if (content) {
+                content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading faucet status...</p></div>';
+            }
+            try {
+                const res = await fetch('/api/admin/faucet/cusd/status', { headers: { 'Accept': 'application/json' } });
+                const data = await res.json();
+                _cusdFaucetStatus = data;
+
+                if (!data.configured) {
+                    const msg = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">
+                        ⚠️ ${data.error || 'cUSD Faucet is not configured.'}<br>
+                        <small style="color:rgba(241,245,249,0.5);">${data.hint || ''}</small>
+                    </div>`;
+                    if (content) content.innerHTML = msg;
+                    if (addrBox) addrBox.textContent = 'Not configured';
+                    return;
+                }
+
+                if (addrBox) addrBox.textContent = _cusdEscapeAddr(data.contract_address);
+
+                const poolBal = (typeof data.faucet_balance_cusd === 'number') ? data.faucet_balance_cusd.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+                const signerCusd = (typeof data.signer_cusd === 'number') ? data.signer_cusd.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+                const signerCelo = (typeof data.signer_celo === 'number') ? data.signer_celo.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+                const signerAllowance = (typeof data.signer_allowance_cusd === 'number') ? data.signer_allowance_cusd.toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—';
+                const cooldownH = data.cooldown_seconds ? Math.round(data.cooldown_seconds / 3600) : '—';
+                const explorerBase = 'https://celoscan.io/address/';
+
+                let rows = '';
+                rows += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem 1rem; font-size:0.9rem;">`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Pool balance</div><div style="font-weight:700; color:#34d399;">${poolBal} cUSD</div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Faucet contract</div><div><a href="${explorerBase}${data.contract_address}" target="_blank" style="color:#60a5fa; font-family:monospace; font-size:0.82rem; word-break:break-all;">${_cusdEscapeAddr(data.contract_address)}</a></div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Disburser (immutable)</div><div><a href="${explorerBase}${data.disburser}" target="_blank" style="color:#60a5fa; font-family:monospace; font-size:0.82rem; word-break:break-all;">${_cusdEscapeAddr(data.disburser)}</a></div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Cooldown</div><div>${data.cooldown_seconds || '—'}s (~${cooldownH}h)</div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Admin signer (TOPWALLET_KEY)</div><div>${data.signer_address ? `<a href="${explorerBase}${data.signer_address}" target="_blank" style="color:#60a5fa; font-family:monospace; font-size:0.82rem; word-break:break-all;">${_cusdEscapeAddr(data.signer_address)}</a>` : '<span style="color:#f87171;">Not configured</span>'}</div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Signer cUSD balance</div><div>${signerCusd} cUSD</div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Signer CELO balance</div><div>${signerCelo} CELO</div>`;
+                rows += `<div style="color:rgba(241,245,249,0.6);">Current allowance</div><div>${signerAllowance} cUSD</div>`;
+                rows += `</div>`;
+
+                let warnings = '';
+                if (data.signer_error) {
+                    warnings += `<div style="margin-top:0.75rem; padding:0.6rem 0.85rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#f87171; font-size:0.85rem;">⚠️ ${data.signer_error}</div>`;
+                }
+                if (data.faucet_balance_error) {
+                    warnings += `<div style="margin-top:0.75rem; padding:0.6rem 0.85rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#f87171; font-size:0.85rem;">⚠️ ${data.faucet_balance_error}</div>`;
+                }
+
+                if (content) content.innerHTML = rows + warnings;
+            } catch (e) {
+                if (content) {
+                    content.innerHTML = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">❌ Error loading status: ${e.message}</div>`;
+                }
+            }
+        }
+
+        function cusdFaucetCancelConfirm() {
+            const panel = document.getElementById('cusdFaucetConfirmPanel');
+            if (panel) panel.style.display = 'none';
+        }
+
+        function cusdFaucetReviewDeposit() {
+            const amountInput = document.getElementById('cusdFaucetAmount');
+            const statusEl = document.getElementById('cusdFaucetDepositStatus');
+            const panel = document.getElementById('cusdFaucetConfirmPanel');
+            const details = document.getElementById('cusdFaucetConfirmDetails');
+            if (!amountInput || !panel || !details) return;
+
+            const amount = parseFloat(amountInput.value);
+            if (!amount || amount <= 0) {
+                if (statusEl) {
+                    statusEl.innerHTML = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">❌ Please enter a positive cUSD amount.</div>`;
+                }
+                return;
+            }
+            if (statusEl) statusEl.innerHTML = '';
+
+            const status = _cusdFaucetStatus || {};
+            const signerCusd = (typeof status.signer_cusd === 'number') ? status.signer_cusd : null;
+            const allowance = (typeof status.signer_allowance_cusd === 'number') ? status.signer_allowance_cusd : 0;
+            const needsApprove = allowance < amount;
+            const insufficient = signerCusd !== null && signerCusd < amount;
+
+            let html = '';
+            html += `You are about to deposit <strong style="color:#34d399;">${amount.toLocaleString()} cUSD</strong> into the faucet pool.<br>`;
+            html += `<small style="color:rgba(241,245,249,0.6);">Faucet: <code>${_cusdEscapeAddr(status.contract_address || '—')}</code></small><br>`;
+            html += `<small style="color:rgba(241,245,249,0.6);">Signer: <code>${_cusdEscapeAddr(status.signer_address || '—')}</code></small><br>`;
+            html += `<small style="color:rgba(241,245,249,0.6);">Signer cUSD balance: ${signerCusd === null ? '—' : signerCusd.toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' cUSD'}</small><br>`;
+            html += `<small style="color:rgba(241,245,249,0.6);">Current allowance: ${allowance.toLocaleString(undefined, { maximumFractionDigits: 6 })} cUSD</small><br>`;
+            html += `<small style="color:rgba(241,245,249,0.6);">TX plan: ${needsApprove ? '1) approve(faucet, amount)  2) depositCUSD(amount)' : 'depositCUSD(amount) only — existing allowance is sufficient'}</small><br>`;
+            if (insufficient) {
+                html += `<div style="margin-top:0.75rem; padding:0.55rem 0.8rem; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#f87171; font-size:0.85rem;">⚠️ Signer has only ${signerCusd} cUSD — deposit will fail.</div>`;
+            }
+
+            details.innerHTML = html;
+            panel.style.display = 'block';
+        }
+
+        async function cusdFaucetConfirmDeposit() {
+            const amountInput = document.getElementById('cusdFaucetAmount');
+            const statusEl = document.getElementById('cusdFaucetDepositStatus');
+            const panel = document.getElementById('cusdFaucetConfirmPanel');
+            if (!amountInput) return;
+            const amount = parseFloat(amountInput.value);
+            if (!amount || amount <= 0) return;
+
+            if (panel) panel.style.display = 'none';
+            if (statusEl) {
+                statusEl.innerHTML = `<div style="padding:1rem; background:rgba(96,165,250,0.1); border:1px solid rgba(96,165,250,0.3); border-radius:10px; color:#93c5fd;">
+                    <div class="spinner" style="display:inline-block; vertical-align:middle; margin-right:0.5rem;"></div>
+                    Submitting deposit (this may take 30–90s for both txs to mine)...
+                </div>`;
+            }
+
+            try {
+                const res = await fetch('/api/admin/faucet/cusd/deposit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ amount_cusd: amount }),
+                });
+                const data = await res.json();
+
+                if (data && data.success) {
+                    const explorerTx = 'https://celoscan.io/tx/';
+                    let html = `<div style="padding:1rem; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.3); border-radius:10px; color:#34d399;">
+                        ✅ Deposited <strong>${(data.amount_cusd || amount).toLocaleString()} cUSD</strong> into the faucet pool!<br>`;
+                    if (data.approve_tx_hash) {
+                        html += `<small style="display:block; margin-top:0.4rem;">approve tx: <a href="${explorerTx}${data.approve_tx_hash}" target="_blank" style="color:#60a5fa; font-family:monospace; word-break:break-all;">${data.approve_tx_hash}</a> (gas ${data.approve_gas_used || '—'})</small>`;
+                    } else if (data.approve_skipped) {
+                        html += `<small style="display:block; margin-top:0.4rem; color:rgba(241,245,249,0.6);">approve tx: skipped (existing allowance was sufficient)</small>`;
+                    }
+                    html += `<small style="display:block; margin-top:0.2rem;">deposit tx: <a href="${explorerTx}${data.deposit_tx_hash}" target="_blank" style="color:#60a5fa; font-family:monospace; word-break:break-all;">${data.deposit_tx_hash}</a> (gas ${data.deposit_gas_used || '—'})</small>`;
+                    if (typeof data.post_balance_cusd === 'number') {
+                        html += `<small style="display:block; margin-top:0.4rem;">New pool balance: <strong>${data.post_balance_cusd.toLocaleString(undefined, { maximumFractionDigits: 6 })} cUSD</strong></small>`;
+                    }
+                    html += `</div>`;
+                    if (statusEl) statusEl.innerHTML = html;
+                    if (amountInput) amountInput.value = '';
+                    loadCusdFaucetStatus();
+                } else {
+                    const errMsg = (data && (data.error || data.reason)) || 'Deposit failed';
+                    let html = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">❌ ${errMsg}`;
+                    if (data && data.approve_tx_hash) {
+                        html += `<br><small style="color:rgba(241,245,249,0.7);">approve tx (already sent): <a href="https://celoscan.io/tx/${data.approve_tx_hash}" target="_blank" style="color:#60a5fa; font-family:monospace; word-break:break-all;">${data.approve_tx_hash}</a></small>`;
+                    }
+                    html += `</div>`;
+                    if (statusEl) statusEl.innerHTML = html;
+                }
+            } catch (e) {
+                if (statusEl) {
+                    statusEl.innerHTML = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">❌ Error: ${e.message}</div>`;
+                }
+            }
+        }
+
+        function copyCusdFaucetAddress() {
+            const addr = (_cusdFaucetStatus && _cusdFaucetStatus.contract_address) || (document.getElementById('cusdFaucetAddress') && document.getElementById('cusdFaucetAddress').textContent);
+            if (!addr || addr === 'Loading...' || addr === 'Not configured') return;
+            navigator.clipboard.writeText(addr).then(() => {
+                const el = document.getElementById('cusdFaucetAddress');
+                if (!el) return;
+                const original = el.textContent;
+                el.textContent = '✅ Copied!';
+                setTimeout(() => { el.textContent = original; }, 1200);
+            });
+        }
     </script>
 </body>
 </html>

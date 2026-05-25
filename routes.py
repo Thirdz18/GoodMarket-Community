@@ -7894,6 +7894,66 @@ def admin_treasury_distribute():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@routes.route("/api/admin/faucet/cusd/status", methods=["GET"])
+@admin_required
+def admin_faucet_cusd_status():
+    """Read-only status for the GoodMarketMiniPayCUSDFaucet pool.
+
+    Returns: pool balance (cUSD), configured immutables (disburser, cooldown,
+    cUSD contract), and the signer's own cUSD/CELO balances + current
+    allowance so the dashboard can warn before a deposit would fail.
+    """
+    try:
+        status = _get_minipay_cusd_faucet_status()
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"admin_faucet_cusd_status error: {e}")
+        return jsonify({"configured": False, "error": str(e)}), 500
+
+
+@routes.route("/api/admin/faucet/cusd/deposit", methods=["POST"])
+@admin_required
+def admin_faucet_cusd_deposit():
+    """Admin: deposit cUSD into the GoodMarketMiniPayCUSDFaucet pool.
+
+    Body: ``{"amount_cusd": <float>}`` — amount in human-readable cUSD (e.g.
+    ``5`` = 5 cUSD). The backend signs both txs (approve + depositCUSD) with
+    TOPWALLET_KEY so the on-chain ``CUSDDeposited`` event is emitted with the
+    admin signer as ``depositor``.
+    """
+    try:
+        wallet = session.get("wallet")
+        data = request.get_json(force=True) or {}
+
+        raw_amount = data.get("amount_cusd")
+        if raw_amount is None:
+            return jsonify({"success": False, "error": "amount_cusd is required"}), 400
+        try:
+            amount_cusd = Decimal(str(raw_amount))
+        except (InvalidOperation, ValueError):
+            return jsonify({"success": False, "error": "amount_cusd must be a number"}), 400
+        if amount_cusd <= 0:
+            return jsonify({"success": False, "error": "amount_cusd must be > 0"}), 400
+
+        result = _execute_minipay_cusd_faucet_deposit(amount_cusd)
+
+        if result.get("success"):
+            log_admin_action(wallet, "faucet_cusd_deposit", {
+                "amount_cusd": float(amount_cusd),
+                "approve_tx_hash": result.get("approve_tx_hash"),
+                "deposit_tx_hash": result.get("deposit_tx_hash"),
+                "approve_skipped": result.get("approve_skipped"),
+                "post_balance_cusd": result.get("post_balance_cusd"),
+                "faucet_address": result.get("faucet_address"),
+            })
+            return jsonify(result)
+
+        return jsonify(result), 400
+    except Exception as e:
+        logger.error(f"admin_faucet_cusd_deposit error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ── UBI Gas Faucet (safe claim flow support) ─────────────────────────────────
 # Short-term anti-duplicate cache: wallet_address -> unix timestamp of last
 # successful refill request (API or on-chain).
@@ -7997,13 +8057,43 @@ _MINIPAY_CUSD_FAUCET_ABI = [
         "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
         "stateMutability": "nonpayable",
         "type": "function",
-    }
+    },
+    {
+        "inputs": [{"internalType": "uint256", "name": "amount", "type": "uint256"}],
+        "name": "depositCUSD",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "faucetBalance",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "disburser",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [],
+        "name": "cooldownSeconds",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
 ]
 MINIPAY_USDT_CONTRACT = os.getenv("USDT_CONTRACT", "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e")
 MINIPAY_USDC_CONTRACT = os.getenv("USDC_CONTRACT", "0xcebA9300f2b948710d2653dD7B07f33A8B32118C")
 _MINIPAY_ERC20_ABI = [
-    {"constant": True, "inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"},
-    {"constant": False, "inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "transfer", "outputs": [{"name": "", "type": "bool"}], "type": "function"},
+    {"constant": True, "inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
+    {"constant": False, "inputs": [{"name": "to", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "transfer", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
+    {"constant": False, "inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}], "name": "approve", "outputs": [{"name": "", "type": "bool"}], "stateMutability": "nonpayable", "type": "function"},
+    {"constant": True, "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "stateMutability": "view", "type": "function"},
 ]
 GOODDOLLAR_FAUCET_CONTRACT = os.getenv(
     "GOODDOLLAR_FAUCET_CONTRACT",
@@ -8730,6 +8820,248 @@ def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd:
         "reason": "tx_failed",
         "error": "MiniPay cUSD faucet transaction failed",
         "tx_hash": tx_hash_hex,
+    }
+
+
+def _get_minipay_cusd_faucet_status() -> dict:
+    """Read-only snapshot of the GoodMarketMiniPayCUSDFaucet contract.
+
+    Used by the admin dashboard to render pool balance, configured
+    disburser/cooldown, and the signer's own cUSD / CELO balances
+    (so the admin can see whether a deposit will actually go through).
+    """
+    from eth_account import Account
+
+    if not MINIPAY_CUSD_FAUCET_CONTRACT:
+        return {
+            "configured": False,
+            "error": "GOODMARKET_CUSD_FAUCET_CONTRACT_ADDRESS is not set",
+            "hint": "Deploy the GoodMarketMiniPayCUSDFaucet contract and set the env var.",
+        }
+
+    rpc_url = os.getenv("CELO_RPC_URL") or os.getenv("CELO_RPC") or "https://forno.celo.org"
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
+    if not w3.is_connected():
+        return {"configured": True, "error": "Celo RPC not reachable", "rpc_url": rpc_url}
+
+    try:
+        faucet_addr = Web3.to_checksum_address(MINIPAY_CUSD_FAUCET_CONTRACT)
+    except Exception as exc:
+        return {"configured": False, "error": f"Invalid faucet contract address: {exc}"}
+
+    faucet = w3.eth.contract(address=faucet_addr, abi=_MINIPAY_CUSD_FAUCET_ABI)
+    cusd = w3.eth.contract(
+        address=Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT),
+        abi=_MINIPAY_ERC20_ABI,
+    )
+
+    out: dict = {
+        "configured": True,
+        "contract_address": faucet_addr,
+        "cusd_contract": Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT),
+        "faucet_mode": MINIPAY_CUSD_FAUCET_MODE,
+        "rpc_url": rpc_url,
+    }
+
+    try:
+        out["faucet_balance_raw"] = str(int(faucet.functions.faucetBalance().call()))
+        out["faucet_balance_cusd"] = float(Decimal(out["faucet_balance_raw"]) / Decimal(10**18))
+    except Exception as exc:
+        out["faucet_balance_error"] = str(exc)
+
+    for fn_name, key in (("disburser", "disburser"), ("cooldownSeconds", "cooldown_seconds")):
+        try:
+            out[key] = faucet.functions[fn_name]().call()
+        except Exception as exc:
+            out[f"{key}_error"] = str(exc)
+
+    topwallet_key = (os.getenv("TOPWALLET_KEY") or "").strip()
+    if topwallet_key:
+        key = topwallet_key if topwallet_key.startswith("0x") else "0x" + topwallet_key
+        try:
+            signer_addr = Account.from_key(key).address
+            out["signer_address"] = signer_addr
+            out["signer_celo_wei"] = str(int(w3.eth.get_balance(signer_addr)))
+            out["signer_celo"] = float(Decimal(out["signer_celo_wei"]) / Decimal(10**18))
+            signer_cusd_raw = int(cusd.functions.balanceOf(signer_addr).call())
+            out["signer_cusd_raw"] = str(signer_cusd_raw)
+            out["signer_cusd"] = float(Decimal(signer_cusd_raw) / Decimal(10**18))
+            allowance_raw = int(cusd.functions.allowance(signer_addr, faucet_addr).call())
+            out["signer_allowance_raw"] = str(allowance_raw)
+            out["signer_allowance_cusd"] = float(Decimal(allowance_raw) / Decimal(10**18))
+            out["signer_matches_disburser"] = bool(
+                out.get("disburser")
+                and signer_addr.lower() == str(out["disburser"]).lower()
+            )
+        except Exception as exc:
+            out["signer_error"] = str(exc)
+    else:
+        out["signer_address"] = None
+        out["signer_error"] = "TOPWALLET_KEY not configured"
+
+    return out
+
+
+def _execute_minipay_cusd_faucet_deposit(amount_cusd: Decimal) -> dict:
+    """Approve cUSD allowance + call ``faucet.depositCUSD(amount)`` using
+    the TOPWALLET_KEY signer.
+
+    Performed as two sequential signed txs so the on-chain ``CUSDDeposited``
+    event is emitted with the admin signer as ``depositor`` (better audit
+    trail than a bare ``cUSD.transfer`` to the faucet).
+    """
+    from blockchain import CELO_CHAIN_ID
+    from eth_account import Account
+
+    if not MINIPAY_CUSD_FAUCET_CONTRACT:
+        return {"success": False, "reason": "not_configured", "error": "GOODMARKET_CUSD_FAUCET_CONTRACT_ADDRESS is not set"}
+
+    topwallet_key = (os.getenv("TOPWALLET_KEY") or "").strip()
+    if not topwallet_key:
+        return {"success": False, "reason": "missing_topwallet_key", "error": "TOPWALLET_KEY env var is not configured"}
+
+    if amount_cusd <= 0:
+        return {"success": False, "reason": "invalid_amount", "error": "amount must be > 0"}
+
+    key = topwallet_key if topwallet_key.startswith("0x") else "0x" + topwallet_key
+    try:
+        signer = Account.from_key(key)
+    except Exception as exc:
+        return {"success": False, "reason": "invalid_topwallet_key", "error": f"Failed to load TOPWALLET_KEY: {exc}"}
+
+    rpc_url = os.getenv("CELO_RPC_URL") or os.getenv("CELO_RPC") or "https://forno.celo.org"
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+    if not w3.is_connected():
+        return {"success": False, "reason": "rpc_unreachable", "error": "Celo RPC not reachable", "rpc_url": rpc_url}
+
+    faucet_addr = Web3.to_checksum_address(MINIPAY_CUSD_FAUCET_CONTRACT)
+    cusd_addr = Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT)
+    faucet = w3.eth.contract(address=faucet_addr, abi=_MINIPAY_CUSD_FAUCET_ABI)
+    cusd = w3.eth.contract(address=cusd_addr, abi=_MINIPAY_ERC20_ABI)
+
+    amount_raw = _decimal_to_token_units(amount_cusd, 18)
+
+    try:
+        signer_cusd_raw = int(cusd.functions.balanceOf(signer.address).call())
+    except Exception as exc:
+        return {"success": False, "reason": "cusd_balance_check_failed", "error": str(exc)}
+    if signer_cusd_raw < amount_raw:
+        return {
+            "success": False,
+            "reason": "signer_insufficient_cusd",
+            "error": "Admin TOPWALLET_KEY signer has insufficient cUSD for deposit",
+            "signer_cusd_raw": str(signer_cusd_raw),
+            "required_cusd_raw": str(amount_raw),
+        }
+
+    gas_price = int(w3.eth.gas_price * 1.2)
+    expected_total_gas = 200_000
+    signer_celo_wei = int(w3.eth.get_balance(signer.address))
+    if signer_celo_wei < expected_total_gas * gas_price:
+        return {
+            "success": False,
+            "reason": "signer_insufficient_gas",
+            "error": "Admin TOPWALLET_KEY signer has insufficient CELO for deposit gas",
+            "signer_celo_wei": str(signer_celo_wei),
+            "required_celo_wei": str(expected_total_gas * gas_price),
+        }
+
+    def _send(tx_builder, label, gas_fallback):
+        nonce = w3.eth.get_transaction_count(signer.address, "pending")
+        try:
+            gas_est = tx_builder.estimate_gas({"from": signer.address})
+        except Exception:
+            gas_est = gas_fallback
+        tx = tx_builder.build_transaction({
+            "chainId": CELO_CHAIN_ID,
+            "from": signer.address,
+            "nonce": nonce,
+            "gasPrice": gas_price,
+            "gas": int(gas_est * 1.2),
+            "value": 0,
+        })
+        signed = signer.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        tx_hash_hex = tx_hash.hex()
+        if not tx_hash_hex.startswith("0x"):
+            tx_hash_hex = "0x" + tx_hash_hex
+        receipt = w3.eth.wait_for_transaction_receipt(
+            tx_hash, timeout=MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT
+        )
+        if not receipt or receipt.get("status") != 1:
+            raise RuntimeError(f"{label}_tx_reverted: {tx_hash_hex}")
+        return tx_hash_hex, int(receipt.get("gasUsed") or 0)
+
+    signer_masked = _mask_wallet(signer.address)
+    logger.info(
+        f"🖊️ Admin cUSD faucet deposit start signer={signer_masked} amount={amount_cusd} "
+        f"faucet={faucet_addr} amount_raw={amount_raw}"
+    )
+
+    try:
+        existing_allowance = int(cusd.functions.allowance(signer.address, faucet_addr).call())
+    except Exception:
+        existing_allowance = 0
+
+    approve_tx_hash = None
+    approve_gas_used = 0
+    if existing_allowance < amount_raw:
+        try:
+            approve_tx_hash, approve_gas_used = _send(
+                cusd.functions.approve(faucet_addr, amount_raw),
+                label="approve",
+                gas_fallback=80_000,
+            )
+            logger.info(
+                f"✅ Admin cUSD approve mined tx={approve_tx_hash} gas_used={approve_gas_used}"
+            )
+        except Exception as exc:
+            return {
+                "success": False,
+                "reason": "approve_failed",
+                "error": str(exc),
+                "signer_address": signer.address,
+            }
+
+    try:
+        deposit_tx_hash, deposit_gas_used = _send(
+            faucet.functions.depositCUSD(amount_raw),
+            label="deposit",
+            gas_fallback=120_000,
+        )
+    except Exception as exc:
+        return {
+            "success": False,
+            "reason": "deposit_failed",
+            "error": str(exc),
+            "approve_tx_hash": approve_tx_hash,
+            "signer_address": signer.address,
+        }
+
+    try:
+        post_balance_raw = int(faucet.functions.faucetBalance().call())
+        post_balance_cusd = float(Decimal(post_balance_raw) / Decimal(10**18))
+    except Exception:
+        post_balance_raw = None
+        post_balance_cusd = None
+
+    logger.info(
+        f"✅ Admin cUSD faucet deposit mined tx={deposit_tx_hash} gas_used={deposit_gas_used} "
+        f"new_pool_balance={post_balance_cusd}"
+    )
+    return {
+        "success": True,
+        "signer_address": signer.address,
+        "faucet_address": faucet_addr,
+        "amount_cusd": float(amount_cusd),
+        "amount_cusd_raw": str(amount_raw),
+        "approve_tx_hash": approve_tx_hash,
+        "approve_gas_used": approve_gas_used,
+        "approve_skipped": approve_tx_hash is None,
+        "deposit_tx_hash": deposit_tx_hash,
+        "deposit_gas_used": deposit_gas_used,
+        "post_balance_raw": (None if post_balance_raw is None else str(post_balance_raw)),
+        "post_balance_cusd": post_balance_cusd,
     }
 
 
