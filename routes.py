@@ -7976,6 +7976,29 @@ CELO_GAS_FAUCET_COVERAGE_MESSAGE = (
     "top up CELO yourself if you need to send transactions sooner."
 )
 MINIPAY_CUSD_CONTRACT = os.getenv("CUSD_CONTRACT", "0x765DE816845861e75A25fCA122bb6898B8B1282a")
+MINIPAY_CUSD_FAUCET_MODE = (os.getenv("GOODMARKETFAUCETMODE", "PRIVATEKEY") or "PRIVATEKEY").strip().upper()
+MINIPAY_CUSD_FAUCET_CONTRACT = (os.getenv("GOODMARKET_CUSD_FAUCET_CONTRACT_ADDRESS", "") or "").strip()
+_MINIPAY_CUSD_FAUCET_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "recipient", "type": "address"}],
+        "name": "cooldownRemaining",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "recipient", "type": "address"},
+            {"internalType": "uint256", "name": "amount", "type": "uint256"},
+            {"internalType": "bytes32", "name": "correlationId", "type": "bytes32"},
+            {"internalType": "string", "name": "sourceTag", "type": "string"},
+        ],
+        "name": "disburseCUSD",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
 MINIPAY_USDT_CONTRACT = os.getenv("USDT_CONTRACT", "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e")
 MINIPAY_USDC_CONTRACT = os.getenv("USDC_CONTRACT", "0xcebA9300f2b948710d2653dD7B07f33A8B32118C")
 _MINIPAY_ERC20_ABI = [
@@ -8556,7 +8579,12 @@ def _build_gooddollar_cooldown_payload(entry: dict, seconds_remaining: int) -> d
 
 
 def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd: Decimal, correlation_id: str = "n/a") -> dict:
-    """Send cUSD directly from TOPWALLET_KEY to a MiniPay wallet."""
+    """Send cUSD via PRIVATEKEY transfer mode or CONTRACT mode.
+
+    PRIVATEKEY mode: TOPWALLET_KEY transfers cUSD directly.
+    CONTRACT mode: TOPWALLET_KEY calls contract.disburseCUSD(recipient, amount, correlationId, sourceTag).
+    In both modes, CELO gas is still paid by TOPWALLET_KEY signer.
+    """
     from blockchain import CELO_CHAIN_ID
     from eth_account import Account
 
@@ -8572,33 +8600,64 @@ def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd:
     key = topwallet_key if topwallet_key.startswith("0x") else "0x" + topwallet_key
     signer = Account.from_key(key)
     signer_masked = _mask_wallet(signer.address)
-    cusd_contract = w3.eth.contract(
-        address=Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT),
-        abi=_MINIPAY_ERC20_ABI,
-    )
     amount_raw = _decimal_to_token_units(amount_cusd, 18)
 
-    try:
-        signer_cusd_raw = int(cusd_contract.functions.balanceOf(signer.address).call())
-    except Exception as exc:
-        return {
-            "success": False,
-            "status": "cusd_faucet_failed",
-            "reason": "signer_balance_check_failed",
-            "error": str(exc),
-        }
-    if signer_cusd_raw < amount_raw:
-        return {
-            "success": False,
-            "status": "cusd_faucet_failed",
-            "reason": "signer_insufficient_cusd",
-            "error": "MiniPay cUSD faucet signer has insufficient cUSD",
-            "signer_cusd_raw": str(signer_cusd_raw),
-            "required_cusd_raw": str(amount_raw),
-        }
+    mode = MINIPAY_CUSD_FAUCET_MODE
+    if mode not in {"PRIVATEKEY", "CONTRACT"}:
+        return {"success": False, "status": "cusd_faucet_failed", "reason": "invalid_mode", "error": f"Unsupported GOODMARKETFAUCETMODE: {mode}"}
+
+    if mode == "CONTRACT":
+        if not MINIPAY_CUSD_FAUCET_CONTRACT:
+            return {"success": False, "status": "cusd_faucet_failed", "reason": "not_configured", "error": "Missing GOODMARKET_CUSD_FAUCET_CONTRACT_ADDRESS for CONTRACT mode"}
+        target_contract = w3.eth.contract(
+            address=Web3.to_checksum_address(MINIPAY_CUSD_FAUCET_CONTRACT),
+            abi=_MINIPAY_CUSD_FAUCET_ABI,
+        )
+        try:
+            onchain_remaining = int(target_contract.functions.cooldownRemaining(checksum_wallet).call())
+        except Exception:
+            onchain_remaining = 0
+        if onchain_remaining > 0:
+            return {
+                "success": False,
+                "status": "recent_refill",
+                "reason": "onchain_cooldown_active",
+                "error": f"On-chain faucet cooldown active. Retry after ~{onchain_remaining}s.",
+                "recent_refill_cooldown_seconds": onchain_remaining,
+                "cooldown_source": "onchain_contract",
+            }
+        tx_builder = target_contract.functions.disburseCUSD(
+            checksum_wallet,
+            amount_raw,
+            Web3.keccak(text=str(correlation_id)),
+            "minipay_cusd_faucet",
+        )
+    else:
+        cusd_contract = w3.eth.contract(
+            address=Web3.to_checksum_address(MINIPAY_CUSD_CONTRACT),
+            abi=_MINIPAY_ERC20_ABI,
+        )
+        try:
+            signer_cusd_raw = int(cusd_contract.functions.balanceOf(signer.address).call())
+        except Exception as exc:
+            return {
+                "success": False,
+                "status": "cusd_faucet_failed",
+                "reason": "signer_balance_check_failed",
+                "error": str(exc),
+            }
+        if signer_cusd_raw < amount_raw:
+            return {
+                "success": False,
+                "status": "cusd_faucet_failed",
+                "reason": "signer_insufficient_cusd",
+                "error": "MiniPay cUSD faucet signer has insufficient cUSD",
+                "signer_cusd_raw": str(signer_cusd_raw),
+                "required_cusd_raw": str(amount_raw),
+            }
+        tx_builder = cusd_contract.functions.transfer(checksum_wallet, amount_raw)
 
     nonce = w3.eth.get_transaction_count(signer.address, "pending")
-    tx_builder = cusd_contract.functions.transfer(checksum_wallet, amount_raw)
     try:
         gas_est = tx_builder.estimate_gas({"from": signer.address})
     except Exception:
@@ -8628,7 +8687,7 @@ def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd:
 
     logger.info(
         f"🖊️ MiniPay cUSD faucet signer wallet={checksum_wallet.lower()} signer={signer_masked} "
-        f"amount={amount_cusd} correlation_id={correlation_id}"
+        f"amount={amount_cusd} correlation_id={correlation_id} mode={mode}"
     )
     try:
         signed = signer.sign_transaction(tx)
@@ -8661,6 +8720,8 @@ def _execute_minipay_cusd_faucet_transfer(w3, checksum_wallet: str, amount_cusd:
             "tx_hash": tx_hash_hex,
             "amount_cusd": float(amount_cusd),
             "amount_cusd_raw": str(amount_raw),
+            "topup_source": "contract_cusd_faucet" if mode == "CONTRACT" else "topwallet_key_cusd",
+            "faucet_mode": mode,
         }
 
     return {
@@ -9530,7 +9591,7 @@ def minipay_stablecoin_faucet():
             "wallet": checksum_wallet.lower(),
             "topped_up": bool(transfer_result.get("success")),
             "stable_ready": bool(stable_after.get("stable_ready")),
-            "topup_source": "topwallet_key_cusd" if transfer_result.get("success") else None,
+            "topup_source": transfer_result.get("topup_source") if transfer_result.get("success") else None,
             "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
             "program_by": MINIPAY_CUSD_FAUCET_PROGRAM_LABEL,
             "correlation_id": correlation_id,
