@@ -699,6 +699,81 @@
             padding: 0.4rem;
         }
         .lifi-widget-wrap > div { width: 100%; }
+
+        .lifi-route-picker {
+            margin-bottom: 0.9rem;
+            padding: 0.85rem;
+            border-radius: 14px;
+            background: rgba(15,23,42,0.62);
+            border: 1px solid rgba(125,211,252,0.22);
+        }
+        .lifi-route-picker-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.75rem;
+            margin-bottom: 0.7rem;
+            color: rgba(255,255,255,0.74);
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+        .lifi-route-picker-head strong {
+            color: #bae6fd;
+            font-size: 0.88rem;
+            white-space: nowrap;
+        }
+        .lifi-route-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem;
+        }
+        .lifi-route-card {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            align-items: center;
+            gap: 0.55rem;
+            width: 100%;
+            padding: 0.62rem 0.7rem;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(2,6,23,0.55);
+            color: rgba(255,255,255,0.86);
+            cursor: pointer;
+            text-align: left;
+            transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+        }
+        .lifi-route-card:hover {
+            transform: translateY(-1px);
+            border-color: rgba(56,189,248,0.42);
+            background: rgba(14,165,233,0.10);
+        }
+        .lifi-route-card.is-active {
+            border-color: rgba(34,197,94,0.58);
+            background: linear-gradient(135deg, rgba(34,197,94,0.18), rgba(14,165,233,0.10));
+        }
+        .lifi-route-priority, .lifi-route-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            font-size: 0.68rem;
+            font-weight: 800;
+        }
+        .lifi-route-priority {
+            width: 2rem;
+            height: 2rem;
+            background: rgba(124,58,237,0.22);
+            color: #ddd6fe;
+        }
+        .lifi-route-main { display: flex; flex-direction: column; gap: 0.18rem; min-width: 0; }
+        .lifi-route-main strong { color: #f8fafc; font-size: 0.83rem; }
+        .lifi-route-main small { color: rgba(255,255,255,0.58); font-size: 0.72rem; line-height: 1.25; }
+        .lifi-route-badge {
+            padding: 0.16rem 0.45rem;
+            background: rgba(56,189,248,0.15);
+            color: #bae6fd;
+            white-space: nowrap;
+        }
         .lifi-react-status {
             display: flex;
             align-items: center;
@@ -768,6 +843,10 @@
         }
         @media(max-width: 560px) {
             .lifi-widget-wrap { min-height: 660px; }
+            .lifi-route-picker-head { flex-direction: column; gap: 0.3rem; }
+            .lifi-route-grid { grid-template-columns: 1fr; }
+            .lifi-route-card { grid-template-columns: auto 1fr; }
+            .lifi-route-badge { grid-column: 2; width: fit-content; }
             .lifi-react-status { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
         }
     </style>
@@ -1178,7 +1257,7 @@
                 </div>
 
                 <div class="info-box-bridge" style="margin-bottom:0.9rem; padding:0.78rem 0.9rem; border-radius:12px; background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); color:rgba(255,255,255,0.8); font-size:0.84rem; line-height:1.58;">
-                    Buy <strong>ETH on Base</strong> by default — pero pwede mong palitan ang source/destination chain at token (Celo, BNB, Polygon, Arbitrum, Optimism, etc.) sa loob ng widget.
+                    GoodMarket now shows only curated LI.FI Celo → Base routes from the recommended liquidity list: USDC/CELO/cUSD to Base USDC, plus CELO/USDC to Base ETH for gas.
                     Destination wallet defaults to your GoodMarket wallet: <code style="color:#bae6fd;">{{ wallet }}</code>.
                 </div>
 
@@ -1205,7 +1284,7 @@
 
             <div class="info-card" style="margin-top:1rem;">
                 <div class="info-card-title">About Buy Crypto</div>
-                Non-custodial cross-chain swap powered by <strong style="color:#e2e8f0;">LI.FI / Jumper</strong>. Pwede mong gamitin ang Celo, BNB Chain, Polygon, Arbitrum, Optimism, atbp. as source — at i-receive ang native ETH (o ibang token) sa Base, Ethereum, o sa iba pang supported chain.
+                Non-custodial cross-chain swap powered by <strong style="color:#e2e8f0;">LI.FI / Jumper</strong>. This GoodMarket pane is intentionally restricted to the curated Celo → Base routes with the best expected UX; USDT and other chains are hidden from the main flow unless a future advanced mode adds quote-gated options.
                 Kailangan mo i-connect ang wallet sa loob ng widget; bawat swap ay pinipirmahan mo mismo sa wallet mo.
             </div>
         </div><!-- /.pane-buyeth -->
