@@ -6664,9 +6664,37 @@ def swap_page():
     if lifi_route_priority not in {"FASTEST", "CHEAPEST"}:
         logger.warning("Invalid LIFI_ROUTE_PRIORITY=%r; using FASTEST", lifi_route_priority)
         lifi_route_priority = "FASTEST"
-    lifi_slippage = _env_float("LIFI_SLIPPAGE", 0.01, minimum=0.001, maximum=0.03)
+    # Bumped from 0.01 (1%) to 0.02 (2%) because Celo bridges (Allbridge,
+    # Glacis, Eco) routinely move price 1-1.5% between quote and execution.
+    # The previous default tripped wallet simulators with "execution
+    # reverted" / "unknown RPC error" right at the signing step.
+    lifi_slippage = _env_float("LIFI_SLIPPAGE", 0.02, minimum=0.001, maximum=0.03)
     lifi_use_recommended_route = _env_bool("LIFI_USE_RECOMMENDED_ROUTE", True)
+    # LI.FI's default `RouteOptions.allowSwitchChain` is FALSE, which means
+    # the widget hides every Celo→Base bridge whose destination is a stable
+    # that still needs an on-Base swap to reach native ETH — Allbridge,
+    # Glacis, Eco, Across via USDC etc.  That leaves only fragile single-tx
+    # routes that wallets often flag as "Transaction will likely fail" and
+    # bubble up as "unknown RPC error" inside the widget.  Enable both
+    # explicitly so users get the reliable two-step routes back.
+    lifi_allow_switch_chain = _env_bool("LIFI_ALLOW_SWITCH_CHAIN", True)
+    lifi_allow_destination_call = _env_bool("LIFI_ALLOW_DESTINATION_CALL", True)
+    # Permit2 (callDiamondWithPermit2 at 0x89c6340B...) is the default LI.FI
+    # signing path, but on Celo the native asset IS the CELO ERC-20 at
+    # 0x471EcE...A438, which means the same token is moved twice on a
+    # single tx (msg.value + Permit2 pull) and the wallet's pre-flight
+    # simulator reverts the call.  Disabling message signing forces the
+    # widget to fall back to a standard `approve()` flow that wallets
+    # simulate cleanly.  Operators can re-enable Permit2 by setting
+    # LIFI_DISABLE_MESSAGE_SIGNING=false.
+    lifi_disable_message_signing = _env_bool("LIFI_DISABLE_MESSAGE_SIGNING", True)
     lifi_rpc_urls = _lifi_rpc_urls(celo_chain_id, lifi_to_chain_id, fuse_chain_id)
+    # Forward our own WalletConnect projectId to LI.FI's internal wagmi
+    # WC connector so all wallet sessions share one project (and one
+    # rate-limit bucket / metadata) instead of falling back to LI.FI's
+    # public default, which periodically returns "An error occurred when
+    # attempting to switch chain" on `wallet_switchEthereumChain` calls.
+    lifi_walletconnect_project_id = os.environ.get("WALLETCONNECT_PROJECT_ID", "")
 
     return render_template(
         "swap.html",
@@ -6696,7 +6724,11 @@ def swap_page():
         lifi_route_priority=lifi_route_priority,
         lifi_slippage=lifi_slippage,
         lifi_use_recommended_route=lifi_use_recommended_route,
+        lifi_allow_switch_chain=lifi_allow_switch_chain,
+        lifi_allow_destination_call=lifi_allow_destination_call,
+        lifi_disable_message_signing=lifi_disable_message_signing,
         lifi_rpc_urls=lifi_rpc_urls,
+        lifi_walletconnect_project_id=lifi_walletconnect_project_id,
     )
 
 
