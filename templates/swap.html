@@ -1590,9 +1590,13 @@
         "fromToken": lifi_from_token|default("0x0000000000000000000000000000000000000000", true),
         "toToken": lifi_to_token|default("0x0000000000000000000000000000000000000000", true),
         "routePriority": lifi_route_priority|default("FASTEST", true),
-        "slippage": lifi_slippage|default(0.01),
+        "slippage": lifi_slippage|default(0.02),
         "useRecommendedRoute": lifi_use_recommended_route|default(true),
+        "allowSwitchChain": lifi_allow_switch_chain|default(true),
+        "allowDestinationCall": lifi_allow_destination_call|default(true),
+        "disableMessageSigning": lifi_disable_message_signing|default(true),
         "rpcUrls": lifi_rpc_urls|default({}, true),
+        "walletConnectProjectId": lifi_walletconnect_project_id|default("", true),
         "walletAddress": wallet,
         "loginMethod": login_method
     }|tojson }}</script>
