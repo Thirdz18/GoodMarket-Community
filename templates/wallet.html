@@ -4303,6 +4303,12 @@
                 throw new Error(errorMsg);
             }
 
+            if (terminal === 'faucet_not_eligible' && !gasData.gas_ready) {
+                throw new Error(
+                    gasData.error || 'GoodDollar Fuse faucet is not serving this wallet right now. Please try again later.'
+                );
+            }
+
             if (
                 (terminal === 'onchain_failed' || terminal === 'not_configured' || terminal === 'api_failed') &&
                 !gasData.gas_ready
