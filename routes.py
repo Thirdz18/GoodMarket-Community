@@ -8187,6 +8187,84 @@ GOODDOLLAR_FUSE_FAUCET_CONTRACT = os.getenv(
     "0x01ab5966C1d742Ae0CFF7f14cC0F4D85156e83d9"
 )
 
+# Minimal view-only ABI for the GoodDollar faucet (topWallet) contracts. We use
+# this to align our gas "balance check" with GoodDollar's own faucet instead of
+# relying solely on a static floor:
+#   - getToppingAmount(): the amount the faucet tops a wallet UP TO. We treat it
+#     as the readiness floor so "gas ready" matches GoodDollar's notion of a
+#     fully-topped wallet (and stays in sync if GoodDollar changes the amount).
+#   - canTop(address): whether the faucet will actually serve this wallet right
+#     now (balance below topping amount, daily limits, identity). We check this
+#     before the on-chain topWallet fallback so we don't broadcast a tx that is
+#     guaranteed to revert.
+_GOODDOLLAR_FAUCET_VIEW_ABI = [
+    {
+        "inputs": [],
+        "name": "getToppingAmount",
+        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "inputs": [{"internalType": "address", "name": "_user", "type": "address"}],
+        "name": "canTop",
+        "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+]
+
+# Cache getToppingAmount() per faucet address — it changes very rarely, so a
+# 1-hour TTL keeps the readiness path off the RPC hot loop.
+_faucet_topping_cache: dict = {}
+_faucet_topping_cache_lock = threading.Lock()
+_FAUCET_TOPPING_CACHE_TTL = 3600
+
+
+def _faucet_topping_amount_wei(w3, faucet_address: str, fallback_wei: int) -> int:
+    """Read getToppingAmount() from a GoodDollar faucet contract (cached).
+
+    Returns ``fallback_wei`` if the contract cannot be read so the readiness
+    check degrades gracefully to the static floor instead of breaking.
+    """
+    key = (faucet_address or "").lower()
+    now = time.time()
+    with _faucet_topping_cache_lock:
+        entry = _faucet_topping_cache.get(key)
+        if entry and entry["expires_at"] > now:
+            return entry["value"]
+    try:
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(faucet_address),
+            abi=_GOODDOLLAR_FAUCET_VIEW_ABI,
+        )
+        value = int(contract.functions.getToppingAmount().call())
+        if value <= 0:
+            value = fallback_wei
+    except Exception as exc:
+        logger.warning(f"⚠️ Could not read getToppingAmount() from faucet {faucet_address}: {exc}")
+        value = fallback_wei
+    with _faucet_topping_cache_lock:
+        _faucet_topping_cache[key] = {"value": value, "expires_at": now + _FAUCET_TOPPING_CACHE_TTL}
+    return value
+
+
+def _faucet_can_top(w3, faucet_address: str, wallet: str):
+    """Return canTop(wallet) from the faucet, or None if the call cannot be made.
+
+    None means "unknown" — callers should not block the on-chain attempt on an
+    indeterminate result (the contract itself still enforces eligibility).
+    """
+    try:
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(faucet_address),
+            abi=_GOODDOLLAR_FAUCET_VIEW_ABI,
+        )
+        return bool(contract.functions.canTop(Web3.to_checksum_address(wallet)).call())
+    except Exception as exc:
+        logger.warning(f"⚠️ Could not read canTop({wallet}) from faucet {faucet_address}: {exc}")
+        return None
+
 
 def _validate_and_authorize_wallet(data: dict) -> tuple:
     """Validate requested wallet and ensure it belongs to current session."""
@@ -8338,7 +8416,13 @@ def _get_fuse_gas_status(w3, checksum_wallet: str) -> dict:
         gas_price_wei = int(w3.to_wei(20, "gwei"))
 
     required_wei = int(estimated_gas * gas_price_wei * FAUCET_BUFFER_MULTIPLIER)
-    minimum_wei = w3.to_wei(FAUCET_MIN_FUSE, "ether")
+    # Align the readiness floor with GoodDollar's own faucet: read the live
+    # getToppingAmount() (the level the faucet tops wallets up to) and use it as
+    # the minimum, falling back to the static FAUCET_MIN_FUSE if it can't be read.
+    fallback_min_wei = int(w3.to_wei(FAUCET_MIN_FUSE, "ether"))
+    minimum_wei = _faucet_topping_amount_wei(
+        w3, GOODDOLLAR_FUSE_FAUCET_CONTRACT, fallback_min_wei
+    )
     required_wei = max(required_wei, int(minimum_wei))
 
     balance_wei = int(w3.eth.get_balance(checksum_wallet))
@@ -8353,6 +8437,7 @@ def _get_fuse_gas_status(w3, checksum_wallet: str) -> dict:
         "required_gas_fuse": required_fuse,
         "required_gas_xdc": required_fuse,  # compatibility for shared FE parsers
         "required_gas_celo": required_fuse,
+        "faucet_topping_wei": str(int(minimum_wei)),
         "gas_ready": balance_wei >= required_wei,
     }
 
@@ -9376,6 +9461,24 @@ def _execute_onchain_fuse_faucet_topup(w3, checksum_wallet: str, correlation_id:
     faucet_acct = Account.from_key(key)
     faucet_contract = Web3.to_checksum_address(GOODDOLLAR_FUSE_FAUCET_CONTRACT)
 
+    # Ask the faucet itself whether it will serve this wallet (canTop). A False
+    # result means topWallet() would revert (wallet already topped today, above
+    # the topping amount, or not eligible), so skip the doomed broadcast and
+    # return a clear reason instead of burning signer gas on a reverting tx.
+    # None means we couldn't read it — fall through and let the contract decide.
+    can_top = _faucet_can_top(w3, GOODDOLLAR_FUSE_FAUCET_CONTRACT, checksum_wallet)
+    if can_top is False:
+        logger.info(
+            f"ℹ️ Fuse faucet canTop=false wallet={checksum_wallet.lower()} "
+            f"correlation_id={correlation_id} — skipping on-chain topWallet"
+        )
+        return {
+            "success": False,
+            "status": "onchain_failed",
+            "reason": "faucet_not_eligible",
+            "error": "GoodDollar Fuse faucet reports this wallet is not eligible for a top-up right now (canTop=false).",
+        }
+
     # calldata for topWallet(address): 0x3771dcf8 + padded wallet bytes
     call_data = "0x3771dcf8" + "000000000000000000000000" + checksum_wallet[2:].lower()
     nonce = w3.eth.get_transaction_count(faucet_acct.address, "pending")
@@ -10351,16 +10454,21 @@ def fuse_faucet_gas():
             })
             if onchain_result.get("success"):
                 break
-            if (onchain_result or {}).get("reason") == "signer_insufficient_funds":
+            # Don't retry on terminal conditions: the signer can't pay, or the
+            # faucet itself says this wallet isn't eligible (canTop=false).
+            if (onchain_result or {}).get("reason") in ("signer_insufficient_funds", "faucet_not_eligible"):
                 break
 
         status_after = _get_fuse_gas_status(w3, checksum_wallet)
         topped_up = bool(onchain_result.get("success"))
+        onchain_reason = (onchain_result or {}).get("reason")
 
         terminal_status = (
             "gas_ready" if status_after["gas_ready"] else
             ("onchain_sent" if topped_up else (
-                "not_configured" if (onchain_result or {}).get("reason") == "not_configured" else "onchain_failed"
+                "not_configured" if onchain_reason == "not_configured" else (
+                    "faucet_not_eligible" if onchain_reason == "faucet_not_eligible" else "onchain_failed"
+                )
             ))
         )
 
@@ -10374,6 +10482,8 @@ def fuse_faucet_gas():
             "topup_source": "onchain" if topped_up else None,
             "api_tx_hash": api_tx_hash,
             "api_error": api_error,
+            "reason": onchain_reason if not topped_up else None,
+            "error": (onchain_result or {}).get("error") if not (status_after["gas_ready"] or topped_up) else None,
             "onchain_result": onchain_result,
             "onchain_attempts": len(onchain_attempt_history),
             "onchain_attempt_history": onchain_attempt_history,
