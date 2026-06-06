@@ -4351,12 +4351,17 @@
                 }
             }
 
-            const requestFuseFaucetGas = async (forceFlag) => {
-                setClaimGasUiState('checking_server_gas');
+            const requestFuseFaucetGas = async ({ forceFlag = false, checkOnly = false } = {}) => {
+                setClaimGasUiState(checkOnly ? 'checking_server_gas' : 'requesting_faucet');
                 const gasData = await _safeFetchJson('/api/fuse/faucet/gas', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-Correlation-ID': correlationId },
-                    body: JSON.stringify({ wallet: WALLET, correlation_id: correlationId, force_onchain: !!forceFlag })
+                    body: JSON.stringify({
+                        wallet: WALLET,
+                        correlation_id: correlationId,
+                        force_onchain: !!forceFlag,
+                        check_only: !!checkOnly
+                    })
                 });
                 return {
                     gasData,
@@ -4364,7 +4369,9 @@
                 };
             };
 
-            let { gasData, terminal } = await requestFuseFaucetGas(forceOnchain);
+            let { gasData, terminal } = forceOnchain
+                ? await requestFuseFaucetGas({ forceFlag: true, checkOnly: false })
+                : await requestFuseFaucetGas({ checkOnly: true });
 
             if (gasData.gas_ready) {
                 setClaimGasUiState('gas_ready');
@@ -4394,6 +4401,24 @@
                 }
 
                 throw new Error(errorMsg);
+            }
+
+            if (!forceOnchain && terminal === 'needs_faucet' && !gasData.gas_ready) {
+                ({ gasData, terminal } = await requestFuseFaucetGas({ checkOnly: false }));
+
+                if (gasData.gas_ready) {
+                    setClaimGasUiState('gas_ready');
+                    return {
+                        gasReady: true,
+                        toppedUp: !!gasData.topped_up,
+                        source: gasData.topup_source || 'wallet_balance'
+                    };
+                }
+
+                if (terminal === 'recent_refill' && !gasData.gas_ready) {
+                    const cooldownSeconds = Number(gasData.recent_refill_cooldown_seconds || 0);
+                    throw new Error(`Fuse gas refill cooldown active. Please wait ${cooldownSeconds}s before retrying.`);
+                }
             }
 
             if (
