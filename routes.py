@@ -10209,12 +10209,11 @@ def xdc_faucet_gas():
 @routes.route("/api/fuse/faucet/gas", methods=["POST"])
 @auth_required
 def fuse_faucet_gas():
-    """Fuse claim-safe flow: gas readiness check + optional faucet top-up."""
+    """Fuse claim-safe flow: gas readiness check + faucet top-up attempts."""
     try:
         data = request.get_json(silent=True) or {}
         correlation_id = _get_faucet_correlation_id(data)
         force_onchain = _coerce_bool(data.get("force_onchain"))
-        check_only = _coerce_bool(data.get("check_only")) or _coerce_bool(data.get("status_only"))
         checksum_wallet, err_resp, status_code = _validate_and_authorize_wallet(data)
         if err_resp:
             return err_resp, status_code
@@ -10234,9 +10233,6 @@ def fuse_faucet_gas():
                 "correlation_id": correlation_id,
                 "wallet": checksum_wallet.lower(),
                 "terminal_status": "gas_ready",
-                "check_only": check_only,
-                "attempted_api": False,
-                "attempted_onchain": False,
                 **status_before,
             })
 
@@ -10256,9 +10252,6 @@ def fuse_faucet_gas():
                 "recent_refill_cooldown_seconds": seconds_remaining,
                 "correlation_id": correlation_id,
                 "wallet": checksum_wallet.lower(),
-                "check_only": check_only,
-                "attempted_api": False,
-                "attempted_onchain": False,
                 "debug": {
                     "pre_balance_wei": str(pre_balance_wei),
                     "post_balance_wei": str(pre_balance_wei),
@@ -10267,22 +10260,6 @@ def fuse_faucet_gas():
                     "cooldown_reason": "recent_refill",
                     "force_onchain_blocked": force_onchain,
                 },
-                **status_before,
-            })
-
-        if check_only:
-            return jsonify({
-                "success": True,
-                "status": "needs_faucet",
-                "gas_ready": False,
-                "topped_up": False,
-                "topup_source": None,
-                "terminal_status": "needs_faucet",
-                "check_only": True,
-                "attempted_api": False,
-                "attempted_onchain": False,
-                "correlation_id": correlation_id,
-                "wallet": checksum_wallet.lower(),
                 **status_before,
             })
 
@@ -10307,10 +10284,7 @@ def fuse_faucet_gas():
         api_ok = False
         api_tx_hash = None
         api_error = None
-        attempted_api = False
-        attempted_onchain = False
         if not force_onchain:
-            attempted_api = True
             try:
                 payload = json.dumps({"chainId": 122, "account": checksum_wallet}).encode("utf-8")
                 req = urllib.request.Request(
@@ -10347,9 +10321,6 @@ def fuse_faucet_gas():
                     "gas_ready": status_after_api["gas_ready"],
                     "topped_up": True,
                     "topup_source": "api",
-                    "attempted_api": attempted_api,
-                    "attempted_onchain": False,
-                    "check_only": False,
                     "api_tx_hash": api_tx_hash,
                     "api_error": api_error,
                     "terminal_status": "gas_ready" if status_after_api["gas_ready"] else "api_accepted_pending",
@@ -10368,7 +10339,6 @@ def fuse_faucet_gas():
         onchain_attempt_history = []
         onchain_result = {}
         for attempt in range(onchain_attempts):
-            attempted_onchain = True
             onchain_result = _execute_onchain_fuse_faucet_topup(
                 w3, checksum_wallet, correlation_id=correlation_id
             )
@@ -10402,9 +10372,6 @@ def fuse_faucet_gas():
             "gas_ready": status_after["gas_ready"],
             "topped_up": topped_up,
             "topup_source": "onchain" if topped_up else None,
-            "attempted_api": attempted_api,
-            "attempted_onchain": attempted_onchain,
-            "check_only": False,
             "api_tx_hash": api_tx_hash,
             "api_error": api_error,
             "onchain_result": onchain_result,

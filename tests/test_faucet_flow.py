@@ -537,76 +537,7 @@ class FaucetFlowTests(unittest.TestCase):
         self.assertIn("force_onchain_rate_limit_retry_after_seconds", body)
         self.assertEqual(body["force_onchain_max_per_hour"], 2)
 
-    @patch("routes._execute_onchain_fuse_faucet_topup")
-    @patch("routes.urllib.request.urlopen")
     @patch("routes.Web3", new=FakeWeb3)
-    @patch("routes._get_fuse_gas_status")
-    def test_fuse_check_only_ready_skips_faucet(self, mock_get_fuse_gas, mock_urlopen, mock_onchain):
-        self._auth_session()
-        mock_get_fuse_gas.return_value = {
-            "balance_wei": "4000000000000000",
-            "balance_fuse": 0.004,
-            "estimated_gas": 220000,
-            "gas_price_wei": "1000000000",
-            "required_gas_wei": "3000000000000000",
-            "required_gas_fuse": 0.003,
-            "required_gas_xdc": 0.003,
-            "required_gas_celo": 0.003,
-            "gas_ready": True,
-        }
-
-        resp = self.client.post(
-            "/api/fuse/faucet/gas",
-            json={"wallet": "0x1111111111111111111111111111111111111111", "check_only": True},
-        )
-        body = resp.get_json()
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(body["success"])
-        self.assertTrue(body["gas_ready"])
-        self.assertTrue(body["check_only"])
-        self.assertFalse(body["topped_up"])
-        self.assertFalse(body["attempted_api"])
-        self.assertFalse(body["attempted_onchain"])
-        mock_urlopen.assert_not_called()
-        mock_onchain.assert_not_called()
-
-    @patch("routes._execute_onchain_fuse_faucet_topup")
-    @patch("routes.urllib.request.urlopen")
-    @patch("routes.Web3", new=FakeWeb3)
-    @patch("routes._has_recent_refill")
-    @patch("routes._get_fuse_gas_status")
-    def test_fuse_check_only_short_balance_does_not_request_faucet(
-        self, mock_get_fuse_gas, mock_recent, mock_urlopen, mock_onchain
-    ):
-        self._auth_session()
-        mock_recent.return_value = (False, 0)
-        mock_get_fuse_gas.return_value = {
-            "balance_wei": "0",
-            "balance_fuse": 0.0,
-            "estimated_gas": 220000,
-            "gas_price_wei": "1000000000",
-            "required_gas_wei": "3000000000000000",
-            "required_gas_fuse": 0.003,
-            "required_gas_xdc": 0.003,
-            "required_gas_celo": 0.003,
-            "gas_ready": False,
-        }
-
-        resp = self.client.post(
-            "/api/fuse/faucet/gas",
-            json={"wallet": "0x1111111111111111111111111111111111111111", "check_only": True},
-        )
-        body = resp.get_json()
-        self.assertEqual(resp.status_code, 200)
-        self.assertTrue(body["success"])
-        self.assertEqual(body["terminal_status"], "needs_faucet")
-        self.assertTrue(body["check_only"])
-        self.assertFalse(body["gas_ready"])
-        self.assertFalse(body["attempted_api"])
-        self.assertFalse(body["attempted_onchain"])
-        mock_urlopen.assert_not_called()
-        mock_onchain.assert_not_called()
-
     @patch("routes._execute_minipay_cusd_faucet_transfer")
     @patch("routes._get_minipay_stablecoin_balances")
     def test_minipay_stablecoin_faucet_sends_cusd_when_below_threshold(
