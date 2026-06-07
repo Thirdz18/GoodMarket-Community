@@ -85,43 +85,6 @@ def _env_float(name: str, default: float, *, minimum: float | None = None, maxim
     return value
 
 
-def _lifi_rpc_urls(celo_chain_id: int, to_chain_id: int, fuse_chain_id: int) -> dict[int, list[str]]:
-    """Build LI.FI SDK RPC config from safe defaults plus optional env overrides.
-
-    LI.FI's hosted widget can use public RPCs automatically, but route
-    simulation and balance reads are a common source of intermittent swap /
-    bridge failures when those public endpoints rate-limit.  We provide stable
-    defaults for the app's common chains and let operators override or extend
-    them with either LIFI_RPC_URLS_JSON or LIFI_RPC_URL_<chain_id>.
-    """
-
-    rpc_urls: dict[int, list[str]] = {
-        celo_chain_id: [os.getenv("LIFI_CELO_RPC_URL", os.getenv("CELO_RPC_URL", "https://forno.celo.org"))],
-        8453: [os.getenv("LIFI_BASE_RPC_URL", "https://mainnet.base.org")],
-        fuse_chain_id: [os.getenv("LIFI_FUSE_RPC_URL", os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io"))],
-    }
-
-    raw_json = os.getenv("LIFI_RPC_URLS_JSON")
-    if raw_json:
-        try:
-            configured = json.loads(raw_json)
-            if isinstance(configured, dict):
-                for chain_id, urls in configured.items():
-                    values = urls if isinstance(urls, list) else [urls]
-                    cleaned = [str(url).strip() for url in values if str(url).strip()]
-                    if cleaned:
-                        rpc_urls[int(chain_id)] = cleaned
-        except (TypeError, ValueError, json.JSONDecodeError):
-            logger.warning("Invalid LIFI_RPC_URLS_JSON; ignoring custom LI.FI RPC map")
-
-    for chain_id in {celo_chain_id, to_chain_id, 8453, fuse_chain_id, 1, 10, 56, 137, 42161, 43114}:
-        override = os.getenv(f"LIFI_RPC_URL_{chain_id}")
-        if override:
-            rpc_urls[int(chain_id)] = [url.strip() for url in override.split(",") if url.strip()]
-
-    return {chain_id: urls for chain_id, urls in rpc_urls.items() if urls}
-
-
 def _parse_iso_datetime(value):
     """Safely parse ISO datetime strings to timezone-aware UTC datetime."""
     if not value:
@@ -6630,71 +6593,84 @@ def swap_page():
     fuse_wfuse_contract = os.getenv("FUSE_WFUSE_TOKEN", "0x0BE9e53fd7EDaC9F859882AfdDa116645287C629")
     voltage_router_contract = os.getenv("VOLTAGE_ROUTER", "0xE3F85aAd0c8DD7337427B9dF5d0fB741d65EEEB5")
 
-    # LI.FI / Jumper widget configuration for the Buy Crypto (cross-chain swap)
-    # pane.  LI.FI does NOT require contacting their team for an integrator
-    # ID — the field is just a self-chosen identifier that gets sent in the
-    # `x-lifi-integrator` header, so a sensible default keeps the widget
-    # rendering even without env overrides.  Defaults target the original
-    # Squid use case (Celo → native ETH on Base) but LI.FI supports many
-    # more chains/tokens (BNB, Polygon, Arbitrum, Optimism, etc.) so the
-    # user can pick a different destination from inside the widget UI.
-    lifi_integrator = os.getenv("LIFI_INTEGRATOR", "goodmarket-community")
-    lifi_api_url = os.getenv("LIFI_API_URL", "https://li.quest/v1").rstrip("/")
-    lifi_from_chain_id = int(os.getenv("LIFI_FROM_CHAIN_ID", str(celo_chain_id)))
-    lifi_to_chain_id = int(os.getenv("LIFI_TO_CHAIN_ID", "8453"))
-    # LI.FI's native-token convention is the zero address on every EVM chain
-    # EXCEPT Celo — there the native CELO asset is itself an ERC-20 at
-    # 0x471EcE3750Da237f93B8E339c536989b8978a438, and LI.FI's API returns
-    # `Token 42220-0x0000… is invalid or in deny list.` if the widget tries
-    # to use the zero address.  That 400 response was what blocked the
-    # initial gas/quote estimate and bubbled up to users as "failed
-    # bridging/swapping".  So we pick the correct sentinel per chain, with
-    # an env override (`LIFI_FROM_TOKEN`) as the final say.
-    lifi_zero_address = "0x0000000000000000000000000000000000000000"
-    lifi_celo_native = "0x471EcE3750Da237f93B8E339c536989b8978a438"
-    lifi_from_native_default = (
-        lifi_celo_native if lifi_from_chain_id == celo_chain_id else lifi_zero_address
-    )
-    lifi_to_native_default = (
-        lifi_celo_native if lifi_to_chain_id == celo_chain_id else lifi_zero_address
-    )
-    lifi_from_token = os.getenv("LIFI_FROM_TOKEN", lifi_from_native_default)
-    lifi_to_token = os.getenv("LIFI_TO_TOKEN", lifi_to_native_default)
-    lifi_route_priority = os.getenv("LIFI_ROUTE_PRIORITY", "FASTEST").upper()
-    if lifi_route_priority not in {"FASTEST", "CHEAPEST"}:
-        logger.warning("Invalid LIFI_ROUTE_PRIORITY=%r; using FASTEST", lifi_route_priority)
-        lifi_route_priority = "FASTEST"
-    # Bumped from 0.01 (1%) to 0.02 (2%) because Celo bridges (Allbridge,
-    # Glacis, Eco) routinely move price 1-1.5% between quote and execution.
-    # The previous default tripped wallet simulators with "execution
-    # reverted" / "unknown RPC error" right at the signing step.
-    lifi_slippage = _env_float("LIFI_SLIPPAGE", 0.02, minimum=0.001, maximum=0.03)
-    lifi_use_recommended_route = _env_bool("LIFI_USE_RECOMMENDED_ROUTE", True)
-    # LI.FI's default `RouteOptions.allowSwitchChain` is FALSE, which means
-    # the widget hides every Celo→Base bridge whose destination is a stable
-    # that still needs an on-Base swap to reach native ETH — Allbridge,
-    # Glacis, Eco, Across via USDC etc.  That leaves only fragile single-tx
-    # routes that wallets often flag as "Transaction will likely fail" and
-    # bubble up as "unknown RPC error" inside the widget.  Enable both
-    # explicitly so users get the reliable two-step routes back.
-    lifi_allow_switch_chain = _env_bool("LIFI_ALLOW_SWITCH_CHAIN", True)
-    lifi_allow_destination_call = _env_bool("LIFI_ALLOW_DESTINATION_CALL", True)
-    # Permit2 (callDiamondWithPermit2 at 0x89c6340B...) is the default LI.FI
-    # signing path, but on Celo the native asset IS the CELO ERC-20 at
-    # 0x471EcE...A438, which means the same token is moved twice on a
-    # single tx (msg.value + Permit2 pull) and the wallet's pre-flight
-    # simulator reverts the call.  Disabling message signing forces the
-    # widget to fall back to a standard `approve()` flow that wallets
-    # simulate cleanly.  Operators can re-enable Permit2 by setting
-    # LIFI_DISABLE_MESSAGE_SIGNING=false.
-    lifi_disable_message_signing = _env_bool("LIFI_DISABLE_MESSAGE_SIGNING", True)
-    lifi_rpc_urls = _lifi_rpc_urls(celo_chain_id, lifi_to_chain_id, fuse_chain_id)
-    # Forward our own WalletConnect projectId to LI.FI's internal wagmi
-    # WC connector so all wallet sessions share one project (and one
-    # rate-limit bucket / metadata) instead of falling back to LI.FI's
-    # public default, which periodically returns "An error occurred when
-    # attempting to switch chain" on `wallet_switchEthereumChain` calls.
-    lifi_walletconnect_project_id = os.environ.get("WALLETCONNECT_PROJECT_ID", "")
+    # Squid Router Celo -> Base ETH widget configuration for the Buy Crypto
+    # (cross-chain swap) pane.  These values have production-safe defaults so
+    # Vercel does NOT need any Squid env vars just to render and use the
+    # widget.
+    #
+    # integratorId: Squid's API rejects an unregistered/empty integratorId
+    # with `401 "Integrator ID is invalid"` (the SquidProvider also throws
+    # and renders blank when it is empty), which is what previously broke the
+    # widget.  Rather than require contacting Squid support, we default to
+    # Squid's own public widget integrator id ("squid-swap-widget"), which
+    # authenticates against the Squid API and returns live routes with no
+    # registration.  Operators who later obtain their own integrator id can
+    # override it with the optional SQUID_INTEGRATOR_ID env var — but it is
+    # NOT required for the widget to work.
+    squid_integrator_id = os.getenv("SQUID_INTEGRATOR_ID", "squid-swap-widget")
+    squid_api_url = os.getenv("SQUID_API_URL", "https://v2.api.squidrouter.com").rstrip("/")
+    squid_from_chain_id = int(os.getenv("SQUID_FROM_CHAIN_ID", str(celo_chain_id)))
+    squid_to_chain_id = int(os.getenv("SQUID_TO_CHAIN_ID", "8453"))
+    squid_to_token = os.getenv("SQUID_TO_TOKEN", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")
+    squid_source_tokens = [
+        {
+            "symbol": "CELO",
+            "name": "Celo",
+            "address": os.getenv("SQUID_CELO_TOKEN", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"),
+            "note": "Native gas token on Celo",
+        },
+        {
+            "symbol": "cUSD",
+            "name": "Celo Dollar",
+            "address": os.getenv("SQUID_CUSD_TOKEN", "0x765DE816845861e75A25fCA122bb6898B8B1282a"),
+            "note": "Celo-native stablecoin",
+        },
+        {
+            "symbol": "USDC",
+            "name": "USD Coin",
+            "address": os.getenv("SQUID_USDC_TOKEN", "0xcebA9300f2b948710d2653dD7B07f33A8B32118C"),
+            "note": "Native Circle USDC on Celo",
+        },
+        {
+            "symbol": "USDT",
+            "name": "Tether USD",
+            "address": os.getenv("SQUID_USDT_TOKEN", "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e"),
+            "note": "Tether on Celo",
+        },
+    ]
+    squid_source_chain_id = int(squid_from_chain_id)
+    squid_destination_chain_id = int(squid_to_chain_id)
+    squid_widget_config = {
+        "integratorId": squid_integrator_id,
+        "apiUrl": squid_api_url,
+        "themeType": "dark",
+        "initialAssets": {
+            "from": {
+                "address": squid_source_tokens[0]["address"],
+                "chainId": squid_source_chain_id,
+            },
+            "to": {
+                "address": squid_to_token,
+                "chainId": squid_destination_chain_id,
+            },
+        },
+        "defaultTokensPerChain": [
+            {"address": token["address"], "chainId": squid_source_chain_id}
+            for token in squid_source_tokens
+        ] + [{"address": squid_to_token, "chainId": squid_destination_chain_id}],
+        "availableChains": {
+            "source": [squid_source_chain_id],
+            "destination": [squid_destination_chain_id],
+        },
+        "availableTokens": {
+            "source": {
+                str(squid_source_chain_id): [token["address"] for token in squid_source_tokens],
+            },
+            "destination": {
+                str(squid_destination_chain_id): [squid_to_token],
+            },
+        },
+    }
 
     return render_template(
         "swap.html",
@@ -6715,20 +6691,13 @@ def swap_page():
         fuse_gd_decimals=fuse_gd_decimals,
         fuse_wfuse_contract=fuse_wfuse_contract,
         voltage_router_contract=voltage_router_contract,
-        lifi_integrator=lifi_integrator,
-        lifi_api_url=lifi_api_url,
-        lifi_from_chain_id=lifi_from_chain_id,
-        lifi_to_chain_id=lifi_to_chain_id,
-        lifi_from_token=lifi_from_token,
-        lifi_to_token=lifi_to_token,
-        lifi_route_priority=lifi_route_priority,
-        lifi_slippage=lifi_slippage,
-        lifi_use_recommended_route=lifi_use_recommended_route,
-        lifi_allow_switch_chain=lifi_allow_switch_chain,
-        lifi_allow_destination_call=lifi_allow_destination_call,
-        lifi_disable_message_signing=lifi_disable_message_signing,
-        lifi_rpc_urls=lifi_rpc_urls,
-        lifi_walletconnect_project_id=lifi_walletconnect_project_id,
+        squid_integrator_id=squid_integrator_id,
+        squid_api_url=squid_api_url,
+        squid_from_chain_id=squid_from_chain_id,
+        squid_to_chain_id=squid_to_chain_id,
+        squid_to_token=squid_to_token,
+        squid_source_tokens=squid_source_tokens,
+        squid_widget_config=squid_widget_config,
     )
 
 

@@ -210,9 +210,9 @@ _CSP_DIRECTIVES = (
     "https://telegram.org https://*.telegram.org "
     "https://www.youtube.com https://www.youtube-nocookie.com "
     "https://platform.twitter.com "
-    "https://jumper.exchange https://*.jumper.exchange "
-    "https://li.quest https://*.li.quest "
-    "https://lifi.exchange https://*.lifi.exchange",
+    "https://apiplus.squidrouter.com https://v2.api.squidrouter.com "
+    "https://studio.squidrouter.com https://app.squidrouter.com "
+    "https://*.squidrouter.com",
     "media-src 'self' data: blob:",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
