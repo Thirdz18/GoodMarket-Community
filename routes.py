@@ -7984,6 +7984,10 @@ _faucet_recent_refill: dict = {}
 _faucet_api_pending: dict = {}
 _minipay_cusd_recent_refill: dict = {}
 _minipay_cusd_pending: dict = {}
+# Global per-UTC-day MiniPay cUSD disbursement accumulator: "YYYY-MM-DD" -> Decimal.
+# In-memory fallback for the daily cap; the authoritative count is summed from
+# the minipay_cusd_faucet_refills table (see _minipay_cusd_daily_disbursed).
+_minipay_cusd_daily_spend: dict = {}
 # Track force_onchain attempts: wallet_address -> list of timestamps
 _force_onchain_attempts: dict = {}
 _faucet_lock = threading.Lock()
@@ -8038,6 +8042,13 @@ MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.
 # again until they actually return tomorrow + buffer.
 MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS = int(os.getenv("MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS", "172800"))
 MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT = int(os.getenv("MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT", "120"))
+# Global defense-in-depth cap on total cUSD the MiniPay faucet may disburse per
+# UTC day, across ALL wallets. Even with the per-wallet 48h cooldown and the
+# GoodDollar face-verification gate, this bounds the worst-case drain (e.g. a
+# verified-wallet farm) so the pool cannot be emptied in a single day. Sized as
+# (expected daily unique claimers) * MINIPAY_CUSD_FAUCET_AMOUNT with headroom;
+# operators can tune via env. Set to 0 to disable the cap.
+MINIPAY_CUSD_FAUCET_DAILY_CAP = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_DAILY_CAP", "25"))
 # Per-wallet GoodDollar Celo gas faucet cooldown. The GoodDollar topWallet
 # API (and the TOPWALLET_KEY on-chain fallback that calls the same faucet
 # contract) hand out ~0.3 CELO per refill, which covers ~3 days of normal
@@ -8631,14 +8642,70 @@ def _record_minipay_cusd_refill(checksum_wallet: str, tx_hash: str, amount_cusd:
         "amount_cusd": str(amount_cusd),
         "source": "memory",
     }
+    day_key = refill_at.date().isoformat()
     with _faucet_lock:
         _minipay_cusd_recent_refill[checksum_wallet.lower()] = entry
+        try:
+            amount_dec = Decimal(str(amount_cusd))
+        except Exception:
+            amount_dec = Decimal(0)
+        _minipay_cusd_daily_spend[day_key] = (
+            _minipay_cusd_daily_spend.get(day_key, Decimal(0)) + amount_dec
+        )
+        # Prune stale day buckets so the in-memory map cannot grow unbounded.
+        for stale in [k for k in _minipay_cusd_daily_spend if k != day_key]:
+            _minipay_cusd_daily_spend.pop(stale, None)
 
     _upsert_minipay_cusd_refill_to_db(checksum_wallet, tx_hash, amount_cusd, refill_at)
     logger.info(
         f"🧾 MiniPay cUSD faucet cooldown recorded wallet={checksum_wallet.lower()} "
         f"amount={amount_cusd} tx={tx_hash or 'n/a'}"
     )
+
+
+def _minipay_cusd_daily_disbursed() -> Decimal:
+    """Total cUSD disbursed by the MiniPay faucet so far in the current UTC day.
+
+    The per-wallet 48h cooldown means a wallet can be refilled at most once per
+    UTC day, so each row in minipay_cusd_faucet_refills whose last_refill_at
+    falls in today is exactly one of today's disbursements. We therefore sum
+    amount_cusd over today's rows for an authoritative, multi-worker-safe total,
+    and fall back to the in-memory accumulator when the DB is unavailable.
+    """
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    day_key = start.date().isoformat()
+
+    db_total = None
+    sb = get_supabase_admin_client() or get_supabase_client()
+    if sb:
+        try:
+            result = safe_supabase_operation(
+                lambda: sb.table("minipay_cusd_faucet_refills")
+                .select("amount_cusd,last_refill_at")
+                .gte("last_refill_at", start.isoformat())
+                .execute(),
+                fallback_result=None,
+                operation_name="minipay_cusd_daily_disbursed",
+            )
+            rows = getattr(result, "data", None) or []
+            db_total = Decimal(0)
+            for row in rows:
+                try:
+                    db_total += Decimal(str(row.get("amount_cusd") or "0"))
+                except Exception:
+                    continue
+        except Exception as exc:
+            logger.warning(f"⚠️ MiniPay cUSD daily-cap DB read failed: {exc}")
+            db_total = None
+
+    with _faucet_lock:
+        mem_total = _minipay_cusd_daily_spend.get(day_key, Decimal(0))
+
+    if db_total is None:
+        return mem_total
+    # DB is authoritative across workers; in-memory may briefly lead the DB for
+    # an in-flight refill in this process, so take the larger of the two.
+    return max(db_total, mem_total)
 
 def _set_minipay_cusd_pending(checksum_wallet: str):
     with _faucet_lock:
@@ -9978,6 +10045,40 @@ def minipay_stablecoin_faucet():
         if err_resp:
             return err_resp, status_code
 
+        # ── GoodDollar face-verification gate ─────────────────────────────────
+        # The faucet hands out real cUSD, so it MUST be restricted to wallets
+        # that are face-verified on the GoodDollar Identity contract. We do NOT
+        # trust session["verified"] here — that flag only means "logged in to
+        # GoodMarket" (and one login path even trusts a URL param), so relying
+        # on it let unverified/sybil wallets drain the pool. Instead we re-check
+        # on-chain isWhitelisted() for every request (cached briefly upstream).
+        try:
+            from blockchain import is_identity_verified
+            fv_status = is_identity_verified(checksum_wallet)
+        except Exception as fv_err:
+            logger.warning(
+                f"⚠️ MiniPay cUSD faucet face-verification check failed "
+                f"wallet={checksum_wallet.lower()}: {fv_err}"
+            )
+            fv_status = {"verified": False, "error": str(fv_err)}
+        if not fv_status.get("verified"):
+            return jsonify({
+                "success": False,
+                "status": "not_face_verified",
+                "wallet": checksum_wallet.lower(),
+                "topped_up": False,
+                "stable_ready": False,
+                "face_verified": False,
+                "reason": (
+                    "GoodDollar face verification is required to receive the "
+                    "MiniPay cUSD gas budget. Please complete face verification "
+                    "in the GoodDollar app, then try again."
+                ),
+                "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
+                "program_by": MINIPAY_CUSD_FAUCET_PROGRAM_LABEL,
+                "correlation_id": correlation_id,
+            }), 403
+
         from blockchain import CELO_RPC
         w3 = Web3(Web3.HTTPProvider(CELO_RPC, request_kwargs={"timeout": 15}))
         stable_before = _get_minipay_stablecoin_balances(w3, checksum_wallet)
@@ -10026,6 +10127,35 @@ def minipay_stablecoin_faucet():
                 "correlation_id": correlation_id,
                 "stablecoin_status": stable_before,
             })
+
+        # ── Global daily disbursement cap (defense-in-depth) ──────────────────
+        # Bounds the worst-case drain even if many distinct verified wallets
+        # request on the same day. Disabled when the cap is set to 0.
+        if MINIPAY_CUSD_FAUCET_DAILY_CAP > 0:
+            disbursed_today = _minipay_cusd_daily_disbursed()
+            if disbursed_today + MINIPAY_CUSD_FAUCET_AMOUNT > MINIPAY_CUSD_FAUCET_DAILY_CAP:
+                logger.warning(
+                    f"🚧 MiniPay cUSD faucet daily cap reached: "
+                    f"disbursed_today={disbursed_today} cap={MINIPAY_CUSD_FAUCET_DAILY_CAP} "
+                    f"wallet={checksum_wallet.lower()}"
+                )
+                return jsonify({
+                    "success": False,
+                    "status": "daily_cap_reached",
+                    "wallet": checksum_wallet.lower(),
+                    "topped_up": False,
+                    "stable_ready": False,
+                    "reason": (
+                        "The MiniPay cUSD faucet has reached its daily limit. "
+                        "Please try again tomorrow."
+                    ),
+                    "faucet_amount_cusd": float(MINIPAY_CUSD_FAUCET_AMOUNT),
+                    "daily_cap_cusd": float(MINIPAY_CUSD_FAUCET_DAILY_CAP),
+                    "disbursed_today_cusd": float(disbursed_today),
+                    "program_by": MINIPAY_CUSD_FAUCET_PROGRAM_LABEL,
+                    "correlation_id": correlation_id,
+                    "stablecoin_status": stable_before,
+                }), 429
 
         _set_minipay_cusd_pending(checksum_wallet)
         try:

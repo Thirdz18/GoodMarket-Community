@@ -34,6 +34,16 @@ class FaucetFlowTests(unittest.TestCase):
             _routes_mod._faucet_recent_refill.clear()
             _routes_mod._faucet_api_pending.clear()
             _routes_mod._minipay_cusd_recent_refill.clear()
+            _routes_mod._minipay_cusd_pending.clear()
+            _routes_mod._minipay_cusd_daily_spend.clear()
+        # The MiniPay cUSD faucet now gates on GoodDollar face verification
+        # (on-chain isWhitelisted via blockchain.is_identity_verified). Default
+        # it to verified for the existing happy-path tests; individual tests can
+        # override self.mock_identity.return_value to exercise the 403 path.
+        identity_patcher = patch("blockchain.is_identity_verified")
+        self.mock_identity = identity_patcher.start()
+        self.mock_identity.return_value = {"verified": True}
+        self.addCleanup(identity_patcher.stop)
 
     def _auth_session(self, wallet="0x1111111111111111111111111111111111111111"):
         with self.client.session_transaction() as sess:
@@ -565,6 +575,7 @@ class FaucetFlowTests(unittest.TestCase):
             "success": True,
             "status": "cusd_sent",
             "tx_hash": "0xcusd",
+            "topup_source": "topwallet_key_cusd",
             "amount_cusd": float(_routes_mod.MINIPAY_CUSD_FAUCET_AMOUNT),
         }
 
@@ -738,6 +749,65 @@ class FaucetFlowTests(unittest.TestCase):
         self.assertFalse(body["success"])
         self.assertEqual(body["status"], "cusd_faucet_failed")
         self.assertEqual(body["reason"], "signer_insufficient_cusd")
+
+    @patch("routes.Web3", new=FakeWeb3)
+    @patch("routes._execute_minipay_cusd_faucet_transfer")
+    @patch("routes._get_minipay_stablecoin_balances")
+    def test_minipay_stablecoin_faucet_blocks_unverified_wallet(
+        self, mock_balances, mock_transfer
+    ):
+        # A wallet that is NOT face-verified on GoodDollar must be rejected
+        # with 403 and no disbursement — this is the anti-farming gate.
+        self._auth_session()
+        self.mock_identity.return_value = {"verified": False}
+
+        resp = self.client.post(
+            "/api/minipay/stablecoin-faucet",
+            json={"wallet": "0x1111111111111111111111111111111111111111"},
+        )
+        body = resp.get_json()
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(body["success"])
+        self.assertEqual(body["status"], "not_face_verified")
+        self.assertFalse(body["face_verified"])
+        # Must short-circuit before any balance read or disbursement.
+        mock_transfer.assert_not_called()
+        mock_balances.assert_not_called()
+
+    @patch("routes.Web3", new=FakeWeb3)
+    @patch("routes._execute_minipay_cusd_faucet_transfer")
+    @patch("routes._get_minipay_stablecoin_balances")
+    def test_minipay_stablecoin_faucet_blocks_when_daily_cap_reached(
+        self, mock_balances, mock_transfer
+    ):
+        # Even for a verified, below-threshold wallet, once the global daily
+        # cap is hit the faucet returns 429 and disburses nothing.
+        self._auth_session()
+        mock_balances.return_value = {
+            "balances": {"cusd": {"balance": 0.0}, "usdt": {"balance": 0.0}, "usdc": {"balance": 0.0}},
+            "total_usd": 0.0,
+            "total_usd_exact": "0",
+            "stable_ready": False,
+            "required_usd": 0.05,
+        }
+        import routes as _routes_mod
+        from datetime import datetime, timezone
+        day_key = datetime.now(timezone.utc).date().isoformat()
+        with _routes_mod._faucet_lock:
+            _routes_mod._minipay_cusd_daily_spend[day_key] = _routes_mod.MINIPAY_CUSD_FAUCET_DAILY_CAP
+
+        with patch("routes.get_supabase_admin_client", return_value=None), \
+                patch("routes.get_supabase_client", return_value=None):
+            resp = self.client.post(
+                "/api/minipay/stablecoin-faucet",
+                json={"wallet": "0x1111111111111111111111111111111111111111"},
+            )
+        body = resp.get_json()
+        self.assertEqual(resp.status_code, 429)
+        self.assertFalse(body["success"])
+        self.assertEqual(body["status"], "daily_cap_reached")
+        self.assertEqual(body["daily_cap_cusd"], float(_routes_mod.MINIPAY_CUSD_FAUCET_DAILY_CAP))
+        mock_transfer.assert_not_called()
 
     # ── GoodDollar 48h cooldown (drainage protection) ──────────────────
     # The cooldown is checked BEFORE the in-memory `_has_recent_refill`
