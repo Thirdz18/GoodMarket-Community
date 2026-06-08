@@ -1523,7 +1523,51 @@ def check_ubi_entitlement(wallet_address: str) -> dict:
 # ============================
 
 XDC_CHAIN_ID = int(os.getenv("XDC_CHAIN_ID", "50"))
-XDC_RPC = os.getenv("XDC_RPC_URL", "https://erpc.xinfin.network")
+
+
+def _build_xdc_rpc_urls() -> list:
+    """Ordered, de-duplicated list of XDC mainnet RPC endpoints.
+
+    A custom endpoint can be forced via XDC_RPC_URL / XDC_RPC_URLS (comma
+    separated). The public defaults are kept as failover so a single provider
+    outage (e.g. erpc.xinfin.network returning 502) no longer breaks XDC
+    claiming, balances or the faucet.
+    """
+    urls: list = []
+    env_single = os.getenv("XDC_RPC_URL", "").strip()
+    if env_single:
+        urls.append(env_single)
+    env_multi = os.getenv("XDC_RPC_URLS", "").strip()
+    if env_multi:
+        urls.extend(u.strip() for u in env_multi.split(",") if u.strip())
+    # Public mainnet endpoints verified to respond (chainId 0x32).
+    urls.extend([
+        "https://earpc.xinfin.network",
+        "https://rpc.ankr.com/xdc",
+        "https://erpc.xdcrpc.com",
+        "https://rpc.xdcrpc.com",
+        "https://rpc.xdc.org",
+    ])
+    seen = set()
+    deduped = []
+    for u in urls:
+        if u and u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
+
+
+XDC_RPC_URLS = _build_xdc_rpc_urls()
+# Backwards-compatible single-endpoint constant (still imported elsewhere).
+XDC_RPC = XDC_RPC_URLS[0]
+
+# Cache the most recently confirmed-healthy XDC RPC so raw JSON-RPC calls
+# (eth_getLogs, faucet, receipts) hit a working node first.
+_xdc_rpc_healthy: str = XDC_RPC
+_xdc_rpc_healthy_checked_at: float = 0.0
+_xdc_rpc_healthy_lock = threading.Lock()
+# Re-probe at most this often once an endpoint is confirmed healthy.
+XDC_RPC_HEALTH_TTL = int(os.getenv("XDC_RPC_HEALTH_TTL", "120"))
 
 # Common XDC-ecosystem tokens (mainnet)
 XUSDT_CONTRACT = os.getenv("XUSDT_CONTRACT", "0xD4B5f10D61916Bd6E0860144a91Ac658dE8a1437")
@@ -1557,12 +1601,69 @@ _fuse_balance_cache_lock = threading.Lock()
 FUSE_BALANCE_CACHE_TTL = 120  # 2 minutes
 
 
+def _set_healthy_xdc_rpc(url: str) -> None:
+    global _xdc_rpc_healthy, _xdc_rpc_healthy_checked_at
+    import time as _t
+    with _xdc_rpc_healthy_lock:
+        _xdc_rpc_healthy = url
+        _xdc_rpc_healthy_checked_at = _t.time()
+
+
+def get_xdc_rpc(force: bool = False) -> str:
+    """Return an XDC RPC URL, preferring the last endpoint confirmed healthy.
+
+    The healthy endpoint is cached for ``XDC_RPC_HEALTH_TTL`` seconds so the hot
+    path returns immediately. When the cache is stale (or ``force`` is set) the
+    configured endpoints are probed with eth_chainId so callers that issue raw
+    JSON-RPC (faucet, receipts, eth_getLogs) avoid a dead node.
+    """
+    import time as _t
+    with _xdc_rpc_healthy_lock:
+        preferred = _xdc_rpc_healthy
+        fresh = (_t.time() - _xdc_rpc_healthy_checked_at) < XDC_RPC_HEALTH_TTL
+    if fresh and not force:
+        return preferred
+    candidates = [preferred] + [u for u in XDC_RPC_URLS if u != preferred]
+    session = _get_rpc_session()
+    for url in candidates:
+        try:
+            resp = session.post(
+                url,
+                json={"jsonrpc": "2.0", "method": "eth_chainId", "params": [], "id": 1},
+                timeout=6,
+            )
+            if resp.status_code == 200 and resp.json().get("result"):
+                _set_healthy_xdc_rpc(url)
+                return url
+        except Exception:
+            continue
+    # Nothing responded; return the preferred URL so callers still surface an error.
+    return preferred
+
+
 def _get_xdc_w3():
     global _xdc_w3_singleton
     with _xdc_w3_lock:
-        if _xdc_w3_singleton is None or not _xdc_w3_singleton.is_connected():
-            from web3 import Web3 as _W3
-            _xdc_w3_singleton = _W3(_W3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 10}))
+        if _xdc_w3_singleton is not None and _xdc_w3_singleton.is_connected():
+            return _xdc_w3_singleton
+        from web3 import Web3 as _W3
+        with _xdc_rpc_healthy_lock:
+            preferred = _xdc_rpc_healthy
+        candidates = [preferred] + [u for u in XDC_RPC_URLS if u != preferred]
+        last_w3 = None
+        for url in candidates:
+            try:
+                w3 = _W3(_W3.HTTPProvider(url, request_kwargs={"timeout": 10}))
+                last_w3 = w3
+                if w3.is_connected():
+                    _set_healthy_xdc_rpc(url)
+                    _xdc_w3_singleton = w3
+                    return _xdc_w3_singleton
+            except Exception:
+                continue
+        # Could not connect to any endpoint; keep the last provider so the
+        # caller's downstream call raises a meaningful error.
+        _xdc_w3_singleton = last_w3
         return _xdc_w3_singleton
 
 
@@ -1891,9 +1992,10 @@ def get_xdc_gd_transfer_history(wallet_address: str, limit: int = 50) -> list:
 
     try:
         session = _get_rpc_session()
+        rpc_url = get_xdc_rpc()
 
         # Current XDC block
-        blk_resp = session.post(XDC_RPC,
+        blk_resp = session.post(rpc_url,
             json={"jsonrpc": "2.0", "method": "eth_blockNumber", "params": [], "id": 0},
             timeout=8)
         to_block_int = int(blk_resp.json()["result"], 16)
@@ -1929,7 +2031,7 @@ def get_xdc_gd_transfer_history(wallet_address: str, limit: int = 50) -> list:
                     for i, (cf, ct) in enumerate(sub)
                 ]
                 try:
-                    r = session.post(XDC_RPC, json=payload, timeout=25)
+                    r = session.post(rpc_url, json=payload, timeout=25)
                     results = r.json()
                     if isinstance(results, list):
                         for item in results:

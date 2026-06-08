@@ -82,7 +82,10 @@ MIN_RECHECK_SECONDS = int(os.getenv("GOODMARKET_RECONCILER_MIN_RECHECK_SECONDS",
 
 # RPC URLs — fall back to the same defaults blockchain.py uses.
 _CELO_RPC = os.getenv("CELO_RPC_URL", "https://forno.celo.org")
-_XDC_RPC = os.getenv("XDC_RPC_URL", "https://erpc.xinfin.network")
+# erpc.xinfin.network has been returning 502s; default to a known-good public
+# endpoint. The XDC client below also prefers blockchain.get_xdc_rpc() which
+# fails over across several providers.
+_XDC_RPC = os.getenv("XDC_RPC_URL", "https://earpc.xinfin.network")
 
 # RPC request timeout (seconds). receipts on Celo are usually <1s; XDC's
 # public RPC occasionally returns HTML errors and we want to fail fast.
@@ -106,7 +109,18 @@ def _get_w3(network: str) -> Optional[Web3]:
         cached = _w3_cache.get(network)
         if cached is not None:
             return cached
-        url = _CELO_RPC if network == "celo" else _XDC_RPC
+        if network == "celo":
+            url = _CELO_RPC
+        else:
+            # Prefer blockchain.py's failover-aware resolver for XDC so a dead
+            # provider (e.g. erpc.xinfin.network 502) doesn't stall reconciliation.
+            url = _XDC_RPC
+            if not os.getenv("XDC_RPC_URL"):
+                try:
+                    import blockchain as _bc
+                    url = _bc.get_xdc_rpc()
+                except Exception:  # noqa: BLE001
+                    url = _XDC_RPC
         try:
             w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": _RPC_TIMEOUT}))
             _w3_cache[network] = w3

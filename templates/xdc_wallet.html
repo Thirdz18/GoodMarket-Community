@@ -369,7 +369,7 @@
                 dappDescription: "Manage XDC and G$ tokens",
                 chainHex: "0x32",
                 chainId: 50,
-                rpcUrl: "https://erpc.xinfin.network",
+                rpcUrl: "https://earpc.xinfin.network",
                 assetVersion: "{{ ASSET_VERSION }}",
             });
         }
@@ -483,7 +483,7 @@
                     <div style="margin-bottom:0.8rem;">③ Enter the following network details:</div>
                     <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.75rem 1rem; font-family: monospace; font-size: 0.8rem; color: #93c5fd; line-height: 2;">
                         Network Name: <strong>XDC Network</strong><br>
-                        RPC URL: <strong>https://erpc.xinfin.network</strong><br>
+                        RPC URL: <strong>https://earpc.xinfin.network</strong><br>
                         Chain ID: <strong>50</strong><br>
                         Currency Symbol: <strong>XDC</strong><br>
                         Block Explorer: <strong>https://xdcscan.com</strong>
@@ -532,7 +532,7 @@
             <div class="warn-box" id="noWalletWarn" style="display:none;">
                 <span id="noWalletText">⚠️ No Web3 wallet detected. Install MetaMask or open this page inside a Web3 browser, then add the XDC Network.</span>
                 <div style="margin-top:8px; font-size:0.78rem; color:rgba(251,191,36,0.7);">
-                    XDC Network RPC: <code style="color:#fbbf24;">https://erpc.xinfin.network</code> · Chain ID: <code style="color:#fbbf24;">50</code>
+                    XDC Network RPC: <code style="color:#fbbf24;">https://earpc.xinfin.network</code> · Chain ID: <code style="color:#fbbf24;">50</code>
                 </div>
             </div>
 
@@ -1013,7 +1013,7 @@
                 const ep = _getEthProvider();
                 if (ep) return new ethers.BrowserProvider(ep);
             }
-            return new ethers.JsonRpcProvider('https://erpc.xinfin.network');
+            return new ethers.JsonRpcProvider('https://earpc.xinfin.network');
         }
 
         // Returns a wei-denominated gas reserve for the bridgeTo() call (and
@@ -1792,9 +1792,9 @@
                             params: [{
                                 chainId: XDC_CHAIN_ID_HEX,
                                 chainName: 'XDC Network',
-                                rpcUrls: ['https://erpc.xinfin.network'],
+                                rpcUrls: ['https://earpc.xinfin.network', 'https://rpc.ankr.com/xdc', 'https://erpc.xdcrpc.com'],
                                 nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
-                                blockExplorerUrls: ['https://explorer.xinfin.network']
+                                blockExplorerUrls: ['https://xdcscan.com']
                             }]
                         });
                         return true;
@@ -2121,7 +2121,7 @@
                                     params: [{
                                         chainId: XDC_CHAIN_ID_HEX,
                                         chainName: 'XDC Network',
-                                        rpcUrls: ['https://erpc.xinfin.network'],
+                                        rpcUrls: ['https://earpc.xinfin.network', 'https://rpc.ankr.com/xdc', 'https://erpc.xdcrpc.com'],
                                         nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
                                         blockExplorerUrls: ['https://xdcscan.com']
                                     }]

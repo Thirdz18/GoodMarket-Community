@@ -6292,9 +6292,9 @@ def xdc_tx_revert_reason(tx_hash):
     """Fetch exact-ish revert reason for a mined failed tx on XDC, if available."""
     try:
         from web3 import Web3
-        from blockchain import XDC_RPC
+        from blockchain import get_xdc_rpc
 
-        w3 = Web3(Web3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 12}))
+        w3 = Web3(Web3.HTTPProvider(get_xdc_rpc(), request_kwargs={"timeout": 12}))
         receipt = w3.eth.get_transaction_receipt(tx_hash)
         if receipt is None:
             return jsonify({"success": True, "found": False, "status": "pending"})
@@ -10215,8 +10215,8 @@ def xdc_faucet_gas():
         if err_resp:
             return err_resp, status_code
 
-        from blockchain import XDC_RPC
-        w3 = Web3(Web3.HTTPProvider(XDC_RPC, request_kwargs={"timeout": 15}))
+        from blockchain import get_xdc_rpc
+        w3 = Web3(Web3.HTTPProvider(get_xdc_rpc(), request_kwargs={"timeout": 15}))
 
         status_before = _get_xdc_gas_status(w3, checksum_wallet)
         pre_balance_wei = int(status_before["balance_wei"])
