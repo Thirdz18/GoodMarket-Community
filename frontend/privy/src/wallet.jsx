@@ -144,6 +144,11 @@ function Controller() {
   const { wallets } = useWallets();
   const { signMessage } = useSignMessage();
   const { login } = useLogin({
+    onComplete: ({ user, isNewUser }) => {
+      // Belt-and-suspenders: resolve pending login here as well in case the
+      // useEffect on privy.authenticated fires too late or not at all.
+      resolvePendingLogin();
+    },
     onError: (err) => {
       if (state.pendingLogin) {
         const { reject } = state.pendingLogin;
@@ -203,11 +208,36 @@ window.GMPrivy = {
         return;
       }
       state.pendingLogin = { resolve, reject };
-      try {
-        state.loginFn();
-      } catch (err) {
-        state.pendingLogin = null;
-        reject(err);
+
+      function openModal() {
+        if (!state.loginFn) {
+          state.pendingLogin = null;
+          reject(new Error("Privy SDK failed to initialize (login function unavailable)."));
+          return;
+        }
+        try {
+          state.loginFn();
+        } catch (err) {
+          state.pendingLogin = null;
+          reject(err);
+        }
+      }
+
+      // Gate on SDK readiness — calling login() before ready silently no-ops
+      // and the modal never appears.
+      if (state.ready) {
+        openModal();
+      } else {
+        const readyTimeout = setTimeout(() => {
+          window.removeEventListener("gmprivy:ready", onReady);
+          state.pendingLogin = null;
+          reject(new Error("Privy took too long to initialize. Please try again."));
+        }, 15000);
+        function onReady() {
+          clearTimeout(readyTimeout);
+          openModal();
+        }
+        window.addEventListener("gmprivy:ready", onReady, { once: true });
       }
     }),
   signMessage: async (message) => {

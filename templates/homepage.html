@@ -2287,13 +2287,16 @@
                 const s = document.createElement('script');
                 s.src = "{{ url_for('static', filename='js/privy-wallet.js', v=ASSET_VERSION) }}";
                 s.onload = () => {
-                    if (window.GMPrivy && window.GMPrivy.isReady()) { resolve(); return; }
-                    // GMPrivy.login() waits internally for readiness, so proceed
-                    // after the ready event or a safety timeout either way.
-                    const t = setTimeout(resolve, 8000);
-                    window.addEventListener('gmprivy:ready', () => { clearTimeout(t); resolve(); }, { once: true });
+                    // GMPrivy is set synchronously by the bundle. Its login()
+                    // method now gates internally on SDK readiness, so we can
+                    // resolve immediately once the script has executed.
+                    if (window.GMPrivy) { resolve(); return; }
+                    reject(new Error('Privy bundle loaded but GMPrivy not found.'));
                 };
-                s.onerror = () => reject(new Error('Failed to load Privy. Check your connection and try again.'));
+                s.onerror = () => {
+                    _gmPrivyLoading = null;  // allow retry on next click
+                    reject(new Error('Failed to load Privy. Check your connection and try again.'));
+                };
                 document.body.appendChild(s);
             });
             return _gmPrivyLoading;
