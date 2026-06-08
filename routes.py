@@ -1536,6 +1536,9 @@ def index():
         walletconnect_project_id=wc_project_id,
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         homepage_stats=homepage_stats,
+        privy_app_id=os.getenv("PRIVY_APP_ID", ""),
+        celo_rpc_url=os.getenv("CELO_RPC_URL", "https://forno.celo.org"),
+        celo_explorer=os.getenv("CELO_EXPLORER_URL", "https://celoscan.io"),
     )
 
 

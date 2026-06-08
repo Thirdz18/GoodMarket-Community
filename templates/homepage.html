@@ -1599,6 +1599,16 @@
             });
         }
     </script>
+
+    <!-- Privy embedded-wallet config (consumed by static/js/privy-wallet.js,
+         lazy-loaded when the user taps "Create Wallet"). -->
+    <script>
+        window.__GM_PRIVY_CONFIG__ = {
+            appId: {{ (privy_app_id or "") | tojson }},
+            rpcUrl: {{ (celo_rpc_url or "https://forno.celo.org") | tojson }},
+            explorer: {{ (celo_explorer or "https://celoscan.io") | tojson }}
+        };
+    </script>
 </head>
 <body>
     <!-- Header -->
@@ -2096,6 +2106,15 @@
 
             <!-- Step 1: Choose login path -->
             <div class="wallet-options" id="walletOptions">
+                <button class="wallet-option-card primary" id="privyCreateBtn" onclick="connectPrivyWallet()">
+                    <div class="option-icon">✨</div>
+                    <div class="option-text">
+                        <div class="option-title">Create Wallet</div>
+                        <p class="option-desc">Email or Google — no seed phrase. Powered by Privy</p>
+                    </div>
+                    <span class="option-arrow">→</span>
+                </button>
+
                 <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
                     <div class="option-icon">🔗</div>
                     <div class="option-text">
@@ -2105,6 +2124,7 @@
                     <span class="option-arrow">→</span>
                 </button>
 
+                <div id="privyStatus" class="status-message"></div>
             </div>
 
             <!-- Step 2A: WalletConnect / injected -->
@@ -2254,6 +2274,62 @@
             if (!el) return;
             el.className = 'status-message ' + type;
             el.textContent = message;
+        }
+
+        // ── Privy embedded wallet (Create Wallet) ────────────────────────────
+        // The Privy SDK bundle is large, so we lazy-load it only when the user
+        // taps "Create Wallet" rather than on every homepage visit.
+        let _gmPrivyLoading = null;
+        function _loadPrivyBundle() {
+            if (window.GMPrivy) return Promise.resolve();
+            if (_gmPrivyLoading) return _gmPrivyLoading;
+            _gmPrivyLoading = new Promise((resolve, reject) => {
+                const s = document.createElement('script');
+                s.src = "{{ url_for('static', filename='js/privy-wallet.js', v=ASSET_VERSION) }}";
+                s.onload = () => {
+                    if (window.GMPrivy && window.GMPrivy.isReady()) { resolve(); return; }
+                    // GMPrivy.login() waits internally for readiness, so proceed
+                    // after the ready event or a safety timeout either way.
+                    const t = setTimeout(resolve, 8000);
+                    window.addEventListener('gmprivy:ready', () => { clearTimeout(t); resolve(); }, { once: true });
+                };
+                s.onerror = () => reject(new Error('Failed to load Privy. Check your connection and try again.'));
+                document.body.appendChild(s);
+            });
+            return _gmPrivyLoading;
+        }
+
+        async function connectPrivyWallet() {
+            const statusId = 'privyStatus';
+            const btn = document.getElementById('privyCreateBtn');
+            if (btn) btn.disabled = true;
+            try {
+                showWalletStatus(statusId, '⏳ Loading secure wallet…', 'info');
+                await _loadPrivyBundle();
+                if (!window.GMPrivy || !window.GMPrivy.isConfigured()) {
+                    showWalletStatus(statusId, '❌ Wallet creation is not configured on the server (PRIVY_APP_ID missing).', 'error');
+                    return;
+                }
+                showWalletStatus(statusId, '⏳ Opening login — sign up with email or Google.', 'info');
+                const { address } = await window.GMPrivy.login();
+                if (!address) throw new Error('No wallet address returned by Privy.');
+                showWalletStatus(statusId, '✍️ Verifying your new wallet…', 'info');
+                const message = makeLoginMessage(address);
+                const signature = await window.GMPrivy.signMessage(message);
+                const verifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode());
+                try { localStorage.setItem('gm_login_method', 'privy'); } catch (_) {}
+                const okMsg = (verifyData && verifyData.referral_warning)
+                    ? ('✅ Wallet created. ⚠️ ' + verifyData.referral_warning + ' Redirecting...')
+                    : '✅ Wallet created & verified. Redirecting...';
+                showWalletStatus(statusId, okMsg, verifyData && verifyData.referral_warning ? 'warning' : 'success');
+                setTimeout(() => { window.location.href = '/wallet'; }, verifyData && verifyData.referral_warning ? 2400 : 900);
+            } catch (err) {
+                const msg = (err && err.message) ? err.message : 'Wallet creation failed';
+                const cancelled = /reject|denied|cancel|close|exit/i.test(msg);
+                showWalletStatus(statusId, (cancelled ? '⚠️ Login was cancelled. ' : '❌ ') + msg, cancelled ? 'warning' : 'error');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
         }
 
         // EIP-6963 provider discovery — Trust Wallet (mobile dApp browser +
