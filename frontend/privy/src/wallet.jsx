@@ -285,7 +285,11 @@ function mount() {
   if (!el) {
     el = document.createElement("div");
     el.id = "gmPrivyController";
-    el.style.display = "none";
+    // Do NOT use display:none — Privy's SDK renders internal iframes and
+    // dialog overlays as children of PrivyProvider. Hiding the container
+    // prevents those iframes from loading, which breaks the login modal.
+    // The element is empty (Controller returns null) and takes no visual
+    // space; Privy's own modal uses fixed positioning with a high z-index.
     document.body.appendChild(el);
   }
   createRoot(el).render(
