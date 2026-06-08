@@ -138,6 +138,18 @@ def _inject_asset_version():
     return {'ASSET_VERSION': ASSET_VERSION}
 
 
+@app.context_processor
+def _inject_privy_config():
+    """Expose Privy embedded-wallet config to all templates so the shared
+    `_privy_signer.html` include works on every signing page without each
+    route having to pass it explicitly."""
+    return {
+        'privy_app_id': os.getenv('PRIVY_APP_ID', ''),
+        'celo_rpc_url': os.getenv('CELO_RPC_URL', 'https://forno.celo.org'),
+        'celo_explorer': os.getenv('CELO_EXPLORER_URL', 'https://celoscan.io'),
+    }
+
+
 @app.after_request
 def _add_cache_headers(response):
     """Ensure HTML pages are always revalidated so new deployments are

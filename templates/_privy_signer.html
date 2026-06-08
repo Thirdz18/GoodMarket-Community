@@ -1,0 +1,29 @@
+{# Phase 2 — universal Privy signer.
+   Include this on any page that signs/sends transactions. When (and only when)
+   the user logged in via the homepage "Create Wallet" (Privy) flow, this loads
+   the GMPrivy bundle, which restores the Privy session and installs the
+   embedded wallet's EIP-1193 provider as `window.ethereum`. The existing tx
+   code then signs through Privy with no extension and no per-action popup.
+   Injected / WalletConnect / MiniPay users skip this entirely. #}
+{% if privy_app_id %}
+<script>
+  (function () {
+    try {
+      if (window.localStorage.getItem("gm_login_method") !== "privy") return;
+    } catch (e) {
+      return;
+    }
+    if (window.__GM_PRIVY_SIGNER_LOADED__) return;
+    window.__GM_PRIVY_SIGNER_LOADED__ = true;
+    window.__GM_PRIVY_CONFIG__ = window.__GM_PRIVY_CONFIG__ || {
+      appId: {{ (privy_app_id or "") | tojson }},
+      rpcUrl: {{ (celo_rpc_url or "https://forno.celo.org") | tojson }},
+      explorer: {{ (celo_explorer or "https://celoscan.io") | tojson }}
+    };
+    var s = document.createElement("script");
+    s.src = "{{ url_for('static', filename='js/privy-wallet.js', v=ASSET_VERSION) }}";
+    s.async = true;
+    (document.head || document.documentElement).appendChild(s);
+  })();
+</script>
+{% endif %}

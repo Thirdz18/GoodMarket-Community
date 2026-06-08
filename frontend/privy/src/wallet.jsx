@@ -16,6 +16,14 @@
 //   signMessage(message) -> Promise<string>            (EIP-191 personal_sign)
 //   logout()       -> Promise<void>
 //   onReady(cb)    -> void
+//
+// Phase 2 (universal signer): when the user logged in via Privy
+// (localStorage.gm_login_method === "privy"), the embedded wallet's EIP-1193
+// provider is installed as `window.ethereum` so the existing transaction code
+// on feature pages (claim/swap/p2p/savings/send) signs through Privy with no
+// extension and no per-action popup. Gated by the login method so injected /
+// WalletConnect users are never affected. Pages can also opt in explicitly via
+// GMPrivy.installAsDefaultSigner().
 
 import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
@@ -48,7 +56,64 @@ const state = {
   signMessageFn: null,
   logoutFn: null,
   pendingLogin: null, // { resolve, reject }
+  providerInstalled: false,
 };
+
+// Install the embedded wallet's EIP-1193 provider as the page's default signer.
+// Most feature pages fall back to `window.ethereum` when WalletConnect is not
+// connected, so this makes them transparently use Privy. Guarded against a
+// non-writable `window.ethereum` (e.g. an injected extension locks it down).
+function installProvider(provider) {
+  if (!provider || typeof window === "undefined") return false;
+  try {
+    window.ethereum = provider;
+  } catch (_) {
+    try {
+      Object.defineProperty(window, "ethereum", {
+        value: provider,
+        configurable: true,
+        writable: true,
+      });
+    } catch (__) {
+      /* couldn't override; still expose via the namespaced handle below */
+    }
+  }
+  window.__GM_PRIVY_PROVIDER__ = provider;
+  state.providerInstalled = true;
+  try {
+    const w = getEmbedded();
+    window.dispatchEvent(
+      new CustomEvent("gmprivy:provider", {
+        detail: { address: w ? w.address : null },
+      })
+    );
+  } catch (_) {
+    /* ignore */
+  }
+  return true;
+}
+
+function shouldAutoInstallProvider() {
+  try {
+    return window.localStorage.getItem("gm_login_method") === "privy";
+  } catch (_) {
+    return false;
+  }
+}
+
+async function maybeInstallProvider() {
+  if (state.providerInstalled) return;
+  if (!shouldAutoInstallProvider()) return;
+  if (!state.authenticated) return;
+  const wallet = getEmbedded();
+  if (!wallet) return;
+  try {
+    const provider = await wallet.getEthereumProvider();
+    installProvider(provider);
+  } catch (_) {
+    /* provider not ready yet; will retry on the next auth/wallets change */
+  }
+}
 
 function getEmbedded() {
   return (
@@ -104,6 +169,7 @@ function Controller() {
 
   useEffect(() => {
     resolvePendingLogin();
+    maybeInstallProvider();
   }, [privy.authenticated, wallets]);
 
   return null;
@@ -151,6 +217,17 @@ window.GMPrivy = {
   },
   logout: async () => {
     if (state.logoutFn) await state.logoutFn();
+  },
+  isProviderInstalled: () => state.providerInstalled,
+  installAsDefaultSigner: async () => {
+    const wallet = getEmbedded();
+    if (!wallet) return false;
+    try {
+      const provider = await wallet.getEthereumProvider();
+      return installProvider(provider);
+    } catch (_) {
+      return false;
+    }
   },
   onReady: (cb) => {
     if (typeof cb !== "function") return;
