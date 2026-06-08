@@ -936,6 +936,18 @@ def profile():
     analytics.track_page_view(wallet, "profile")
     return render_template("profile.html", wallet=wallet)
 
+@app.route("/embedded-wallet")
+def embedded_wallet():
+    """Privy embedded-wallet proof of concept (MiniPay-style, seedless wallet
+    with no per-transaction signing popup). Standalone demo page — Privy manages
+    its own auth, so this does not require the GoodMarket session."""
+    return render_template(
+        "embedded_wallet.html",
+        privy_app_id=os.getenv("PRIVY_APP_ID", ""),
+        celo_rpc_url=os.getenv("CELO_RPC_URL", "https://forno.celo.org"),
+        celo_explorer=os.getenv("CELO_EXPLORER_URL", "https://celoscan.io"),
+    )
+
 @app.route("/api/analytics")
 @cached_response(duration=30)  # Cache for 30 seconds
 def api_analytics():

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoodMarket — Embedded Wallet (Privy POC)</title>
+    <meta name="theme-color" content="#070b1a">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
+    <style>
+        :root {
+            --bg: #070b1a;
+            --bg2: #0e1530;
+            --card: rgba(255,255,255,0.05);
+            --card-border: rgba(255,255,255,0.1);
+            --blue: #5cc8ff;
+            --accent: #7f8cff;
+            --green: #00e676;
+            --text: #e8eaf6;
+            --text-dim: rgba(232,234,246,0.55);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(1200px 600px at 50% -10%, var(--bg2), var(--bg));
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        .gm-head { text-align: center; max-width: 540px; margin-bottom: 1.5rem; }
+        .gm-head h1 { font-size: 1.5rem; font-weight: 800; }
+        .gm-head p { color: var(--text-dim); margin-top: 0.5rem; font-size: 0.9rem; }
+        .gm-badge {
+            display: inline-block; margin-top: 0.75rem; padding: 0.25rem 0.7rem;
+            border: 1px solid var(--card-border); border-radius: 999px;
+            font-size: 0.72rem; color: var(--blue); background: rgba(92,200,255,0.1);
+        }
+        .gm-privy-panel {
+            width: 100%; max-width: 420px;
+            background: var(--card); border: 1px solid var(--card-border);
+            border-radius: 18px; padding: 1.5rem;
+            backdrop-filter: blur(12px);
+        }
+        .gm-privy-title { font-size: 1.15rem; font-weight: 700; margin-bottom: 0.75rem; }
+        .gm-privy-muted { color: var(--text-dim); font-size: 0.88rem; line-height: 1.5; }
+        .gm-privy-row {
+            display: flex; justify-content: space-between; gap: 1rem;
+            padding: 0.55rem 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 0.9rem;
+        }
+        .gm-privy-row-label { color: var(--text-dim); }
+        .gm-privy-row-value { font-weight: 600; text-align: right; word-break: break-all; }
+        .gm-privy-pill {
+            color: var(--green); font-size: 0.78rem; padding: 0.15rem 0.55rem;
+            border: 1px solid rgba(0,230,118,0.35); border-radius: 999px;
+            background: rgba(0,230,118,0.1);
+        }
+        .gm-privy-link { color: var(--blue); text-decoration: none; }
+        .gm-privy-actions { display: flex; flex-direction: column; gap: 0.6rem; margin: 1.1rem 0; }
+        .gm-privy-btn {
+            width: 100%; padding: 0.7rem 1rem; border-radius: 12px;
+            border: 1px solid var(--card-border); background: rgba(255,255,255,0.06);
+            color: var(--text); font-weight: 600; font-size: 0.92rem; cursor: pointer;
+            transition: transform 0.06s ease, background 0.2s ease;
+        }
+        .gm-privy-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
+        .gm-privy-btn:active:not(:disabled) { transform: scale(0.985); }
+        .gm-privy-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .gm-privy-btn-primary {
+            background: linear-gradient(135deg, var(--blue), var(--accent));
+            color: #04122a; border: none;
+        }
+        .gm-privy-btn-ghost { background: transparent; color: var(--text-dim); }
+        .gm-privy-log {
+            margin-top: 0.5rem; padding: 0.75rem; border-radius: 10px;
+            background: rgba(0,0,0,0.25); font-size: 0.78rem; min-height: 2.5rem;
+            display: flex; flex-direction: column; gap: 0.35rem;
+        }
+        .gm-privy-log-line { color: var(--blue); word-break: break-all; }
+        code { background: rgba(255,255,255,0.1); padding: 0.1rem 0.35rem; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="gm-head">
+        <h1>GoodMarket Embedded Wallet</h1>
+        <p>MiniPay-style proof of concept: mag-login gamit ang email o Google, automatic na gagawa ng sarili mong wallet (walang seed phrase), at mag-sign/send nang walang MetaMask-style popup.</p>
+        <span class="gm-badge">Powered by Privy · Celo network</span>
+    </div>
+
+    <!-- Server-injected config consumed by static/js/privy-embedded-wallet.js -->
+    <script>
+        window.__GM_PRIVY_CONFIG__ = {
+            appId: {{ (privy_app_id or "") | tojson }},
+            rpcUrl: {{ (celo_rpc_url or "https://forno.celo.org") | tojson }},
+            explorer: {{ (celo_explorer or "https://celoscan.io") | tojson }}
+        };
+    </script>
+
+    <div id="gmPrivyRoot"></div>
+
+    <script src="{{ url_for('static', filename='js/privy-embedded-wallet.js', v=ASSET_VERSION) }}"></script>
+</body>
+</html>
