@@ -49,41 +49,6 @@ function readConfig() {
 
 const CONFIG = readConfig();
 
-// Reject a promise if it doesn't settle in time so a hung Privy SDK call
-// (common right after a brand-new embedded wallet is provisioned) surfaces a
-// retryable error instead of leaving the UI stuck on a status message forever.
-function withTimeout(promise, ms, label) {
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(label || "The wallet took too long to respond. Please try again.")),
-      ms
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-// Wait up to `ms` milliseconds for a condition to become true, checking every
-// `interval` ms. Returns the last value returned by `check`.
-function waitFor(check, ms, interval) {
-  return new Promise((resolve) => {
-    const result = check();
-    if (result) { resolve(result); return; }
-    const end = Date.now() + ms;
-    const id = setInterval(() => {
-      const r = check();
-      if (r || Date.now() >= end) {
-        clearInterval(id);
-        resolve(r || null);
-      }
-    }, interval || 200);
-  });
-}
-
 // Module-level state for the imperative bridge between React and plain JS.
 const state = {
   ready: false,
@@ -160,6 +125,23 @@ function getEmbedded() {
     state.wallets[0] ||
     null
   );
+}
+
+// Wait up to `ms` milliseconds for a condition to become true, checking every
+// `interval` ms. Returns the last value returned by `check`.
+function waitFor(check, ms, interval) {
+  return new Promise((resolve) => {
+    const result = check();
+    if (result) { resolve(result); return; }
+    const end = Date.now() + ms;
+    const id = setInterval(() => {
+      const r = check();
+      if (r || Date.now() >= end) {
+        clearInterval(id);
+        resolve(r || null);
+      }
+    }, interval || 200);
+  });
 }
 
 async function resolvePendingLogin() {
@@ -329,38 +311,9 @@ window.GMPrivy = {
       }
     }),
   signMessage: async (message) => {
-    // A freshly created embedded wallet can lag a few hundred ms behind the
-    // "authenticated" event: the signer function and/or the wallet object may
-    // not exist for the first moment after login. Wait for both to be ready
-    // (bounded) instead of throwing immediately.
-    const deadline = Date.now() + 12000;
-    while ((!state.signMessageFn || !getEmbedded()) && Date.now() < deadline) {
-      await sleep(200);
-    }
-    if (!state.signMessageFn || !getEmbedded()) {
-      throw new Error("Wallet is still being set up. Please try again in a moment.");
-    }
-
-    // Retry transient "not ready / not connected" signer failures that happen
-    // right after wallet creation. Never retry an explicit user rejection.
-    let lastErr = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const { signature } = await withTimeout(
-          state.signMessageFn({ message }),
-          15000,
-          "Signing timed out. Please try again."
-        );
-        if (signature) return signature;
-        lastErr = new Error("The wallet returned an empty signature. Please try again.");
-      } catch (err) {
-        lastErr = err;
-        const msg = (err && err.message) || "";
-        if (/reject|denied|cancel|user closed|exit/i.test(msg)) throw err;
-      }
-      if (attempt < 2) await sleep(700);
-    }
-    throw lastErr || new Error("Unable to sign the login message. Please try again.");
+    if (!state.signMessageFn) throw new Error("Privy is not ready yet.");
+    const { signature } = await state.signMessageFn({ message });
+    return signature;
   },
   exportWallet: async () => {
     if (!state.exportWalletFn) throw new Error("Privy is not ready yet.");

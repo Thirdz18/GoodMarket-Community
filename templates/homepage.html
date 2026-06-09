@@ -2327,9 +2327,17 @@
                 if (!address) throw new Error('No wallet address was returned. Please try again.');
                 showWalletStatus(statusId, 'Wallet ready! Signing in...', 'info');
                 const message = makeLoginMessage(address);
-<<<<<<< HEAD
-                const signature = await window.GMPrivy.signMessage(message);
-                showWalletStatus(statusId, '🔐 Verifying your wallet...', 'info');
+                let signature;
+                try {
+                    signature = await window.GMPrivy.signMessage(message);
+                } catch (signErr) {
+                    // Privy's iframe can be briefly busy right after wallet creation.
+                    // Wait 1.5 s then try once more before giving up.
+                    showWalletStatus(statusId, 'Almost there, just a moment...', 'info');
+                    await new Promise(function(r) { setTimeout(r, 1500); });
+                    signature = await window.GMPrivy.signMessage(message);
+                }
+                showWalletStatus(statusId, 'Verifying your wallet...', 'info');
                 const verifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode());
                 try { localStorage.setItem('gm_login_method', 'privy'); } catch (_) {}
                 var hasWarning = verifyData && verifyData.referral_warning;
@@ -2987,33 +2995,17 @@
         }
 
         async function postVerifyIdentity(walletAddress, signature, message, referralCode = '') {
-            // Guard the verification request with a timeout so a slow/stalled
-            // network never leaves the login flow hanging on "Verifying…".
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 20000);
-            let resp;
-            try {
-                resp = await fetch('/verify-identity', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        wallet_address: walletAddress,
-                        signature,
-                        message,
-                        referral_code: referralCode || ''
-                    }),
-                    signal: controller.signal
-                });
-            } catch (netErr) {
-                if (netErr && netErr.name === 'AbortError') {
-                    throw new Error('Verification timed out. Check your connection and try again.');
-                }
-                throw new Error('Network error during verification. Please try again.');
-            } finally {
-                clearTimeout(timer);
-            }
-            let data = {};
-            try { data = await resp.json(); } catch (_) { /* non-JSON error body */ }
+            const resp = await fetch('/verify-identity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet_address: walletAddress,
+                    signature,
+                    message,
+                    referral_code: referralCode || ''
+                })
+            });
+            const data = await resp.json();
             if (!(resp.ok && data.success)) {
                 throw new Error(data.error || data.message || 'Identity verification failed');
             }
