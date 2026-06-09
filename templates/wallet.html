@@ -1611,9 +1611,24 @@
                 </div>
             </div>
 
-            <div style="background:rgba(0,180,255,0.07);border:1px solid rgba(0,180,255,0.2);border-radius:12px;padding:0.9rem 1rem;font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;">
-                ℹ️ GoodMarket uses non-custodial wallets. Your private key is never shown in this app.
+            {% if login_method == 'privy' %}
+            <div style="margin-bottom:1.25rem;">
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Wallet Security</div>
+                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.85rem 0.95rem;">
+                    <p style="font-size:0.82rem;color:var(--text-dim);line-height:1.5;margin-bottom:0.75rem;">
+                        Export your embedded wallet's private key to use it with another wallet app (e.g. MetaMask). Keep your private key safe — anyone with access to it can control your funds.
+                    </p>
+                    <button type="button" id="exportPrivyKeyBtn" onclick="handleExportPrivyKey()" style="width:100%;padding:0.65rem 0.8rem;border-radius:10px;border:1px solid rgba(92,200,255,0.35);background:rgba(92,200,255,0.08);color:#5cc8ff;font-size:0.85rem;font-weight:600;cursor:pointer;transition:background 0.2s;">
+                        🔑 Export Private Key
+                    </button>
+                    <div id="exportKeyStatus" style="display:none;margin-top:0.5rem;font-size:0.78rem;line-height:1.5;padding:0.5rem 0.7rem;border-radius:8px;"></div>
+                </div>
             </div>
+            {% else %}
+            <div style="background:rgba(0,180,255,0.07);border:1px solid rgba(0,180,255,0.2);border-radius:12px;padding:0.9rem 1rem;font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;">
+                ℹ️ GoodMarket uses non-custodial wallets. Your private key is managed by your wallet app.
+            </div>
+            {% endif %}
 
 
             <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.07);">
@@ -5269,6 +5284,46 @@
     </script>
 
 
+
+    {% if login_method == 'privy' %}
+    <script>
+    async function handleExportPrivyKey() {
+        var btn = document.getElementById('exportPrivyKeyBtn');
+        var statusEl = document.getElementById('exportKeyStatus');
+        if (btn) btn.disabled = true;
+
+        function showStatus(msg, type) {
+            if (!statusEl) return;
+            statusEl.style.display = 'block';
+            statusEl.textContent = msg;
+            statusEl.style.background = type === 'error' ? 'rgba(255,82,82,0.1)' : 'rgba(92,200,255,0.08)';
+            statusEl.style.color = type === 'error' ? '#ff7070' : '#5cc8ff';
+            statusEl.style.border = '1px solid ' + (type === 'error' ? 'rgba(255,82,82,0.25)' : 'rgba(92,200,255,0.2)');
+        }
+
+        try {
+            if (!window.GMPrivy) {
+                showStatus('Loading wallet module...', 'info');
+                await new Promise(function (resolve, reject) {
+                    var timeout = setTimeout(function () { reject(new Error('Timed out loading Privy.')); }, 15000);
+                    var check = setInterval(function () {
+                        if (window.GMPrivy && window.GMPrivy.isReady()) {
+                            clearInterval(check); clearTimeout(timeout); resolve();
+                        }
+                    }, 200);
+                });
+            }
+            showStatus('Opening export dialog...', 'info');
+            await window.GMPrivy.exportWallet();
+            statusEl.style.display = 'none';
+        } catch (err) {
+            showStatus(err.message || 'Failed to export wallet.', 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+    </script>
+    {% endif %}
 
     {% include '_privy_signer.html' %}
 </body>

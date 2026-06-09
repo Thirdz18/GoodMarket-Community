@@ -33,6 +33,7 @@ import {
   useLogin,
   useWallets,
   useSignMessage,
+  useExportWallet,
 } from "@privy-io/react-auth";
 import { celo } from "viem/chains";
 
@@ -54,6 +55,7 @@ const state = {
   wallets: [],
   loginFn: null,
   signMessageFn: null,
+  exportWalletFn: null,
   logoutFn: null,
   pendingLogin: null, // { resolve, reject }
   providerInstalled: false,
@@ -143,6 +145,7 @@ function Controller() {
   const privy = usePrivy();
   const { wallets } = useWallets();
   const { signMessage } = useSignMessage();
+  const { exportWallet } = useExportWallet();
   const { login } = useLogin({
     onComplete: ({ user, isNewUser }) => {
       // Belt-and-suspenders: resolve pending login here as well in case the
@@ -163,6 +166,7 @@ function Controller() {
   state.wallets = wallets;
   state.loginFn = login;
   state.signMessageFn = signMessage;
+  state.exportWalletFn = exportWallet;
   state.logoutFn = privy.logout;
 
   useEffect(() => {
@@ -248,6 +252,12 @@ window.GMPrivy = {
     if (!state.signMessageFn) throw new Error("Privy is not ready yet.");
     const { signature } = await state.signMessageFn({ message });
     return signature;
+  },
+  exportWallet: async () => {
+    if (!state.exportWalletFn) throw new Error("Privy is not ready yet.");
+    if (!state.authenticated) throw new Error("You must be logged in to export your wallet.");
+    if (!getEmbedded()) throw new Error("No embedded wallet found.");
+    await state.exportWalletFn();
   },
   logout: async () => {
     if (state.logoutFn) await state.logoutFn();
