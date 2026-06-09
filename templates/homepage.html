@@ -2305,12 +2305,6 @@
         async function connectPrivyWallet() {
             const statusId = 'privyStatus';
             const btn = document.getElementById('privyCreateBtn');
-            const walletOptions = document.getElementById('walletOptions');
-
-            // Hide the option buttons so they don't show behind the Privy modal
-            const optionCards = walletOptions ? walletOptions.querySelectorAll('.wallet-option-card') : [];
-            optionCards.forEach(function(c) { c.style.display = 'none'; });
-
             if (btn) btn.disabled = true;
             try {
                 showWalletStatus(statusId, '⏳ Loading secure wallet…', 'info');
@@ -2336,8 +2330,6 @@
                 const msg = (err && err.message) ? err.message : 'Wallet creation failed';
                 const cancelled = /reject|denied|cancel|close|exit/i.test(msg);
                 showWalletStatus(statusId, (cancelled ? '⚠️ Login was cancelled. ' : '❌ ') + msg, cancelled ? 'warning' : 'error');
-                // Restore the option cards so the user can try again
-                optionCards.forEach(function(c) { c.style.display = ''; });
             } finally {
                 if (btn) btn.disabled = false;
             }

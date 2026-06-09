@@ -34,7 +34,6 @@ import {
   useWallets,
   useSignMessage,
   useExportWallet,
-  useCreateWallet,
 } from "@privy-io/react-auth";
 import { celo } from "viem/chains";
 
@@ -58,7 +57,6 @@ const state = {
   signMessageFn: null,
   exportWalletFn: null,
   logoutFn: null,
-  createWalletFn: null,
   pendingLogin: null, // { resolve, reject }
   providerInstalled: false,
 };
@@ -130,30 +128,7 @@ function getEmbedded() {
 async function resolvePendingLogin() {
   if (!state.pendingLogin) return;
   if (!state.authenticated) return;
-
-  // If the user is authenticated but has no embedded wallet yet, create one
-  // now. This handles the case where a user signs up via email/Google but
-  // Privy's createOnLogin hasn't fired yet (e.g. first-time login where the
-  // wallet creation races with the authenticated event).
-  let wallet = getEmbedded();
-  if (!wallet && state.createWalletFn) {
-    try {
-      await state.createWalletFn({ chainType: "ethereum" });
-      wallet = getEmbedded();
-    } catch (createErr) {
-      // Wallet may already exist — ignore "already has wallet" errors
-      const msg = (createErr && createErr.message) || "";
-      if (!/already/i.test(msg)) {
-        // Real error: reject so the UI shows feedback
-        const { reject } = state.pendingLogin;
-        state.pendingLogin = null;
-        reject(createErr);
-        return;
-      }
-      wallet = getEmbedded();
-    }
-  }
-
+  const wallet = getEmbedded();
   if (!wallet) return; // embedded wallet still being created — wait for next tick
   const { resolve } = state.pendingLogin;
   state.pendingLogin = null;
@@ -171,7 +146,6 @@ function Controller() {
   const { wallets } = useWallets();
   const { signMessage } = useSignMessage();
   const { exportWallet } = useExportWallet();
-  const { createWallet } = useCreateWallet();
   const { login } = useLogin({
     onComplete: ({ user, isNewUser }) => {
       // Belt-and-suspenders: resolve pending login here as well in case the
@@ -193,7 +167,6 @@ function Controller() {
   state.loginFn = login;
   state.signMessageFn = signMessage;
   state.exportWalletFn = exportWallet;
-  state.createWalletFn = createWallet;
   state.logoutFn = privy.logout;
 
   useEffect(() => {
