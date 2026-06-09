@@ -2307,50 +2307,36 @@
             const btn = document.getElementById('privyCreateBtn');
             const walletOptions = document.getElementById('walletOptions');
 
-            // Hide the option buttons while the Privy modal is open so they
-            // don't appear behind / alongside the email & Google login chooser.
+            // Hide the option buttons so they don't show behind the Privy modal
             const optionCards = walletOptions ? walletOptions.querySelectorAll('.wallet-option-card') : [];
             optionCards.forEach(function(c) { c.style.display = 'none'; });
 
             if (btn) btn.disabled = true;
             try {
-                showWalletStatus(statusId, 'Loading secure wallet...', 'info');
+                showWalletStatus(statusId, '⏳ Loading secure wallet…', 'info');
                 await _loadPrivyBundle();
                 if (!window.GMPrivy || !window.GMPrivy.isConfigured()) {
-                    showWalletStatus(statusId, 'Wallet creation is not configured on the server (PRIVY_APP_ID missing).', 'error');
-                    optionCards.forEach(function(c) { c.style.display = ''; });
+                    showWalletStatus(statusId, '❌ Wallet creation is not configured on the server (PRIVY_APP_ID missing).', 'error');
                     return;
                 }
-                showWalletStatus(statusId, 'Opening login — sign up with email or Google...', 'info');
-                const loginResult = await window.GMPrivy.login();
-                const address = loginResult && loginResult.address;
-                if (!address) throw new Error('No wallet address was returned. Please try again.');
-                showWalletStatus(statusId, 'Wallet ready! Signing in...', 'info');
+                showWalletStatus(statusId, '⏳ Opening login — sign up with email or Google.', 'info');
+                const { address } = await window.GMPrivy.login();
+                if (!address) throw new Error('No wallet address returned by Privy.');
+                showWalletStatus(statusId, '✍️ Verifying your new wallet…', 'info');
                 const message = makeLoginMessage(address);
-                let signature;
-                try {
-                    signature = await window.GMPrivy.signMessage(message);
-                } catch (signErr) {
-                    // Privy's iframe can be briefly busy right after wallet creation.
-                    // Wait 1.5 s then try once more before giving up.
-                    showWalletStatus(statusId, 'Almost there, just a moment...', 'info');
-                    await new Promise(function(r) { setTimeout(r, 1500); });
-                    signature = await window.GMPrivy.signMessage(message);
-                }
-                showWalletStatus(statusId, 'Verifying your wallet...', 'info');
+                const signature = await window.GMPrivy.signMessage(message);
                 const verifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode());
                 try { localStorage.setItem('gm_login_method', 'privy'); } catch (_) {}
-                var hasWarning = verifyData && verifyData.referral_warning;
-                var okMsg = hasWarning
-                    ? ('Wallet created! Note: ' + verifyData.referral_warning + ' Redirecting...')
-                    : 'Wallet created & verified! Redirecting...';
-                showWalletStatus(statusId, okMsg, hasWarning ? 'warning' : 'success');
-                setTimeout(function() { window.location.href = '/wallet'; }, hasWarning ? 2400 : 900);
+                const okMsg = (verifyData && verifyData.referral_warning)
+                    ? ('✅ Wallet created. ⚠️ ' + verifyData.referral_warning + ' Redirecting...')
+                    : '✅ Wallet created & verified. Redirecting...';
+                showWalletStatus(statusId, okMsg, verifyData && verifyData.referral_warning ? 'warning' : 'success');
+                setTimeout(() => { window.location.href = '/wallet'; }, verifyData && verifyData.referral_warning ? 2400 : 900);
             } catch (err) {
-                var msg = (err && err.message) ? err.message : 'Wallet creation failed. Please try again.';
-                var cancelled = /reject|denied|cancel|close|exit/i.test(msg);
-                showWalletStatus(statusId, cancelled ? 'Login was cancelled.' : msg, cancelled ? 'warning' : 'error');
-                // Restore buttons so the user can try again.
+                const msg = (err && err.message) ? err.message : 'Wallet creation failed';
+                const cancelled = /reject|denied|cancel|close|exit/i.test(msg);
+                showWalletStatus(statusId, (cancelled ? '⚠️ Login was cancelled. ' : '❌ ') + msg, cancelled ? 'warning' : 'error');
+                // Restore the option cards so the user can try again
                 optionCards.forEach(function(c) { c.style.display = ''; });
             } finally {
                 if (btn) btn.disabled = false;

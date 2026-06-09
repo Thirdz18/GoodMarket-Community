@@ -127,70 +127,43 @@ function getEmbedded() {
   );
 }
 
-// Wait up to `ms` milliseconds for a condition to become true, checking every
-// `interval` ms. Returns the last value returned by `check`.
-function waitFor(check, ms, interval) {
-  return new Promise((resolve) => {
-    const result = check();
-    if (result) { resolve(result); return; }
-    const end = Date.now() + ms;
-    const id = setInterval(() => {
-      const r = check();
-      if (r || Date.now() >= end) {
-        clearInterval(id);
-        resolve(r || null);
-      }
-    }, interval || 200);
-  });
-}
-
 async function resolvePendingLogin() {
   if (!state.pendingLogin) return;
   if (!state.authenticated) return;
 
-  // Wait up to 12 s for an embedded wallet to appear in state.wallets.
-  // Privy's createOnLogin populates wallets asynchronously after the
-  // authenticated event fires, so we must not bail out immediately.
-  let wallet = await waitFor(getEmbedded, 12000, 300);
-
-  // If still no wallet after waiting (e.g. returning user whose wallet was
-  // never created), explicitly call createWallet() and wait again.
+  // If the user is authenticated but has no embedded wallet yet, create one
+  // now. This handles the case where a user signs up via email/Google but
+  // Privy's createOnLogin hasn't fired yet (e.g. first-time login where the
+  // wallet creation races with the authenticated event).
+  let wallet = getEmbedded();
   if (!wallet && state.createWalletFn) {
     try {
       await state.createWalletFn({ chainType: "ethereum" });
+      wallet = getEmbedded();
     } catch (createErr) {
-      const errMsg = (createErr && createErr.message) || "";
-      // "already has wallet" is fine — it means the wallet exists but
-      // hasn't propagated to state.wallets yet; keep waiting below.
-      if (!/already/i.test(errMsg)) {
-        if (state.pendingLogin) {
-          const { reject } = state.pendingLogin;
-          state.pendingLogin = null;
-          reject(new Error("Could not create your wallet. Please try again."));
-        }
+      // Wallet may already exist — ignore "already has wallet" errors
+      const msg = (createErr && createErr.message) || "";
+      if (!/already/i.test(msg)) {
+        // Real error: reject so the UI shows feedback
+        const { reject } = state.pendingLogin;
+        state.pendingLogin = null;
+        reject(createErr);
         return;
       }
+      wallet = getEmbedded();
     }
-    // Wait a second time for the new wallet to appear in React state.
-    wallet = await waitFor(getEmbedded, 10000, 300);
   }
 
-  if (!wallet) {
-    // Wallet creation succeeded on Privy's side but React state never
-    // updated — this is an edge case; reject so the user sees a message.
-    if (state.pendingLogin) {
-      const { reject } = state.pendingLogin;
-      state.pendingLogin = null;
-      reject(new Error("Wallet is taking too long to initialize. Please refresh and try again."));
-    }
-    return;
-  }
-
-  if (!state.pendingLogin) return; // may have been cancelled while we waited
+  if (!wallet) return; // embedded wallet still being created — wait for next tick
   const { resolve } = state.pendingLogin;
   state.pendingLogin = null;
-  // provider is optional for signing — signMessage goes through Privy directly
-  resolve({ address: wallet.address, provider: null });
+  let provider = null;
+  try {
+    provider = await wallet.getEthereumProvider();
+  } catch (_) {
+    /* provider optional for the login flow; signMessage works without it */
+  }
+  resolve({ address: wallet.address, provider });
 }
 
 function Controller() {
@@ -200,15 +173,10 @@ function Controller() {
   const { exportWallet } = useExportWallet();
   const { createWallet } = useCreateWallet();
   const { login } = useLogin({
-    onComplete: () => {
-      // Fire-and-forget but must be async so createWallet() inside is awaited.
-      resolvePendingLogin().catch((err) => {
-        if (state.pendingLogin) {
-          const { reject } = state.pendingLogin;
-          state.pendingLogin = null;
-          reject(err);
-        }
-      });
+    onComplete: ({ user, isNewUser }) => {
+      // Belt-and-suspenders: resolve pending login here as well in case the
+      // useEffect on privy.authenticated fires too late or not at all.
+      resolvePendingLogin();
     },
     onError: (err) => {
       if (state.pendingLogin) {
@@ -236,10 +204,7 @@ function Controller() {
   }, [privy.ready]);
 
   useEffect(() => {
-    // Only auto-install the provider on return visits (gm_login_method=privy).
-    // Do NOT call resolvePendingLogin() here — onComplete handles it.
-    // Calling it from the effect as well causes double createWallet() calls
-    // when wallets array updates right after onComplete fires.
+    resolvePendingLogin();
     maybeInstallProvider();
   }, [privy.authenticated, wallets]);
 
