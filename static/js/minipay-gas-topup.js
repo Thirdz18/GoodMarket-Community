@@ -58,7 +58,7 @@
     // the wallet hovers around ~$0.01-$0.015 stablecoin gas. Require a safer
     // minimum so the pre-check triggers faucet before wallet approval.
     const STABLECOIN_GAS_MIN_USD = 0.015;
-    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.05';
+    const CUSD_FAUCET_DISPLAY_AMOUNT = '0.02';
     // Match the backend FAUCET_MIN_CELO default. MiniPay still pays claim gas
     // in stablecoins, so the CELO faucet is a best-effort recovery path for
     // wallets below this floor; it must not block the cUSD gas budget.
