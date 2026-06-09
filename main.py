@@ -219,6 +219,7 @@ _CSP_DIRECTIVES = (
     "img-src 'self' data: blob: https:",
     "connect-src 'self' https: wss:",
     "frame-src 'self' "
+    "https://auth.privy.io "
     "https://telegram.org https://*.telegram.org "
     "https://www.youtube.com https://www.youtube-nocookie.com "
     "https://platform.twitter.com "
