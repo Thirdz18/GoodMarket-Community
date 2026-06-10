@@ -3450,6 +3450,20 @@
                 }
                 const session = await result.approval();
                 window._wcSession = session;
+                
+                // Extract address from session
+                const ns = session.namespaces || {};
+                let address = null;
+                Object.keys(ns).some((key) => {
+                    const accts = ns[key]?.accounts || [];
+                    if (accts.length) {
+                        address = accts[0].split(':').pop();
+                        return true;
+                    }
+                    return false;
+                });
+                
+                // Extract address from session FIRST, then store in localStorage
                 const ns = session.namespaces || {};
                 let address = null;
                 Object.keys(ns).some((key) => {
@@ -3461,6 +3475,18 @@
                     return false;
                 });
                 if (!address) throw new Error('No accounts returned from wallet');
+                
+                // CRITICAL: Store session info in localStorage so wc-bridge.js
+                // on other pages can restore the session
+                try {
+                    localStorage.setItem('wc_session_topic', session.topic);
+                    localStorage.setItem('wc_session_address', address);
+                    localStorage.setItem('wc_session_timestamp', Date.now().toString());
+                    console.log('[homepage] Stored WC session:', session.topic, address);
+                } catch (e) {
+                    console.warn('[homepage] Could not store WC session:', e);
+                }
+                
                 const message = makeLoginMessage(address);
                 showWalletStatus('walletConnectStatus', '✍️ Signature request sent. Approve login signature in your wallet.', 'info');
                 const messageHex = '0x' + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -3477,6 +3503,11 @@
                 _wcWakeWalletApp(session);
                 const signature = await sigReqPromise;
                 const wcFbVerifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode());
+                
+                // CRITICAL: Wait for session to be persisted before redirect
+                // Give SignClient time to save session to its internal storage
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
                 const wcFbOkMsg = (wcFbVerifyData && wcFbVerifyData.referral_warning)
                     ? ('✅ Wallet connected via browser WalletConnect fallback. ⚠️ ' + wcFbVerifyData.referral_warning + ' Redirecting...')
                     : '✅ Wallet connected via browser WalletConnect fallback. Redirecting...';

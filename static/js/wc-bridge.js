@@ -252,15 +252,10 @@
             return SignClient.init({
                 projectId: _config.projectId,
                 metadata: {
-                    name: _config.dappName || "GoodMarket",
-                    description: _config.dappDescription || "GoodMarket on Celo",
-                    url: _config.dappUrl || (typeof window !== "undefined" ? window.location.origin : ""),
-                    icons: [
-                        _config.dappIcon ||
-                        ((typeof window !== "undefined" ? window.location.origin : "") +
-                         "/static/icons/icon-192x192.png" +
-                         (_config.assetVersion ? ("?v=" + encodeURIComponent(_config.assetVersion)) : ""))
-                    ]
+                    name: 'GoodMarket',
+                    description: 'GoodMarket on Celo',
+                    url: (typeof window !== "undefined" ? window.location.origin : ""),
+                    icons: [(typeof window !== "undefined" ? window.location.origin : "") + "/static/icons/icon-192x192.png"]
                 }
             });
         }).then(function (client) {
@@ -270,19 +265,70 @@
             // users who logged in via WalletConnect and are now trying to
             // sign transactions. Without this, the new SignClient instance
             // doesn't know about the session from the login flow.
-            // The "Unknown connector error" occurs because the session topic
-            // stored during login is not recognized by this new SignClient.
             try {
+                // First check SignClient's own session storage
                 var sessions = client.getActiveSessions();
                 var sessionKeys = sessions ? Object.keys(sessions) : [];
+                console.log('[wc-bridge] SignClient initialized');
+                console.log('[wc-bridge] Found sessions from SignClient:', sessionKeys.length);
+                
+                // Also check localStorage directly to see what's stored
+                try {
+                    var wcStorageKeys = [];
+                    for (var i = 0; i < localStorage.length; i++) {
+                        var key = localStorage.key(i);
+                        if (key && key.indexOf('walletconnect') !== -1) {
+                            wcStorageKeys.push(key);
+                        }
+                    }
+                    console.log('[wc-bridge] localStorage WC keys:', wcStorageKeys);
+                } catch (lsErr) {}
+                
                 if (sessionKeys.length > 0) {
                     // Found existing session(s) - use the first one
                     var existingSession = sessions[sessionKeys[0]];
                     if (existingSession && existingSession.topic) {
                         _state.browserSession = existingSession;
-                        _state.address = existingSession.peer?.metadata?.name ? 
-                            existingSession.self?.metadata?.publicKey : _state.address;
-                        console.log('[wc-bridge] Restored existing WalletConnect session:', existingSession.topic);
+                        // Get address from session namespaces
+                        var ns = existingSession.namespaces || {};
+                        Object.keys(ns).some(function (key) {
+                            var accts = (ns[key] && ns[key].accounts) || [];
+                            if (accts.length) {
+                                _state.address = String(accts[0]).split(":").pop();
+                                return true;
+                            }
+                            return false;
+                        });
+                        console.log('[wc-bridge] Restored session from SignClient:', existingSession.topic);
+                        console.log('[wc-bridge] Session address:', _state.address);
+                    }
+                } else {
+                    // No sessions from SignClient - check our own localStorage backup
+                    console.log('[wc-bridge] No sessions from SignClient, checking localStorage backup...');
+                    try {
+                        var storedTopic = localStorage.getItem('wc_session_topic');
+                        var storedAddress = localStorage.getItem('wc_session_address');
+                        var storedTimestamp = localStorage.getItem('wc_session_timestamp');
+                        
+                        if (storedTopic && storedAddress) {
+                            // We have localStorage data - this means user logged in via WC
+                            // but SignClient didn't persist the session
+                            _state.address = storedAddress;
+                            console.log('[wc-bridge] Restored address from localStorage:', storedAddress);
+                            console.log('[wc-bridge] Stored topic:', storedTopic);
+                            
+                            // Try to restore session using the stored topic
+                            // SignClient should be able to find it if it was stored
+                            var storedSession = client.session.get(storedTopic);
+                            if (storedSession) {
+                                _state.browserSession = storedSession;
+                                console.log('[wc-bridge] Restored full session from topic!');
+                            } else {
+                                console.log('[wc-bridge] Could not restore full session, only have address');
+                            }
+                        }
+                    } catch (lsErr) {
+                        console.warn('[wc-bridge] Could not access localStorage:', lsErr);
                     }
                 }
             } catch (restoreErr) {
