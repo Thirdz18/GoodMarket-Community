@@ -1963,7 +1963,7 @@
                 walletAddress: "{{ wallet }}",
                 loginMethod: "{{ login_method }}",
                 projectId: "{{ walletconnect_project_id|default('', true) }}",
-                sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+                sidecarEnabled: false,
                 dappName: "GoodMarket — Learn & Earn",
                 dappDescription: "Earn G$ on Celo via quizzes, NFTs, and tasks",
                 assetVersion: "{{ ASSET_VERSION }}",

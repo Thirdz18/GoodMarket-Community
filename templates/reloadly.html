@@ -319,7 +319,7 @@
                 walletAddress: "{{ wallet }}",
                 loginMethod: "{{ login_method }}",
                 projectId: "{{ walletconnect_project_id|default('', true) }}",
-                sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+                sidecarEnabled: false,
                 dappName: "GoodMarket — Store",
                 dappDescription: "Buy mobile airtime on Celo",
                 assetVersion: "{{ ASSET_VERSION }}",

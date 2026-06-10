@@ -4225,7 +4225,7 @@
                     walletAddress: SESSION_WALLET,
                     loginMethod: LOGIN_METHOD,
                     projectId: "{{ walletconnect_project_id|default('', true) }}",
-                    sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+                    sidecarEnabled: false,
                     dappName: "GoodMarket — Voucher",
                     dappDescription: "Claim your daily G$ voucher on Celo",
                     assetVersion: "{{ ASSET_VERSION }}",
