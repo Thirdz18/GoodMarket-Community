@@ -1260,10 +1260,6 @@
                     <div class="action-circle">↑</div>
                     <span class="action-label">Send</span>
                 </div>
-                <div class="action-item" onclick="openModal('streamModal')">
-                    <div class="action-circle" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;">🌊</div>
-                    <span class="action-label">Stream G$</span>
-                </div>
                 <div class="action-item" onclick="openModal('claimModal');">
                     <div class="action-circle claim-circle">
                         <span class="claim-glyph">G$</span>
@@ -1573,71 +1569,6 @@
         </div>
     </div>
 
-    <!-- Stream G$ Modal -->
-    <div class="modal-overlay" id="streamModal">
-        <div class="modal-sheet">
-            <div class="modal-handle"></div>
-            <div class="modal-title">🌊 Stream G$</div>
-            
-            <p style="text-align:center;font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;">
-                Create continuous G$ payment streams using Superfluid protocol.
-            </p>
-            
-            <!-- Tab Navigation -->
-            <div class="stream-tabs" style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-                <button class="stream-tab active" id="streamTabStart" onclick="switchStreamTab('start')" style="flex:1;padding:0.6rem;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:10px;color:#f59e0b;font-weight:600;font-size:0.85rem;cursor:pointer;">Start Stream</button>
-                <button class="stream-tab" id="streamTabManage" onclick="switchStreamTab('manage')" style="flex:1;padding:0.6rem;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:10px;color:var(--text-dim);font-weight:500;font-size:0.85rem;cursor:pointer;">My Streams</button>
-            </div>
-            
-            <!-- Start Stream Tab -->
-            <div id="streamStartContent">
-                <div style="margin-bottom:1rem;">
-                    <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;">Recipient Address</label>
-                    <input type="text" id="streamRecipient" placeholder="0x..." style="width:100%;padding:0.75rem;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-family:monospace;font-size:0.85rem;box-sizing:border-box;" />
-                </div>
-                
-                <div style="margin-bottom:1rem;">
-                    <label style="display:block;font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;">Flow Rate</label>
-                    <div style="display:flex;gap:0.5rem;">
-                        <input type="number" id="streamAmount" placeholder="1" min="0.0001" step="0.01" style="flex:1;padding:0.75rem;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:#fff;font-size:0.9rem;box-sizing:border-box;" />
-                        <select id="streamRateUnit" style="padding:0.75rem;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.08);color:#fff;font-size:0.85rem;min-width:100px;">
-                            <option value="gps">G$/sec</option>
-                            <option value="gpm" selected>G$/min</option>
-                            <option value="gph">G$/hour</option>
-                            <option value="gpd">G$/day</option>
-                        </select>
-                    </div>
-                </div>
-                
-                <div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:0.85rem;margin-bottom:1rem;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <span style="color:var(--text-dim);font-size:0.8rem;">Flow Rate</span>
-                        <span id="streamFlowRateDisplay" style="color:#f59e0b;font-weight:600;font-size:0.9rem;">0 G$/sec</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <span style="color:var(--text-dim);font-size:0.8rem;">Est. Daily</span>
-                        <span id="streamDailyEstimate" style="color:#fff;font-size:0.85rem;">0 G$/day</span>
-                    </div>
-                </div>
-                
-                <button class="btn-primary" id="streamStartBtn" onclick="doStartStream()" style="width:100%;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;margin-bottom:0.75rem;">
-                    <span id="streamStartBtnText">Start Stream 🌊</span>
-                </button>
-                <div class="alert" id="streamAlert"></div>
-            </div>
-            
-            <!-- My Streams Tab -->
-            <div id="streamManageContent" style="display:none;">
-                <div id="streamsListContainer">
-                    <p style="text-align:center;color:var(--text-dim);font-size:0.85rem;padding:1rem 0;">Loading streams...</p>
-                </div>
-                <button class="btn-secondary" onclick="refreshStreamsList()" style="width:100%;margin-top:0.75rem;">🔄 Refresh</button>
-            </div>
-            
-            <button class="btn-secondary" onclick="closeModal('streamModal')" style="width:100%;margin-top:0.5rem;">Close</button>
-        </div>
-    </div>
-
     <!-- Settings Modal -->
     <div class="modal-overlay" id="settingsModal">
         <div class="modal-sheet">
@@ -1704,7 +1635,6 @@
     <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
-    <script src="{{ url_for('static', filename='js/superfluid-stream.js', v=ASSET_VERSION) }}"></script>
     <!--
         MiniPay gas top-up: detect users with CELO but no stablecoin and
         auto-prompt a CELO -> cUSD swap before tx-bound actions (claim, etc.)
@@ -2149,10 +2079,6 @@
             // Refresh FV status each time Settings opens so the user sees fresh data.
             loadFvStatus(true);
         }
-        if (id === 'streamModal') {
-            // Initialize Superfluid when stream modal opens
-            initStreamModal();
-        }
     }
     function closeModal(id) {
         document.getElementById(id).classList.remove('open');
@@ -2161,236 +2087,6 @@
     document.querySelectorAll('.modal-overlay').forEach(el => {
         el.addEventListener('click', e => { if (e.target === el) closeModal(el.id); });
     });
-
-    // ── Superfluid Stream Functions ────────────────────────────
-    
-    let _streamInitAttempted = false;
-    
-    function initStreamModal() {
-        if (!window.SuperfluidStream) {
-            showStreamAlert('error', 'Superfluid not loaded. Please refresh the page.');
-            return;
-        }
-        
-        // Get the current provider (prefer injected, then WC)
-        var provider = null;
-        if (typeof window.ethereum !== 'undefined') {
-            provider = window.ethereum;
-        } else if (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred && GMWalletConnect.isPreferred()) {
-            var wcProvider = GMWalletConnect.getProvider();
-            if (wcProvider) provider = wcProvider;
-        }
-        
-        if (!provider) {
-            showStreamAlert('error', 'No wallet detected. Please connect your wallet first.');
-            return;
-        }
-        
-        // Initialize Superfluid with the provider
-        if (!window.SuperfluidStream.isReady()) {
-            var walletAddr = '{{ wallet }}';
-            window.SuperfluidStream.init(provider, walletAddr).then(function(ready) {
-                if (ready) {
-                    showStreamAlert('success', 'Superfluid ready! ✓');
-                    // Update flow rate display when amount changes
-                    document.getElementById('streamAmount').addEventListener('input', updateStreamFlowRateDisplay);
-                    document.getElementById('streamRateUnit').addEventListener('change', updateStreamFlowRateDisplay);
-                    updateStreamFlowRateDisplay();
-                } else {
-                    showStreamAlert('error', 'Failed to initialize Superfluid.');
-                }
-            }).catch(function(err) {
-                console.error('[Stream] Init error:', err);
-                showStreamAlert('error', 'Error: ' + (err.message || 'Failed to connect'));
-            });
-        }
-    }
-    
-    function updateStreamFlowRateDisplay() {
-        var amount = parseFloat(document.getElementById('streamAmount').value) || 0;
-        var unit = document.getElementById('streamRateUnit').value;
-        
-        // Convert to G$/sec
-        var gPerSec = window.SuperfluidStream.selectorToFlowRate(unit, amount);
-        
-        // Update display
-        document.getElementById('streamFlowRateDisplay').textContent = 
-            gPerSec.toFixed(6) + ' G$/sec';
-        
-        // Estimate daily
-        var daily = gPerSec * 86400;
-        document.getElementById('streamDailyEstimate').textContent = 
-            daily.toFixed(2) + ' G$/day';
-    }
-    
-    function switchStreamTab(tab) {
-        var startTab = document.getElementById('streamTabStart');
-        var manageTab = document.getElementById('streamTabManage');
-        var startContent = document.getElementById('streamStartContent');
-        var manageContent = document.getElementById('streamManageContent');
-        
-        if (tab === 'start') {
-            startTab.classList.add('active');
-            startTab.style.background = 'rgba(245,158,11,0.15)';
-            startTab.style.borderColor = 'rgba(245,158,11,0.3)';
-            startTab.style.color = '#f59e0b';
-            manageTab.classList.remove('active');
-            manageTab.style.background = 'rgba(255,255,255,0.04)';
-            manageTab.style.borderColor = 'rgba(255,255,255,0.1)';
-            manageTab.style.color = 'var(--text-dim)';
-            startContent.style.display = 'block';
-            manageContent.style.display = 'none';
-        } else {
-            manageTab.classList.add('active');
-            manageTab.style.background = 'rgba(245,158,11,0.15)';
-            manageTab.style.borderColor = 'rgba(245,158,11,0.3)';
-            manageTab.style.color = '#f59e0b';
-            startTab.classList.remove('active');
-            startTab.style.background = 'rgba(255,255,255,0.04)';
-            startTab.style.borderColor = 'rgba(255,255,255,0.1)';
-            startTab.style.color = 'var(--text-dim)';
-            startContent.style.display = 'none';
-            manageContent.style.display = 'block';
-            refreshStreamsList();
-        }
-    }
-    
-    async function doStartStream() {
-        if (!window.SuperfluidStream || !window.SuperfluidStream.isReady()) {
-            showStreamAlert('error', 'Superfluid not ready. Please wait...');
-            initStreamModal();
-            return;
-        }
-        
-        var recipient = document.getElementById('streamRecipient').value.trim();
-        var amount = parseFloat(document.getElementById('streamAmount').value);
-        var unit = document.getElementById('streamRateUnit').value;
-        
-        // Validation
-        if (!recipient) {
-            showStreamAlert('error', 'Please enter recipient address');
-            return;
-        }
-        if (!/^0x[a-fA-F0-9]{40}$/.test(recipient)) {
-            showStreamAlert('error', 'Invalid recipient address');
-            return;
-        }
-        if (!amount || amount <= 0) {
-            showStreamAlert('error', 'Please enter a valid flow rate');
-            return;
-        }
-        
-        // Convert to G$/sec
-        var flowRate = window.SuperfluidStream.selectorToFlowRate(unit, amount);
-        
-        // Update button state
-        var btn = document.getElementById('streamStartBtn');
-        var btnText = document.getElementById('streamStartBtnText');
-        btn.disabled = true;
-        btnText.textContent = 'Creating Stream... ⏳';
-        
-        try {
-            var result = await window.SuperfluidStream.createStream(recipient, flowRate);
-            
-            // Store stream locally
-            window.SuperfluidStream.storeStream(recipient, '');
-            
-            showStreamAlert('success', 'Stream created! Tx: ' + result.txHash.substring(0, 10) + '...');
-            
-            // Clear form
-            document.getElementById('streamRecipient').value = '';
-            document.getElementById('streamAmount').value = '';
-            
-            // Switch to streams tab after short delay
-            setTimeout(function() {
-                switchStreamTab('manage');
-            }, 2000);
-            
-        } catch (err) {
-            console.error('[Stream] Create error:', err);
-            showStreamAlert('error', 'Failed: ' + (err.message || 'Unknown error'));
-        } finally {
-            btn.disabled = false;
-            btnText.textContent = 'Start Stream 🌊';
-        }
-    }
-    
-    async function doStopStream(recipient) {
-        if (!window.SuperfluidStream || !window.SuperfluidStream.isReady()) {
-            showStreamAlert('error', 'Superfluid not ready');
-            return;
-        }
-        
-        if (!confirm('Stop stream to ' + recipient.substring(0, 10) + '...?')) {
-            return;
-        }
-        
-        try {
-            var result = await window.SuperfluidStream.deleteStream(recipient);
-            window.SuperfluidStream.removeStoredStream(recipient);
-            showStreamAlert('success', 'Stream stopped! ✓');
-            refreshStreamsList();
-        } catch (err) {
-            console.error('[Stream] Stop error:', err);
-            showStreamAlert('error', 'Failed: ' + (err.message || 'Unknown error'));
-        }
-    }
-    
-    async function refreshStreamsList() {
-        var container = document.getElementById('streamsListContainer');
-        
-        if (!window.SuperfluidStream || !window.SuperfluidStream.isReady()) {
-            container.innerHTML = '<p style="text-align:center;color:var(--text-dim);font-size:0.85rem;">Superfluid not ready. Please try again.</p>';
-            return;
-        }
-        
-        container.innerHTML = '<p style="text-align:center;color:var(--text-dim);font-size:0.85rem;">Loading streams... ⏳</p>';
-        
-        try {
-            var streams = await window.SuperfluidStream.getMyOutgoingStreams();
-            
-            if (streams.length === 0) {
-                container.innerHTML = '<p style="text-align:center;color:var(--text-dim);font-size:0.85rem;padding:1.5rem 0;">No active streams found.<br><br>Go to "Start Stream" tab to create one!</p>';
-                return;
-            }
-            
-            var html = '';
-            for (var i = 0; i < streams.length; i++) {
-                var stream = streams[i];
-                var shortAddr = stream.recipient.substring(0, 6) + '...' + stream.recipient.substring(38);
-                var formattedRate = window.SuperfluidStream.formatFlowRate(stream.flowRate);
-                
-                html += '<div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:0.85rem;margin-bottom:0.75rem;">';
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">';
-                html += '<span style="font-family:monospace;font-size:0.85rem;color:#fff;">' + shortAddr + '</span>';
-                html += '<span style="color:#f59e0b;font-weight:600;font-size:0.9rem;">' + formattedRate + '</span>';
-                html += '</div>';
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-                html += '<span style="color:var(--text-dim);font-size:0.75rem;">Flow Rate</span>';
-                html += '<button onclick="doStopStream(\'' + stream.recipient + '\')" style="background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:0.4rem 0.75rem;border-radius:6px;font-size:0.75rem;font-weight:500;cursor:pointer;">Stop</button>';
-                html += '</div></div>';
-            }
-            
-            container.innerHTML = html;
-        } catch (err) {
-            console.error('[Stream] List error:', err);
-            container.innerHTML = '<p style="text-align:center;color:#ef4444;font-size:0.85rem;">Error loading streams</p>';
-        }
-    }
-    
-    function showStreamAlert(type, message) {
-        var alertEl = document.getElementById('streamAlert');
-        if (!alertEl) return;
-        
-        alertEl.className = 'alert ' + (type === 'error' ? 'alert-error' : 'alert-success');
-        alertEl.textContent = message;
-        alertEl.style.display = 'block';
-        
-        // Auto-hide after 5 seconds
-        setTimeout(function() {
-            alertEl.style.display = 'none';
-        }, 5000);
-    }
 
     // ── Face Verification status + expiry tracking ───────────
     // Reads live from the GoodDollar Identity contract via /api/fv-status.
