@@ -243,6 +243,75 @@
         return _state.sdkLoading;
     }
 
+    // ── Session restore helpers ────────────────────────────────────────────────
+
+    // Extract the address from a WalletConnect session's namespaces object.
+    function _addrFromSession(session) {
+        try {
+            var ns = session && (session.namespaces || {});
+            var addr = null;
+            Object.keys(ns).some(function (key) {
+                var accts = (ns[key] && ns[key].accounts) || [];
+                if (accts.length) {
+                    addr = String(accts[0]).split(":").pop();
+                    return true;
+                }
+                return false;
+            });
+            return addr;
+        } catch (_) { return null; }
+    }
+
+    // Pick the best session from a sessions map, preferring the one whose
+    // address matches _config.walletAddress (when set).
+    function _pickBestSession(sessions) {
+        var nowSec = Math.floor(Date.now() / 1000);
+        var keys = Object.keys(sessions || {}).filter(function (k) {
+            var s = sessions[k];
+            return s && s.topic && (!s.expiry || s.expiry > nowSec);
+        });
+        if (!keys.length) return null;
+
+        var wantedAddr = String(_config.walletAddress || "").toLowerCase();
+        if (wantedAddr) {
+            for (var i = 0; i < keys.length; i++) {
+                var s = sessions[keys[i]];
+                var ns = s && (s.namespaces || {});
+                var matched = Object.keys(ns).some(function (k) {
+                    return ((ns[k] && ns[k].accounts) || []).some(function (a) {
+                        return String(a).split(":").pop().toLowerCase() === wantedAddr;
+                    });
+                });
+                if (matched) return s;
+            }
+        }
+        return sessions[keys[0]];
+    }
+
+    // Poll getActiveSessions() for up to `maxMs` ms, retrying every `intervalMs`.
+    // WalletConnect v2 uses IndexedDB for session storage; on a freshly initialised
+    // client the IndexedDB read may not have completed by the time init() resolves,
+    // so calling getActiveSessions() immediately returns {}. This poller gives the
+    // SDK the time it needs to load persisted sessions from IndexedDB and reconnect
+    // to the relay WebSocket before we conclude "no session available".
+    function _pollForSessions(client, maxMs, intervalMs) {
+        var start = Date.now();
+        var interval = intervalMs || 300;
+        var max = maxMs || 3000;
+
+        function attempt() {
+            try {
+                var sessions = client.getActiveSessions();
+                var session = _pickBestSession(sessions);
+                if (session) return Promise.resolve(session);
+            } catch (_) { /* ignore */ }
+
+            if (Date.now() - start >= max) return Promise.resolve(null);
+            return _delay(interval).then(attempt);
+        }
+        return attempt();
+    }
+
     function _wcGetClient() {
         if (_state.signClient) return Promise.resolve(_state.signClient);
         if (!_config.projectId) {
@@ -260,116 +329,81 @@
             });
         }).then(function (client) {
             _state.signClient = client;
-            
-            // Restore existing session if available - this is critical for
-            // users who logged in via WalletConnect and are now trying to
-            // sign transactions. Without this, the new SignClient instance
-            // doesn't know about the session from the login flow.
-            try {
-                // First check SignClient's own session storage (IndexedDB-backed).
-                // This is the most reliable source because it is managed by the
-                // WalletConnect SDK itself and survives page navigations.
-                var sessions = client.getActiveSessions();
-                var sessionKeys = sessions ? Object.keys(sessions) : [];
-                
-                // Filter out expired sessions (WC expiry is in seconds)
-                var nowSec = Math.floor(Date.now() / 1000);
-                sessionKeys = sessionKeys.filter(function (k) {
-                    var s = sessions[k];
-                    return s && (!s.expiry || s.expiry > nowSec);
-                });
 
-                if (sessionKeys.length > 0) {
-                    // Prefer a session whose address matches the configured wallet
-                    var wantedAddr = String(_config.walletAddress || "").toLowerCase();
-                    var bestKey = sessionKeys[0];
-                    if (wantedAddr) {
-                        for (var ki = 0; ki < sessionKeys.length; ki++) {
-                            var s = sessions[sessionKeys[ki]];
-                            var ns = s && (s.namespaces || {});
-                            var matched = Object.keys(ns).some(function (k) {
-                                return ((ns[k] && ns[k].accounts) || []).some(function (a) {
-                                    return String(a).split(":").pop().toLowerCase() === wantedAddr;
-                                });
-                            });
-                            if (matched) { bestKey = sessionKeys[ki]; break; }
-                        }
-                    }
-
-                    var existingSession = sessions[bestKey];
-                    if (existingSession && existingSession.topic) {
-                        _state.browserSession = existingSession;
-                        var ns2 = existingSession.namespaces || {};
-                        Object.keys(ns2).some(function (key) {
-                            var accts = (ns2[key] && ns2[key].accounts) || [];
-                            if (accts.length) {
-                                _state.address = String(accts[0]).split(":").pop();
-                                return true;
-                            }
-                            return false;
-                        });
-                    }
-                } else {
-                    // No live sessions from SignClient's IndexedDB — check our own
-                    // localStorage backup that the homepage wrote at login time.
-                    try {
-                        var storedTopic = localStorage.getItem('wc_session_topic');
-                        var storedAddress = localStorage.getItem('wc_session_address');
-                        var storedSessionData = localStorage.getItem('wc_session_data');
-                        var storedTimestamp = parseInt(localStorage.getItem('wc_session_timestamp') || '0', 10);
-
-                        // Reject backup sessions older than 7 days (604800000 ms) to
-                        // avoid trying to use an obviously expired WC session.
-                        var MAX_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-                        var sessionAge = storedTimestamp ? (Date.now() - storedTimestamp) : Infinity;
-                        var sessionTooOld = sessionAge > MAX_SESSION_AGE_MS;
-
-                        if (storedTopic && storedAddress && !sessionTooOld && storedSessionData) {
-                            try {
-                                var parsedSession = JSON.parse(storedSessionData);
-                                // Reject if the session's own expiry has passed
-                                var parsedExpiry = parsedSession && parsedSession.expiry;
-                                var nowSec2 = Math.floor(Date.now() / 1000);
-                                if (parsedSession && parsedSession.topic && (!parsedExpiry || parsedExpiry > nowSec2)) {
-                                    // CRITICAL: register the restored session into the SignClient's
-                                    // internal session store so client.request({ topic }) works.
-                                    // Without this step, the client has no record of this topic
-                                    // and every request fails with "No active session".
-                                    try {
-                                        if (client.session && typeof client.session.set === 'function') {
-                                            client.session.set(parsedSession.topic, parsedSession);
-                                        }
-                                    } catch (setErr) {
-                                        // session.set is an internal API — ignore if unavailable
-                                    }
-                                    _state.browserSession = parsedSession;
-                                    _state.address = storedAddress;
-                                }
-                            } catch (parseErr) {
-                                // Could not parse stored session data — ignore
-                            }
-                        }
-
-                        // If a backup existed but is stale/expired, clean it up so
-                        // the next login starts fresh.
-                        if (storedTopic && (sessionTooOld || !storedSessionData)) {
-                            try {
-                                localStorage.removeItem('wc_session_topic');
-                                localStorage.removeItem('wc_session_address');
-                                localStorage.removeItem('wc_session_data');
-                                localStorage.removeItem('wc_session_timestamp');
-                            } catch (_) {}
-                        }
-                    } catch (lsErr) {
-                        // localStorage access failed — ignore (e.g. Safari private mode)
-                    }
+            // ── Step 1: Poll IndexedDB-backed sessions (primary source) ─────────
+            // We must NOT call getActiveSessions() immediately after init() — the
+            // WalletConnect SDK reads from IndexedDB asynchronously. Polling for
+            // up to 3 s gives it enough time on low-end Android devices.
+            return _pollForSessions(client, 3000, 300).then(function (liveSession) {
+                if (liveSession) {
+                    _state.browserSession = liveSession;
+                    _state.address = _addrFromSession(liveSession);
+                    try { _config.log("[wc-bridge] Restored live WC session from SDK storage:", liveSession.topic); } catch (_) {}
+                    return client;
                 }
-            } catch (restoreErr) {
-                // If anything in the restore block throws, continue without a session
-                // rather than crashing the entire provider init.
-            }
-            
-            return client;
+
+                // ── Step 2: localStorage backup (written by homepage at login) ──
+                // Only used when the SDK's own IndexedDB has no live session —
+                // e.g. after a hard refresh that cleared IndexedDB, or on a device
+                // where IndexedDB is sandboxed per-tab.
+                // IMPORTANT: we do NOT call client.session.set() here. That internal
+                // API injects session metadata into the client's in-memory map but
+                // does NOT re-establish the relay WebSocket subscription, so
+                // client.request({ topic }) would silently time-out. Instead we
+                // store the session metadata on _state so that bridgeRequest() can
+                // attempt the relay call and surface a clear "session expired" error
+                // if the relay rejects the topic.
+                try {
+                    var storedTopic = localStorage.getItem('wc_session_topic');
+                    var storedAddress = localStorage.getItem('wc_session_address');
+                    var storedSessionData = localStorage.getItem('wc_session_data');
+                    var storedTimestamp = parseInt(localStorage.getItem('wc_session_timestamp') || '0', 10);
+
+                    var MAX_SESSION_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+                    var sessionAge = storedTimestamp ? (Date.now() - storedTimestamp) : Infinity;
+                    var sessionTooOld = sessionAge > MAX_SESSION_AGE_MS;
+
+                    if (storedTopic && storedAddress && !sessionTooOld && storedSessionData) {
+                        try {
+                            var parsedSession = JSON.parse(storedSessionData);
+                            var parsedExpiry = parsedSession && parsedSession.expiry;
+                            var nowSec = Math.floor(Date.now() / 1000);
+                            if (parsedSession && parsedSession.topic && (!parsedExpiry || parsedExpiry > nowSec)) {
+                                // Attempt to register the session into the client's internal
+                                // session store AND subscribe to the topic on the relay. The
+                                // SDK exposes client.core.relayer.subscribe(topic) for this
+                                // purpose; fall back silently if the API is not available.
+                                try {
+                                    if (client.session && typeof client.session.set === 'function') {
+                                        client.session.set(parsedSession.topic, parsedSession);
+                                    }
+                                } catch (_) { /* internal API — ignore */ }
+                                try {
+                                    if (client.core && client.core.relayer &&
+                                        typeof client.core.relayer.subscribe === 'function') {
+                                        client.core.relayer.subscribe(parsedSession.topic);
+                                    }
+                                } catch (_) { /* optional — ignore */ }
+
+                                _state.browserSession = parsedSession;
+                                _state.address = storedAddress;
+                                try { _config.log("[wc-bridge] Restored WC session from localStorage backup:", storedTopic); } catch (_) {}
+                            }
+                        } catch (parseErr) { /* ignore */ }
+                    }
+
+                    if (storedTopic && (sessionTooOld || !storedSessionData)) {
+                        try {
+                            localStorage.removeItem('wc_session_topic');
+                            localStorage.removeItem('wc_session_address');
+                            localStorage.removeItem('wc_session_data');
+                            localStorage.removeItem('wc_session_timestamp');
+                        } catch (_) {}
+                    }
+                } catch (lsErr) { /* ignore — Safari private mode etc. */ }
+
+                return client;
+            });
         });
     }
 
@@ -837,27 +871,24 @@
                 }
                 // Fall through to the in-browser SignClient session.
                 // _wcGetClient() already runs the full session-restore logic
-                // (IndexedDB → localStorage backup → client.session.set), so
-                // by the time we reach this block _state.browserSession should
-                // already be populated if a valid session exists.
+                // (IndexedDB poll → localStorage backup), so by the time we
+                // reach this block _state.browserSession should already be
+                // populated if a valid session exists.
                 return _wcGetClient().then(function (client) {
-                    // If session was not restored during _wcGetClient (unlikely but
-                    // possible if it ran before configure() set walletAddress), do
-                    // one last attempt against SignClient's live session map.
+                    // If session was not restored during _wcGetClient (possible
+                    // if configure() was called after the first _wcGetClient run),
+                    // do one last poll against the live SignClient session map.
                     if (!_state.browserSession) {
-                        try {
-                            var nowSec = Math.floor(Date.now() / 1000);
-                            var sessions = client.getActiveSessions();
-                            var sessionKeys = Object.keys(sessions || {}).filter(function (k) {
-                                var s = sessions[k];
-                                return s && (!s.expiry || s.expiry > nowSec);
-                            });
-                            if (sessionKeys.length > 0) {
-                                _state.browserSession = sessions[sessionKeys[0]];
+                        return _pollForSessions(client, 2000, 300).then(function (liveSession) {
+                            if (liveSession) {
+                                _state.browserSession = liveSession;
+                                _state.address = _addrFromSession(liveSession);
                             }
-                        } catch (_) { /* ignore */ }
+                            return client;
+                        });
                     }
-
+                    return client;
+                }).then(function (client) {
                     // If we have a session, use it
                     if (_state.browserSession) {
                         return _doWcRequest(client, method, p).catch(function (wcErr) {
