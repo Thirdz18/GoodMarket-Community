@@ -1849,16 +1849,8 @@
     <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
     
-    <!-- Superfluid G$ Streaming Config -->
-    <script>
-        window.SUPERFLUID_CONFIG = {
-            host_address: "{{ superfluid_host_address | default('0xEB796bdb90fFA0da2d5c532F2bA53Fb15E59344b') }}",
-            cfa_v1_address: "{{ superfluid_cfa_v1_address | default('0x254A4D3b2a5D9B8C7D6E5F4A3B2C1D0E9F8A7B6C') }}",
-            resolver_address: "{{ superfluid_resolver_address | default('0x85998f8F8B0C69CBE8F31F56C7A5C79E16a7dF59') }}",
-            super_token_address: "{{ superfluid_super_token_address | default('0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A') }}"
-        };
-    </script>
-    <script src="{{ url_for('static', filename='js/superfluid-stream.js', v=ASSET_VERSION) }}"></script>
+    <!-- Note: Superfluid streaming is handled by inline JS in wallet.html -->
+    <!-- Uses /api/superfluid/streams endpoint with subgraph integration -->
     <!--
         MiniPay gas top-up: detect users with CELO but no stablecoin and
         auto-prompt a CELO -> cUSD swap before tx-bound actions (claim, etc.)
