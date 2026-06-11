@@ -628,137 +628,6 @@
         /* ── Bottom padding ── */
         .page-bottom { height: 5rem; }
 
-        /* ── G$ Stream action button ── */
-        .stream-circle {
-            background: linear-gradient(135deg,#00c9a7,#00a3e0) !important;
-            border-color: rgba(0,201,167,0.4) !important;
-            color: #fff !important;
-            font-size: 1.2rem !important;
-            font-weight: 900 !important;
-            animation: streamPulse 2.5s ease-in-out infinite;
-        }
-        @keyframes streamPulse {
-            0%,100%{box-shadow:0 0 0 0 rgba(0,201,167,0);}
-            50%{box-shadow:0 0 0 7px rgba(0,201,167,0.18);}
-        }
-
-        /* ── Stream Modal ── */
-        .stream-tab-bar {
-            display: flex; gap: 0.4rem;
-            margin-bottom: 1.2rem;
-            background: rgba(255,255,255,0.04);
-            border-radius: 12px; padding: 4px;
-        }
-        .stream-tab {
-            flex: 1; padding: 0.55rem 0.5rem;
-            border-radius: 9px; border: none;
-            background: transparent; color: rgba(255,255,255,0.55);
-            font-size: 0.82rem; font-weight: 600; cursor: pointer;
-            transition: all 0.2s;
-        }
-        .stream-tab.active {
-            background: linear-gradient(135deg,#00c9a7,#00a3e0);
-            color: #fff;
-        }
-        .stream-panel { display: none; }
-        .stream-panel.active { display: block; }
-
-        .stream-card {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(255,255,255,0.09);
-            border-radius: 14px; padding: 1rem;
-            margin-bottom: 0.75rem;
-        }
-        .stream-card-header {
-            display: flex; align-items: center;
-            justify-content: space-between; margin-bottom: 0.6rem;
-        }
-        .stream-direction {
-            display: inline-flex; align-items: center; gap: 0.35rem;
-            font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-            letter-spacing: 0.06em; padding: 0.2rem 0.6rem;
-            border-radius: 6px;
-        }
-        .stream-direction.outgoing {
-            background: rgba(239,68,68,0.12); color: #f87171;
-            border: 1px solid rgba(239,68,68,0.25);
-        }
-        .stream-direction.incoming {
-            background: rgba(0,201,167,0.12); color: #2dd4bf;
-            border: 1px solid rgba(0,201,167,0.25);
-        }
-        .stream-addr {
-            font-size: 0.78rem; color: rgba(255,255,255,0.45);
-            font-family: 'Courier New', monospace;
-        }
-        .stream-rate {
-            font-size: 1rem; font-weight: 700;
-            color: #fff; margin-bottom: 0.3rem;
-        }
-        .stream-timer {
-            font-size: 1.35rem; font-weight: 800;
-            font-variant-numeric: tabular-nums;
-            background: linear-gradient(90deg,#00c9a7,#00a3e0);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            letter-spacing: 0.04em;
-        }
-        .stream-total {
-            font-size: 0.78rem; color: rgba(255,255,255,0.4);
-            margin-top: 0.2rem;
-        }
-        .stream-stop-btn {
-            margin-top: 0.75rem; width: 100%;
-            background: rgba(239,68,68,0.1);
-            border: 1px solid rgba(239,68,68,0.3);
-            color: #f87171; border-radius: 10px;
-            padding: 0.55rem; font-size: 0.82rem; font-weight: 700;
-            cursor: pointer; transition: all 0.2s;
-        }
-        .stream-stop-btn:hover {
-            background: rgba(239,68,68,0.2);
-        }
-        .stream-stop-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        .stream-unit-row {
-            display: flex; gap: 0.4rem; margin-bottom: 1rem;
-        }
-        .stream-unit-btn {
-            flex: 1; padding: 0.45rem;
-            border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.6);
-            font-size: 0.78rem; font-weight: 600; cursor: pointer;
-            transition: all 0.2s;
-        }
-        .stream-unit-btn.active {
-            background: rgba(0,201,167,0.15);
-            border-color: rgba(0,201,167,0.4); color: #2dd4bf;
-        }
-        .stream-preview {
-            background: rgba(0,201,167,0.07);
-            border: 1px solid rgba(0,201,167,0.2);
-            border-radius: 10px; padding: 0.75rem 1rem;
-            margin-bottom: 1rem; font-size: 0.82rem;
-            color: rgba(255,255,255,0.7); text-align: center;
-            min-height: 2.2rem;
-        }
-        .stream-start-btn {
-            width: 100%; padding: 0.85rem;
-            background: linear-gradient(135deg,#00c9a7,#00a3e0);
-            border: none; border-radius: 12px; color: #fff;
-            font-size: 0.95rem; font-weight: 700; cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        .stream-start-btn:hover { opacity: 0.88; }
-        .stream-start-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .stream-empty {
-            text-align: center; padding: 2rem 1rem;
-            color: rgba(255,255,255,0.35); font-size: 0.88rem;
-        }
-        .stream-loading {
-            text-align: center; padding: 1.5rem;
-            color: rgba(0,201,167,0.7); font-size: 0.85rem;
-        }
-
         /* ── Modals ── */
         .modal-overlay {
             position: fixed;
@@ -1290,9 +1159,6 @@
             body { border-left: 1px solid rgba(255,255,255,0.05); border-right: 1px solid rgba(255,255,255,0.05); }
         }
     </style>
-    <!-- ethers.js v6 — loaded here so it's available to ALL inline scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"
-            crossorigin="anonymous"></script>
 </head>
 <body>
     <div id="navFeedbackOverlay" class="nav-feedback-overlay" aria-live="polite" aria-atomic="true">
@@ -1428,10 +1294,6 @@
                 <div class="action-item" onclick="return navigateWithFeedback('/overview', 'Opening Overview…')">
                     <div class="action-circle">🏠</div>
                     <span class="action-label">Overview</span>
-                </div>
-                <div class="action-item" id="actionGdStream" onclick="openStreamModal()">
-                    <div class="action-circle stream-circle">〜</div>
-                    <span class="action-label">G$ Stream</span>
                 </div>
             </div>
         </aside>
@@ -1749,24 +1611,6 @@
                 </div>
             </div>
 
-            {% if login_method == 'privy' %}
-            <div style="margin-bottom:1.25rem;">
-                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Wallet Security</div>
-                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.85rem 0.95rem;">
-                    <p style="font-size:0.82rem;color:var(--text-dim);line-height:1.5;margin-bottom:0.75rem;">
-                        Export your embedded wallet's private key to use it with another wallet app (e.g. MetaMask). Keep your private key safe — anyone with access to it can control your funds.
-                    </p>
-                    <button type="button" id="exportPrivyKeyBtn" onclick="handleExportPrivyKey()" style="width:100%;padding:0.65rem 0.8rem;border-radius:10px;border:1px solid rgba(92,200,255,0.35);background:rgba(92,200,255,0.08);color:#5cc8ff;font-size:0.85rem;font-weight:600;cursor:pointer;transition:background 0.2s;">
-                        🔑 Export Private Key
-                    </button>
-                    <div id="exportKeyStatus" style="display:none;margin-top:0.5rem;font-size:0.78rem;line-height:1.5;padding:0.5rem 0.7rem;border-radius:8px;"></div>
-                </div>
-            </div>
-            {% else %}
-            <div style="background:rgba(0,180,255,0.07);border:1px solid rgba(0,180,255,0.2);border-radius:12px;padding:0.9rem 1rem;font-size:0.85rem;color:var(--text-dim);margin-bottom:1rem;">
-                ℹ️ GoodMarket uses non-custodial wallets. Your private key is managed by your wallet app.
-            </div>
-            {% endif %}
 
 
             <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid rgba(255,255,255,0.07);">
@@ -1780,63 +1624,6 @@
             </div>
 
             <button class="btn-secondary" style="margin-top:0.5rem;" onclick="closeModal('settingsModal')">Close</button>
-        </div>
-    </div>
-
-    <!-- ══════════════════════════════════════════════════
-         G$ Stream Modal (Superfluid)
-    ═══════════════════════════════════════════════════ -->
-    <div class="modal-overlay" id="streamModal">
-        <div class="modal-sheet" style="max-height:88vh;">
-            <div class="modal-handle"></div>
-            <div class="modal-title" style="background:linear-gradient(90deg,#00c9a7,#00a3e0);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-                〜 G$ Stream
-            </div>
-
-            <!-- Tabs -->
-            <div class="stream-tab-bar">
-                <button class="stream-tab active" id="streamTabDashboard" onclick="switchStreamTab('dashboard')">📊 My Streams</button>
-                <button class="stream-tab" id="streamTabNew" onclick="switchStreamTab('new')">➕ Stream G$</button>
-            </div>
-
-            <!-- ── Dashboard Panel ── -->
-            <div class="stream-panel active" id="streamPanelDashboard">
-                <div id="streamDashboardContent">
-                    <div class="stream-loading" id="streamDashboardLoading">Loading streams…</div>
-                </div>
-            </div>
-
-            <!-- ── New Stream Panel ── -->
-            <div class="stream-panel" id="streamPanelNew">
-                <div class="form-group">
-                    <label class="form-label">Recipient Address</label>
-                    <input class="form-input" id="streamRecipient" type="text" placeholder="0x…" autocomplete="off" spellcheck="false" oninput="updateStreamPreview()">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Flow Rate (G$ amount)</label>
-                    <input class="form-input" id="streamAmount" type="number" min="0.01" step="any" placeholder="1" oninput="updateStreamPreview()">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Per</label>
-                    <div class="stream-unit-row">
-                        <button class="stream-unit-btn" id="unitMinute" onclick="selectStreamUnit('minute')">Minute</button>
-                        <button class="stream-unit-btn active" id="unitHour" onclick="selectStreamUnit('hour')">Hour</button>
-                        <button class="stream-unit-btn" id="unitDay" onclick="selectStreamUnit('day')">Day</button>
-                    </div>
-                </div>
-                <div class="stream-preview" id="streamPreview">
-                    Enter amount and recipient to preview stream
-                </div>
-                <button class="stream-start-btn" id="streamStartBtn" onclick="startGdStream()" disabled>
-                    ▶ Start Stream
-                </button>
-                <div class="alert" id="streamAlert" style="margin-top:0.75rem;"></div>
-                <div style="margin-top:0.75rem;padding:0.6rem 0.8rem;background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.2);border-radius:9px;font-size:0.73rem;color:rgba(255,193,7,0.85);">
-                    ⚡ Streams are on-chain on Celo. Gas is required. The recipient receives G$ continuously every second.
-                </div>
-            </div>
-
-            <button class="btn-secondary" style="margin-top:1rem;" onclick="closeModal('streamModal')">Close</button>
         </div>
     </div>
 
@@ -1871,12 +1658,14 @@
     // Configure the shared WalletConnect bridge so users that logged in via
     // WalletConnect (no `window.ethereum`) can still claim / send / sign with
     // approval prompts coming back through their original WC session.
+    // IMPORTANT: sidecarEnabled=false to prevent new QR from appearing during signing.
+    // Signing should use existing session, not create new one.
     if (typeof GMWalletConnect !== "undefined") {
         GMWalletConnect.configure({
             walletAddress: "{{ wallet }}",
             loginMethod: "{{ login_method }}",
             projectId: "{{ walletconnect_project_id|default('', true) }}",
-            sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled|default(true) else 'false' }},
+            sidecarEnabled: false, // Disabled to prevent QR during signing - use existing WC session
             dappName: "GoodMarket — Wallet",
             dappDescription: "Claim and send GoodDollar on Celo",
             assetVersion: "{{ ASSET_VERSION }}",
@@ -2098,6 +1887,12 @@
             await new Promise(r => setTimeout(r, stepMs));
             const p = _getEthProvider();
             if (p) return p;
+        }
+        // WalletConnect fallback: if no injected provider found and WC is preferred,
+        // try to get the WalletConnect provider so users can still sign transactions
+        if (!first) {
+            const wcProvider = await _walletGetWcProviderIfPreferred();
+            if (wcProvider) return wcProvider;
         }
         return null;
     }
@@ -2876,7 +2671,7 @@
                     provider = await _walletGetWcProviderIfPreferred();
                 }
                 if (!provider) {
-                    throw new Error('No wallet detected. Please connect your GoodMarket wallet, or sign in again with WalletConnect.');
+                    throw new Error('No wallet detected. Please connect your GoodMarket wallet via MetaMask, Trust Wallet, MiniPay, or use WalletConnect to sign transactions.');
                 }
 
                 const accounts = await provider.request({ method: 'eth_requestAccounts' });
@@ -4655,7 +4450,7 @@
                 usingWcBridge = !!provider;
             }
             if (!provider) {
-                setStatus('⚠️ No wallet detected. Open in MetaMask, Trust Wallet, MiniPay, or sign in again with WalletConnect.', '#fbbf24');
+                setStatus('⚠️ No wallet detected. Please open this page in MetaMask, Trust Wallet, MiniPay, or reconnect using WalletConnect to sign transactions.', '#fbbf24');
                 return;
             }
 
@@ -4921,7 +4716,7 @@
         async function getClaimProviderAndFrom() {
             let provider = await _vAwaitEthProvider();
             if (!provider) provider = await _walletGetWcProviderIfPreferred();
-            if (!provider) throw new Error('No wallet detected. Open in MetaMask or sign in again with WalletConnect.');
+            if (!provider) throw new Error('No wallet detected. Please open this page in MetaMask, Trust Wallet, MiniPay, or reconnect using WalletConnect to sign transactions.');
             const accounts = await provider.request({ method: 'eth_requestAccounts' });
             if (!accounts || !accounts.length) throw new Error('No wallet account available.');
             const from = accounts[0];
@@ -5269,7 +5064,7 @@
         async function signWithWallet(address) {
             const provider = await _vAwaitEthProvider();
             if (!provider) {
-                throw new Error('No wallet detected. Open this page in MiniPay, MetaMask, Trust Wallet, or WalletConnect.');
+                throw new Error('No wallet detected. Please open this page in MiniPay, MetaMask, Trust Wallet, or reconnect using WalletConnect to sign transactions.');
             }
 
             const accounts = await provider.request({ method: 'eth_requestAccounts' });
@@ -5480,497 +5275,5 @@
 
 
 
-    {% if login_method == 'privy' %}
-    <script>
-    async function handleExportPrivyKey() {
-        var btn = document.getElementById('exportPrivyKeyBtn');
-        var statusEl = document.getElementById('exportKeyStatus');
-        if (btn) btn.disabled = true;
-
-        function showStatus(msg, type) {
-            if (!statusEl) return;
-            statusEl.style.display = 'block';
-            statusEl.textContent = msg;
-            statusEl.style.background = type === 'error' ? 'rgba(255,82,82,0.1)' : 'rgba(92,200,255,0.08)';
-            statusEl.style.color = type === 'error' ? '#ff7070' : '#5cc8ff';
-            statusEl.style.border = '1px solid ' + (type === 'error' ? 'rgba(255,82,82,0.25)' : 'rgba(92,200,255,0.2)');
-        }
-
-        try {
-            if (!window.GMPrivy) {
-                showStatus('Loading wallet module...', 'info');
-                await new Promise(function (resolve, reject) {
-                    var timeout = setTimeout(function () { reject(new Error('Timed out loading Privy.')); }, 15000);
-                    var check = setInterval(function () {
-                        if (window.GMPrivy && window.GMPrivy.isReady()) {
-                            clearInterval(check); clearTimeout(timeout); resolve();
-                        }
-                    }, 200);
-                });
-            }
-            showStatus('Opening export dialog...', 'info');
-            await window.GMPrivy.exportWallet();
-            statusEl.style.display = 'none';
-        } catch (err) {
-            showStatus(err.message || 'Failed to export wallet.', 'error');
-        } finally {
-            if (btn) btn.disabled = false;
-        }
-    }
-    </script>
-    {% endif %}
-
-    {% include '_privy_signer.html' %}
-
-    <!-- ══════════════════════════════════════════════════
-         Superfluid G$ Streaming — Full Integration
-    ═══════════════════════════════════════════════════ -->
-    <script>
-    (function() {
-        'use strict';
-
-        // ── Constants ────────────────────────────────────────────
-        const GD_TOKEN        = '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A';
-        const CFA_FORWARDER   = '0xcfA132E353cB4E398080B9700609bb008eceB125';
-        const CELO_CHAIN_ID   = 42220;
-        const SF_SUBGRAPH_URL = 'https://subgraph-endpoints.superfluid.dev/celo-mainnet/protocol-v1';
-        const GD_DECIMALS     = 18;
-
-        // Minimal ABI for CFAv1Forwarder
-        const CFA_ABI = [
-            'function createFlow(address token, address sender, address receiver, int96 flowRate, bytes userData) external returns (bool)',
-            'function updateFlow(address token, address sender, address receiver, int96 flowRate, bytes userData) external returns (bool)',
-            'function deleteFlow(address token, address sender, address receiver, bytes userData) external returns (bool)',
-            'function getFlowrate(address token, address sender, address receiver) external view returns (int96 flowrate)'
-        ];
-
-        // ── State ─────────────────────────────────────────────────
-        let _streamUnit = 'hour';
-        let _streamTimerInterval = null;
-        let _activeStreams = [];
-
-        // ── Helpers ───────────────────────────────────────────────
-        function _shortAddr(a) {
-            if (!a || a.length < 10) return a;
-            return a.slice(0,6) + '…' + a.slice(-4);
-        }
-
-        function _flowRateToPerSec(amount, unit) {
-            // Returns BigInt flow rate in wei/sec
-            // G$ has 18 decimals in this codebase
-            const base = BigInt(Math.round(parseFloat(amount) * 1e4)) * BigInt(10 ** (GD_DECIMALS - 4));
-            const divisors = { minute: 60n, hour: 3600n, day: 86400n };
-            return base / (divisors[unit] || 3600n);
-        }
-
-        function _flowRateToHuman(flowRateWei) {
-            // Convert wei/sec flow rate to human-readable G$/hour
-            const perSec = Number(BigInt(flowRateWei)) / (10 ** GD_DECIMALS);
-            const perHour = perSec * 3600;
-            const perDay = perSec * 86400;
-            if (perDay >= 0.01) return `${perDay.toFixed(4)} G$/day`;
-            return `${(perSec * 3600).toFixed(6)} G$/hour`;
-        }
-
-        function _streamedAmount(stream) {
-            const now = Math.floor(Date.now() / 1000);
-            const updatedAt = parseInt(stream.updatedAtTimestamp || 0);
-            const alreadyStreamed = parseFloat(stream.streamedUntilUpdatedAt || '0');
-            const flowRate = parseFloat(stream.currentFlowRate || '0');
-            const elapsed = Math.max(0, now - updatedAt);
-            const total = alreadyStreamed + flowRate * elapsed;
-            return total / (10 ** GD_DECIMALS);
-        }
-
-        function _formatTimer(startTimestamp, streamedUntilUpdatedAt, updatedAtTimestamp, flowRate) {
-            const now = Date.now() / 1000;
-            const elapsed = Math.max(0, now - parseInt(updatedAtTimestamp || 0));
-            const totalStreamed = (parseFloat(streamedUntilUpdatedAt || '0') + parseFloat(flowRate) * elapsed) / (10 ** GD_DECIMALS);
-
-            // Display as H:MM:SS based on flow rate per second
-            const perSec = parseFloat(flowRate) / (10 ** GD_DECIMALS);
-            const seconds = perSec > 0 ? totalStreamed / perSec : 0;
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = Math.floor(seconds % 60);
-            return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-        }
-
-        function _showStreamAlert(msg, type) {
-            const el = document.getElementById('streamAlert');
-            if (!el) return;
-            el.style.display = 'block';
-            el.textContent = msg;
-            el.style.background = type === 'error'
-                ? 'rgba(239,68,68,0.12)' : 'rgba(0,201,167,0.1)';
-            el.style.color = type === 'error' ? '#f87171' : '#2dd4bf';
-            el.style.border = '1px solid ' + (type === 'error'
-                ? 'rgba(239,68,68,0.3)' : 'rgba(0,201,167,0.3)');
-            el.style.padding = '0.7rem 0.9rem';
-            el.style.borderRadius = '10px';
-        }
-
-        // ── Ethers dynamic loader (same CDN as minipay-gas-topup.js) ─────────
-        const ETHERS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js';
-
-        function _loadEthers() {
-            if (window.ethers) return Promise.resolve(window.ethers);
-            return new Promise(function(resolve, reject) {
-                var s = document.createElement('script');
-                s.src = ETHERS_CDN;
-                s.crossOrigin = 'anonymous';
-                s.onload = function() {
-                    window.ethers
-                        ? resolve(window.ethers)
-                        : reject(new Error('ethers loaded but window.ethers is undefined'));
-                };
-                s.onerror = function() { reject(new Error('Failed to load ethers.js from CDN')); };
-                document.head.appendChild(s);
-            });
-        }
-
-        // ── Provider helper ───────────────────────────────────────
-        async function _getEthersProvider() {
-            const ethers = await _loadEthers();
-            let provider = null;
-            if (window.ethereum) {
-                provider = new ethers.BrowserProvider(window.ethereum);
-            } else if (window.GMPrivy && window.GMPrivy.isReady && window.GMPrivy.isReady()) {
-                const p = await window.GMPrivy.getEthereumProvider();
-                if (p) provider = new ethers.BrowserProvider(p);
-            }
-            if (!provider) throw new Error('No wallet provider found. Please connect your wallet.');
-            return { provider, ethers };
-        }
-
-        async function _ensureCelo(provider) {
-            const network = await provider.getNetwork();
-            if (Number(network.chainId) !== CELO_CHAIN_ID) {
-                try {
-                    await provider.send('wallet_switchEthereumChain', [{ chainId: '0x' + CELO_CHAIN_ID.toString(16) }]);
-                } catch(e) {
-                    try {
-                        await provider.send('wallet_addEthereumChain', [{
-                            chainId: '0x' + CELO_CHAIN_ID.toString(16),
-                            chainName: 'Celo Mainnet',
-                            nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
-                            rpcUrls: ['https://forno.celo.org'],
-                            blockExplorerUrls: ['https://celoscan.io']
-                        }]);
-                    } catch(e2) {
-                        throw new Error('Please switch your wallet to Celo Mainnet.');
-                    }
-                }
-            }
-        }
-
-        // ── Subgraph fetch ────────────────────────────────────────
-        async function _fetchStreams(walletAddr) {
-            const addr = walletAddr.toLowerCase();
-            const query = `{
-              outgoing: streams(
-                where: { sender: "${addr}", token: "${GD_TOKEN.toLowerCase()}", currentFlowRate_gt: "0" }
-                orderBy: updatedAtTimestamp, orderDirection: desc, first: 20
-              ) {
-                id sender { id } receiver { id }
-                currentFlowRate streamedUntilUpdatedAt updatedAtTimestamp
-              }
-              incoming: streams(
-                where: { receiver: "${addr}", token: "${GD_TOKEN.toLowerCase()}", currentFlowRate_gt: "0" }
-                orderBy: updatedAtTimestamp, orderDirection: desc, first: 20
-              ) {
-                id sender { id } receiver { id }
-                currentFlowRate streamedUntilUpdatedAt updatedAtTimestamp
-              }
-            }`;
-            const resp = await fetch(SF_SUBGRAPH_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query })
-            });
-            if (!resp.ok) throw new Error('Subgraph request failed: ' + resp.status);
-            const json = await resp.json();
-            if (json.errors) throw new Error(json.errors[0].message);
-            return {
-                outgoing: json.data.outgoing || [],
-                incoming: json.data.incoming || []
-            };
-        }
-
-        // ── Render streams dashboard ───────────────────────────────
-        function _renderStreams(data, myAddr) {
-            const container = document.getElementById('streamDashboardContent');
-            if (!container) return;
-
-            const { outgoing, incoming } = data;
-            _activeStreams = [
-                ...outgoing.map(s => ({ ...s, direction: 'outgoing' })),
-                ...incoming.map(s => ({ ...s, direction: 'incoming' }))
-            ];
-
-            if (_activeStreams.length === 0) {
-                container.innerHTML = `
-                    <div class="stream-empty">
-                        <div style="font-size:2.5rem;margin-bottom:0.5rem;">〜</div>
-                        <div>No active G$ streams yet.</div>
-                        <div style="margin-top:0.4rem;font-size:0.78rem;">
-                            Tap <strong style="color:#2dd4bf;">Stream G$</strong> to start streaming.
-                        </div>
-                    </div>`;
-                return;
-            }
-
-            let html = '';
-            for (const stream of _activeStreams) {
-                const isOut = stream.direction === 'outgoing';
-                const peer  = isOut ? stream.receiver.id : stream.sender.id;
-                const rate  = _flowRateToHuman(stream.currentFlowRate);
-                const total = _streamedAmount(stream);
-                const timerId = 'stimer_' + stream.id.replace(/[^a-z0-9]/gi,'_');
-                const totalId = 'stotal_' + stream.id.replace(/[^a-z0-9]/gi,'_');
-
-                html += `
-                <div class="stream-card" data-stream-id="${stream.id}">
-                    <div class="stream-card-header">
-                        <span class="stream-direction ${isOut ? 'outgoing' : 'incoming'}">
-                            ${isOut ? '↑ Sending' : '↓ Receiving'}
-                        </span>
-                        <span class="stream-addr">${_shortAddr(peer)}</span>
-                    </div>
-                    <div class="stream-rate">${rate}</div>
-                    <div class="stream-timer" id="${timerId}">0:00:00</div>
-                    <div class="stream-total" id="${totalId}">Total streamed: ${total.toFixed(4)} G$</div>
-                    ${isOut ? `<button class="stream-stop-btn" id="stopBtn_${stream.id.replace(/[^a-z0-9]/gi,'_')}"
-                        onclick="stopGdStream('${stream.receiver.id}', this)">⏹ Stop Stream</button>` : ''}
-                </div>`;
-            }
-            container.innerHTML = html;
-
-            // Start live timers
-            if (_streamTimerInterval) clearInterval(_streamTimerInterval);
-            _streamTimerInterval = setInterval(() => {
-                for (const stream of _activeStreams) {
-                    const timerId = 'stimer_' + stream.id.replace(/[^a-z0-9]/gi,'_');
-                    const totalId = 'stotal_' + stream.id.replace(/[^a-z0-9]/gi,'_');
-                    const timerEl = document.getElementById(timerId);
-                    const totalEl = document.getElementById(totalId);
-                    if (timerEl) timerEl.textContent = _formatTimer(
-                        stream.updatedAtTimestamp,
-                        stream.streamedUntilUpdatedAt,
-                        stream.updatedAtTimestamp,
-                        stream.currentFlowRate
-                    );
-                    if (totalEl) {
-                        const t = _streamedAmount(stream);
-                        totalEl.textContent = 'Total streamed: ' + t.toFixed(4) + ' G$';
-                    }
-                }
-            }, 1000);
-        }
-
-        // ── Load streams ──────────────────────────────────────────
-        async function _loadStreams() {
-            const walletAddr = '{{ wallet }}';
-            if (!walletAddr || walletAddr === 'None') return;
-
-            const content = document.getElementById('streamDashboardContent');
-            if (content) content.innerHTML = '<div class="stream-loading">Loading streams…</div>';
-
-            try {
-                const data = await _fetchStreams(walletAddr);
-                _renderStreams(data, walletAddr);
-            } catch(e) {
-                console.error('Stream load error:', e);
-                if (content) content.innerHTML = `
-                    <div class="stream-empty" style="color:#f87171;">
-                        ⚠️ Could not load streams.<br>
-                        <span style="font-size:0.75rem;">${e.message}</span><br>
-                        <button onclick="_loadStreams()" style="margin-top:0.8rem;padding:0.4rem 1rem;background:rgba(0,201,167,0.15);border:1px solid rgba(0,201,167,0.3);border-radius:8px;color:#2dd4bf;cursor:pointer;font-size:0.8rem;">Retry</button>
-                    </div>`;
-            }
-        }
-        window._loadStreams = _loadStreams;
-
-        // ── Start stream ──────────────────────────────────────────
-        window.startGdStream = async function() {
-            const recipient = (document.getElementById('streamRecipient').value || '').trim();
-            const amount    = parseFloat(document.getElementById('streamAmount').value || '0');
-
-            if (!recipient || !recipient.startsWith('0x') || recipient.length !== 42) {
-                _showStreamAlert('⚠️ Enter a valid Ethereum address (0x…)', 'error'); return;
-            }
-            if (!amount || amount <= 0) {
-                _showStreamAlert('⚠️ Enter a valid flow rate', 'error'); return;
-            }
-
-            const btn = document.getElementById('streamStartBtn');
-            btn.disabled = true;
-            btn.textContent = 'Starting stream…';
-            _showStreamAlert('Connecting wallet…', 'info');
-
-            try {
-                const { provider, ethers } = await _getEthersProvider();
-                await _ensureCelo(provider);
-                const signer = await provider.getSigner();
-                const myAddr = await signer.getAddress();
-
-                const flowRate = _flowRateToPerSec(amount, _streamUnit);
-                if (flowRate <= 0n) throw new Error('Flow rate is too small. Please increase the amount.');
-
-                const cfaContract = new ethers.Contract(CFA_FORWARDER, CFA_ABI, signer);
-
-                _showStreamAlert('Waiting for wallet confirmation…', 'info');
-                const tx = await cfaContract.createFlow(
-                    GD_TOKEN,
-                    myAddr,
-                    recipient,
-                    flowRate,
-                    '0x'
-                );
-
-                _showStreamAlert('Transaction submitted. Waiting for confirmation…', 'info');
-                await tx.wait();
-
-                _showStreamAlert('✅ Stream started! The recipient is now receiving G$ every second.', 'success');
-                btn.textContent = '✅ Stream Active';
-
-                // Save to backend for tracking
-                try {
-                    await fetch('/api/superfluid/streams/record', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            sender: myAddr,
-                            receiver: recipient,
-                            flow_rate: flowRate.toString(),
-                            token: GD_TOKEN,
-                            tx_hash: tx.hash
-                        })
-                    });
-                } catch(_) {}
-
-                // Reload dashboard after short delay
-                setTimeout(() => {
-                    switchStreamTab('dashboard');
-                    _loadStreams();
-                    btn.textContent = '▶ Start Stream';
-                    btn.disabled = false;
-                }, 2500);
-
-            } catch(e) {
-                console.error('Start stream error:', e);
-                const msg = (window.formatTxError ? window.formatTxError(e) : null)
-                    || e.message || 'Failed to start stream';
-                _showStreamAlert('❌ ' + msg, 'error');
-                btn.textContent = '▶ Start Stream';
-                btn.disabled = false;
-            }
-        };
-
-        // ── Stop stream ───────────────────────────────────────────
-        window.stopGdStream = async function(receiverAddr, btnEl) {
-            if (!confirm('Stop streaming G$ to ' + _shortAddr(receiverAddr) + '?')) return;
-            btnEl.disabled = true;
-            btnEl.textContent = 'Stopping…';
-
-            try {
-                const { provider, ethers } = await _getEthersProvider();
-                await _ensureCelo(provider);
-                const signer = await provider.getSigner();
-                const myAddr = await signer.getAddress();
-
-                const cfaContract = new ethers.Contract(CFA_FORWARDER, CFA_ABI, signer);
-
-                const tx = await cfaContract.deleteFlow(
-                    GD_TOKEN,
-                    myAddr,
-                    receiverAddr,
-                    '0x'
-                );
-                await tx.wait();
-
-                btnEl.textContent = '✅ Stopped';
-                btnEl.style.background = 'rgba(34,197,94,0.1)';
-                btnEl.style.color = '#86efac';
-
-                setTimeout(() => { _loadStreams(); }, 2000);
-
-            } catch(e) {
-                console.error('Stop stream error:', e);
-                const msg = (window.formatTxError ? window.formatTxError(e) : null)
-                    || e.message || 'Failed to stop stream';
-                alert('❌ ' + msg);
-                btnEl.disabled = false;
-                btnEl.textContent = '⏹ Stop Stream';
-            }
-        };
-
-        // ── Tab switching ─────────────────────────────────────────
-        window.switchStreamTab = function(tab) {
-            document.querySelectorAll('.stream-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.stream-panel').forEach(p => p.classList.remove('active'));
-            document.getElementById('streamTab' + tab.charAt(0).toUpperCase() + tab.slice(1))
-                ?.classList.add('active');
-            document.getElementById('streamPanel' + tab.charAt(0).toUpperCase() + tab.slice(1))
-                ?.classList.add('active');
-        };
-
-        // ── Unit selection ────────────────────────────────────────
-        window.selectStreamUnit = function(unit) {
-            _streamUnit = unit;
-            document.querySelectorAll('.stream-unit-btn').forEach(b => b.classList.remove('active'));
-            const unitId = 'unit' + unit.charAt(0).toUpperCase() + unit.slice(1);
-            document.getElementById(unitId)?.classList.add('active');
-            updateStreamPreview();
-        };
-
-        // ── Preview update ────────────────────────────────────────
-        window.updateStreamPreview = function() {
-            const amount    = parseFloat(document.getElementById('streamAmount')?.value || '0');
-            const recipient = (document.getElementById('streamRecipient')?.value || '').trim();
-            const preview   = document.getElementById('streamPreview');
-            const startBtn  = document.getElementById('streamStartBtn');
-            if (!preview) return;
-
-            const valid = recipient.startsWith('0x') && recipient.length === 42 && amount > 0;
-            if (startBtn) startBtn.disabled = !valid;
-
-            if (!amount || amount <= 0) {
-                preview.textContent = 'Enter amount and recipient to preview stream';
-                return;
-            }
-
-            const perSec  = amount / { minute: 60, hour: 3600, day: 86400 }[_streamUnit];
-            const perHour = perSec * 3600;
-            const perDay  = perSec * 86400;
-            const perYear = perSec * 86400 * 365;
-
-            preview.innerHTML = `
-                <strong style="color:#2dd4bf;">${amount} G$ / ${_streamUnit}</strong><br>
-                <span style="opacity:0.7;">${perSec.toFixed(8)} G$/sec &nbsp;·&nbsp;
-                ${perDay.toFixed(4)} G$/day &nbsp;·&nbsp;
-                ${perYear.toFixed(2)} G$/year</span>`;
-        };
-
-        // ── Open modal ────────────────────────────────────────────
-        window.openStreamModal = function() {
-            openModal('streamModal');
-            switchStreamTab('dashboard');
-            _loadStreams();
-            if (_streamTimerInterval) clearInterval(_streamTimerInterval);
-        };
-
-        // ── Cleanup on close ──────────────────────────────────────
-        const origClose = window.closeModal;
-        window.closeModal = function(id) {
-            if (id === 'streamModal' && _streamTimerInterval) {
-                clearInterval(_streamTimerInterval);
-                _streamTimerInterval = null;
-            }
-            if (origClose) origClose(id);
-        };
-
-    })();
-    </script>
 </body>
 </html>
