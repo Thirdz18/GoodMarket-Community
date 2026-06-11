@@ -4551,7 +4551,7 @@ def add_module_link():
                     try:
                         json_resp = requests.get(json_url, timeout=15, headers=medium_headers, allow_redirects=True)
                         json_resp.raise_for_status()
-                        # Medium prepends '])}while(1);</x>' as XSSI protection ��� strip it
+                        # Medium prepends '])}while(1);</x>' as XSSI protection — strip it
                         raw = json_resp.text
                         json_start = raw.find('{')
                         if json_start != -1:
