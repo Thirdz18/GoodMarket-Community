@@ -2165,13 +2165,17 @@
                 currentBal = Number(preGasData.balance_xdc || 0);
 
                 if (!preGasData.gas_ready) {
+                    // User does not have enough XDC gas — request a faucet top-up
+                    // and then stop. We do NOT proceed to eth_sendTransaction in
+                    // the same click: the faucet tx needs time to be mined first.
+                    // The user will click Claim again once gas arrives.
                     gasRequestedFromFaucet = true;
                     let topupData = preGasData;
                     const preTerminalStatus = preGasData.terminal_status || preGasData.status || 'unknown';
-
-                    // /api/xdc/faucet/gas with force_onchain:false already attempts top-up in most cases.
-                    // Only retry with force_onchain:true when blocked by recent-refill cooldown.
                     if (preTerminalStatus === 'recent_refill') {
+                        // /api/xdc/faucet/gas with force_onchain:false already attempts top-up
+                        // in most cases. Only retry with force_onchain:true when the first call
+                        // was blocked by a recent-refill cooldown.
                         btnText.textContent = '⏳ Requesting XDC faucet top-up...';
                         const topupRes = await fetch('/api/xdc/faucet/gas', {
                             method: 'POST',

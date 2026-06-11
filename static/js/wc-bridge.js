@@ -930,13 +930,32 @@
 
         // Helper to make WC request - extracted for reuse on reconnect
         function _doWcRequest(client, method, p) {
+            // Determine the target chain for this specific request.
+            //
+            // For eth_sendTransaction the caller may embed a `chainId` field
+            // inside the tx-params object (index 0 of the params array).  We
+            // honour that field so cross-chain pages (e.g. xdc_wallet.html
+            // which sets chainId:"0x32" / 50) route the request to the correct
+            // EIP-155 chain instead of always using the session's default chain
+            // (_config.chainId is set at configure() time and defaults to Celo).
+            //
+            // Without this, a WalletConnect session established on Celo would
+            // send an XDC eth_sendTransaction as "eip155:42220" — causing the
+            // wallet app to label the prompt "Celo" and execute the call on the
+            // wrong network.
+            var targetChainId = Number(_config.chainId || DEFAULT_CHAIN_ID);
+            if (method === "eth_sendTransaction" && Array.isArray(p) && p[0] && p[0].chainId) {
+                var txChain = parseInt(String(p[0].chainId), 16);
+                if (!isNaN(txChain) && txChain > 0) targetChainId = txChain;
+            }
+
             // Wrap the request with a timeout to prevent the wallet
             // (MetaMask Mobile in particular) from hanging
             // indefinitely. The wallet sometimes silently drops
             // requests so we surface a clear failure after 45s.
             var requestPromise = client.request({
                 topic: _state.browserSession.topic,
-                chainId: "eip155:" + Number(_config.chainId || DEFAULT_CHAIN_ID),
+                chainId: "eip155:" + targetChainId,
                 request: { method: method, params: p }
             });
             // Fire-and-forget: bring the wallet app to the foreground
