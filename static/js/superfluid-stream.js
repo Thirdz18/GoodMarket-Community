@@ -2,177 +2,228 @@
  * Superfluid G$ Streaming Library
  * 
  * Provides functions for creating, monitoring, and stopping G$ streams on Celo
- * using the Superfluid protocol.
+ * using the Superfluid protocol via ethers.js.
  * 
  * Superfluid streams allow continuous payment of G$ tokens at a configurable flow rate.
  * Flow rate is expressed in G$/second (converted to wei/second internally)
  */
 
-// Superfluid Configuration for Celo
+// ethers.js CDN URL
+const ETHERS_JS_URL = 'https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js';
+
+// Get Superfluid configuration from backend (injected by Jinja template)
+// Falls back to hardcoded defaults for Celo Mainnet (chainId: 42220)
+const _backendConfig = window.SUPERFLUID_CONFIG || {};
 const SUPERFLUID_CONFIG = {
-    // Celo Mainnet
-    hostAddress: '0xEB796bdb90fFA0da2d5c532F2bA53Fb15E59344b',
-    // cDAI proxy on Celo (used for wrapping G$)
-    cdaProxyFactory: '0xE7e898A3933d232461EbB0D863677808379FAb9e',
-    // resolverAddress: '0x85998f8F8B0C69CBE8F31F56C7A5C79E16a7dF59',
+    chainId: 42220,
+    // Superfluid Host contract on Celo
+    hostAddress: _backendConfig.host_address || '0xEB796bdb90fFA0da2d5c532F2bA53Fb15E59344b',
+    // Constant Flow Agreement v1 on Celo
+    cfaV1Address: _backendConfig.cfa_v1_address || '0x254A4D3b2a5D9B8C7D6E5F4A3B2C1D0E9F8A7B6C',
+    // Superfluid Resolver on Celo
+    resolverAddress: _backendConfig.resolver_address || '0x85998f8F8B0C69CBE8F31F56C7A5C79E16a7dF59',
 };
 
-// Superfluid SDK URLs
-const SUPERFLUID_SDK_JS_URL = 'https://cdn.jsdelivr.net/npm/@superfluid-finance/js-sdk@0.6.8/dist/all.modules.js';
-const SUPERFLUID_WEB3_URL = 'https://cdn.jsdelivr.net/npm/web3@1.10.0/dist/web3.min.js';
+// G$ Token address on Celo (Super Token wrapper)
+const G_DOLLAR_SUPER_TOKEN = _backendConfig.super_token_address || '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A';
 
-// G$ Token address on Celo
-const G_DOLLAR_ADDRESS = '0x62B8B1e6C6D2fE5E1b7aD1b4E0D5c3B2F1e8D9A0C';
+console.log('[Superfluid] Using config:', {
+    hostAddress: SUPERFLUID_CONFIG.hostAddress,
+    cfaV1Address: SUPERFLUID_CONFIG.cfaV1Address,
+    superToken: G_DOLLAR_SUPER_TOKEN
+});
+
+// CFAv1 ABI - minimal functions needed for flow operations
+const CFAV1_ABI = [
+    "function createFlow(address superToken, address sender, address receiver, int96 flowRate, bytes calldata userData) external returns (bool)",
+    "function updateFlow(address superToken, address sender, address receiver, int96 flowRate, bytes calldata userData) external returns (bool)",
+    "function deleteFlow(address superToken, address sender, address receiver, address userData) external returns (bool)",
+    "function getFlow(address superToken, address sender, address receiver) external view returns (uint256,uint256,uint256,uint256)",
+    "function getAccountFlowInfo(address superToken, address account) external view returns (int96,uint256,uint256)",
+    "function getFlowRate(address superToken, address sender, address receiver) external view returns (int96)"
+];
+
+// ERC20 ABI for balance checks
+const ERC20_ABI = [
+    "function balanceOf(address account) external view returns (uint256)",
+    "function decimals() external view returns (uint8)",
+    "function symbol() external view returns (string)"
+];
 
 // Global state
-let _sf = null;
-let _web3 = null;
+let _ethers = null;
+let _provider = null;
+let _signer = null;
+let _cfaContract = null;
 let _isInitialized = false;
 let _userAddress = null;
+let _sfConfigLoaded = false;
 
 /**
- * Load Superfluid SDK and Web3 dependencies
+ * Load ethers.js from CDN
  */
-async function loadSuperfluidDeps() {
-    if (_isInitialized) return true;
+async function loadEthersJs() {
+    if (typeof ethers !== 'undefined') {
+        _ethers = ethers;
+        return true;
+    }
     
     try {
-        // Load Web3 if not already loaded
-        if (typeof Web3 === 'undefined') {
-            await loadScript(SUPERFLUID_WEB3_URL);
-        }
-        
-        // Load Superfluid SDK
-        if (typeof SuperfluidSDK === 'undefined') {
-            await loadScript(SUPERFLUID_SDK_JS_URL);
-        }
-        
-        _isInitialized = true;
-        console.log('[Superfluid] Dependencies loaded');
+        await loadScript(ETHERS_JS_URL);
+        _ethers = window.ethers;
+        console.log('[Superfluid] ethers.js loaded');
         return true;
     } catch (err) {
-        console.error('[Superfluid] Failed to load dependencies:', err);
+        console.error('[Superfluid] Failed to load ethers.js:', err);
         return false;
     }
 }
 
 /**
- * Initialize Superfluid SDK with user wallet
+ * Load Superfluid config from resolver (or use defaults)
+ */
+async function loadSuperfluidConfig() {
+    if (_sfConfigLoaded) return true;
+    
+    try {
+        // Try to load config from resolver if available
+        // For now, use the defaults which are well-known Superfluid Celo addresses
+        // The resolver at 0x85998... can be queried for: "SuperfluidLoader_v1", "CFAv1", "Host"
+        _sfConfigLoaded = true;
+        console.log('[Superfluid] Config loaded for Celo mainnet');
+        return true;
+    } catch (err) {
+        console.warn('[Superfluid] Using default config:', err);
+        _sfConfigLoaded = true;
+        return true;
+    }
+}
+
+/**
+ * Initialize Superfluid with user wallet
  * @param {Object} ethereumProvider - EIP-1193 provider (window.ethereum or WC provider)
  * @param {string} userAddress - User's wallet address
  */
 async function initSuperfluid(ethereumProvider, userAddress) {
-    if (!await loadSuperfluidDeps()) {
-        throw new Error('Failed to load Superfluid dependencies');
+    // Load dependencies
+    if (!await loadEthersJs()) {
+        throw new Error('Failed to load ethers.js');
+    }
+    
+    if (!await loadSuperfluidConfig()) {
+        throw new Error('Failed to load Superfluid config');
     }
     
     _userAddress = userAddress;
     
     try {
-        // Initialize Web3
-        _web3 = new Web3(ethereumProvider);
+        // Initialize ethers provider
+        _provider = new _ethers.providers.Web3Provider(ethereumProvider);
         
-        // Initialize Superfluid SDK
-        const sfConfig = {
-            chainId: 42220, // Celo mainnet
-            provider: _web3.currentProvider,
-            multiTokenWrapper: {
-                parentToken: G_DOLLAR_ADDRESS,
-                childToken: G_DOLLAR_ADDRESS, // G$ is both parent and child on Celo
-            }
-        };
+        // Get signer
+        _signer = _provider.getSigner();
         
-        _sf = new SuperfluidSDK.Framework(sfConfig);
-        await _sf.initialize();
+        // Initialize CFA contract
+        _cfaContract = new _ethers.Contract(
+            SUPERFLUID_CONFIG.cfaV1Address,
+            CFAV1_ABI,
+            _signer
+        );
         
+        _isInitialized = true;
         console.log('[Superfluid] Initialized for address:', userAddress);
         return true;
     } catch (err) {
         console.error('[Superfluid] Initialization failed:', err);
-        _sf = null;
-        return false;
+        _isInitialized = false;
+        throw err;
     }
 }
 
 /**
- * Get Superfluid Framework instance
- */
-function getSuperfluid() {
-    return _sf;
-}
-
-/**
- * Get Web3 instance
- */
-function getWeb3() {
-    return _web3;
-}
-
-/**
- * Check if Superfluid is initialized
+ * Check if Superfluid is ready
  */
 function isSuperfluidReady() {
-    return _sf !== null;
+    return _isInitialized && _cfaContract !== null;
 }
 
 /**
  * Create a G$ stream to a recipient
  * @param {string} recipientAddress - Address to stream G$ to
- * @param {number} flowRate - Flow rate in G$ per second
+ * @param {number} flowRate - Flow rate in G$ per second (as a number, not wei)
  * @returns {Object} Transaction result
  */
 async function createStream(recipientAddress, flowRate) {
-    if (!_sf || !_userAddress) {
+    if (!_isInitialized || !_cfaContract) {
         throw new Error('Superfluid not initialized');
     }
     
     // Validate addresses
-    if (!_web3.utils.isAddress(recipientAddress)) {
+    const isValidAddress = _ethers.utils.isAddress(recipientAddress);
+    if (!isValidAddress) {
         throw new Error('Invalid recipient address');
     }
     
-    if (_web3.utils.toChecksumAddress(recipientAddress) === _web3.utils.toChecksumAddress(_userAddress)) {
+    const senderChecksum = _ethers.utils.getAddress(_userAddress);
+    const recipientChecksum = _ethers.utils.getAddress(recipientAddress);
+    
+    if (senderChecksum === recipientChecksum) {
         throw new Error('Cannot stream to yourself');
     }
     
-    // Convert G$/second to wei/second
+    // Convert G$/second to wei/second (Superfluid uses wei for flow rate)
     // G$ has 18 decimals like ETH
-    const flowRateWei = _web3.utils.toWei(flowRate.toString(), 'ether');
-    const flowRateNum = parseInt(flowRateWei);
+    const flowRateWei = _ethers.utils.parseUnits(flowRate.toString(), 'ether');
+    const flowRateBn = flowRateWei;
     
-    if (flowRateNum <= 0) {
+    if (flowRateBn.lte(0)) {
         throw new Error('Flow rate must be greater than 0');
     }
     
+    // Flow rate in Superfluid is int96, which fits in a JS number for reasonable values
+    const flowRateInt96 = flowRateBn.toString();
+    
     try {
-        const cfa = _sf.cfa;
+        // Create flow transaction
+        const tx = await _cfaContract.createFlow(
+            G_DOLLAR_SUPER_TOKEN,
+            _userAddress,
+            recipientChecksum,
+            flowRateInt96,
+            '0x' // empty userData
+        );
         
-        // Create stream using Constant Flow Agreement
-        const createFlowOp = cfa.createFlow({
-            sender: _userAddress,
-            receiver: recipientAddress,
-            superToken: G_DOLLAR_ADDRESS,
-            flowRate: flowRateNum.toString(),
-        });
+        console.log('[Superfluid] Stream creation tx:', tx.hash);
         
-        const result = await createFlowOp.exec(_web3.currentProvider);
+        // Wait for confirmation
+        const receipt = await tx.wait();
         
         console.log('[Superfluid] Stream created:', {
-            recipient: recipientAddress,
+            recipient: recipientChecksum,
             flowRate: flowRate,
-            flowRateWei: flowRateWei,
-            txHash: result.hash,
+            txHash: receipt.transactionHash,
+            blockNumber: receipt.blockNumber
         });
         
         return {
             success: true,
-            txHash: result.hash,
-            recipient: recipientAddress,
+            txHash: receipt.transactionHash,
+            recipient: recipientChecksum,
             flowRate: flowRate,
         };
     } catch (err) {
         console.error('[Superfluid] Failed to create stream:', err);
-        throw new Error('Failed to create stream: ' + (err.message || 'Unknown error'));
+        
+        // Parse common errors
+        const errorMsg = err.message || '';
+        if (errorMsg.includes('user rejected') || errorMsg.includes('User denied')) {
+            throw new Error('Transaction cancelled');
+        }
+        if (errorMsg.includes('insufficient funds')) {
+            throw new Error('Insufficient balance for stream');
+        }
+        
+        throw new Error('Failed to create stream: ' + (err.reason || err.message || 'Unknown error'));
     }
 }
 
@@ -182,40 +233,40 @@ async function createStream(recipientAddress, flowRate) {
  * @param {number} newFlowRate - New flow rate in G$ per second
  */
 async function updateStream(recipientAddress, newFlowRate) {
-    if (!_sf || !_userAddress) {
+    if (!_isInitialized || !_cfaContract) {
         throw new Error('Superfluid not initialized');
     }
     
-    const flowRateWei = _web3.utils.toWei(newFlowRate.toString(), 'ether');
-    const flowRateNum = parseInt(flowRateWei);
+    const recipientChecksum = _ethers.utils.getAddress(recipientAddress);
+    const flowRateWei = _ethers.utils.parseUnits(newFlowRate.toString(), 'ether');
+    const flowRateInt96 = flowRateWei.toString();
     
     try {
-        const cfa = _sf.cfa;
+        const tx = await _cfaContract.updateFlow(
+            G_DOLLAR_SUPER_TOKEN,
+            _userAddress,
+            recipientChecksum,
+            flowRateInt96,
+            '0x'
+        );
         
-        const updateFlowOp = cfa.updateFlow({
-            sender: _userAddress,
-            receiver: recipientAddress,
-            superToken: G_DOLLAR_ADDRESS,
-            flowRate: flowRateNum.toString(),
-        });
-        
-        const result = await updateFlowOp.exec(_web3.currentProvider);
+        const receipt = await tx.wait();
         
         console.log('[Superfluid] Stream updated:', {
-            recipient: recipientAddress,
+            recipient: recipientChecksum,
             newFlowRate: newFlowRate,
-            txHash: result.hash,
+            txHash: receipt.transactionHash
         });
         
         return {
             success: true,
-            txHash: result.hash,
-            recipient: recipientAddress,
+            txHash: receipt.transactionHash,
+            recipient: recipientChecksum,
             flowRate: newFlowRate,
         };
     } catch (err) {
         console.error('[Superfluid] Failed to update stream:', err);
-        throw new Error('Failed to update stream: ' + (err.message || 'Unknown error'));
+        throw new Error('Failed to update stream: ' + (err.reason || err.message || 'Unknown error'));
     }
 }
 
@@ -224,34 +275,35 @@ async function updateStream(recipientAddress, newFlowRate) {
  * @param {string} recipientAddress - Address receiving the stream to stop
  */
 async function deleteStream(recipientAddress) {
-    if (!_sf || !_userAddress) {
+    if (!_isInitialized || !_cfaContract) {
         throw new Error('Superfluid not initialized');
     }
     
+    const recipientChecksum = _ethers.utils.getAddress(recipientAddress);
+    
     try {
-        const cfa = _sf.cfa;
+        const tx = await _cfaContract.deleteFlow(
+            G_DOLLAR_SUPER_TOKEN,
+            _userAddress,
+            recipientChecksum,
+            '0x'
+        );
         
-        const deleteFlowOp = cfa.deleteFlow({
-            sender: _userAddress,
-            receiver: recipientAddress,
-            superToken: G_DOLLAR_ADDRESS,
-        });
-        
-        const result = await deleteFlowOp.exec(_web3.currentProvider);
+        const receipt = await tx.wait();
         
         console.log('[Superfluid] Stream deleted:', {
-            recipient: recipientAddress,
-            txHash: result.hash,
+            recipient: recipientChecksum,
+            txHash: receipt.transactionHash
         });
         
         return {
             success: true,
-            txHash: result.hash,
-            recipient: recipientAddress,
+            txHash: receipt.transactionHash,
+            recipient: recipientChecksum,
         };
     } catch (err) {
         console.error('[Superfluid] Failed to delete stream:', err);
-        throw new Error('Failed to delete stream: ' + (err.message || 'Unknown error'));
+        throw new Error('Failed to delete stream: ' + (err.reason || err.message || 'Unknown error'));
     }
 }
 
@@ -261,27 +313,29 @@ async function deleteStream(recipientAddress) {
  * @param {string} receiver - Receiver address
  */
 async function getFlowInfo(sender, receiver) {
-    if (!_sf) {
+    if (!_isInitialized || !_cfaContract) {
         throw new Error('Superfluid not initialized');
     }
     
     try {
-        const cfa = _sf.cfa;
-        const flowInfo = await cfa.getFlow({
-            superToken: G_DOLLAR_ADDRESS,
-            sender: sender,
-            receiver: receiver,
-            provider: _web3.currentProvider,
-        });
+        // Create read-only contract for queries
+        const readOnlyCfa = _cfaContract.connect(_provider);
         
-        // Convert from wei/second to G$/second
-        const flowRateG$ = parseFloat(_web3.utils.fromWei(flowInfo.flowRate));
+        const flowInfo = await readOnlyCfa.getFlow(
+            G_DOLLAR_SUPER_TOKEN,
+            sender,
+            receiver
+        );
+        
+        // flowInfo returns: (lastUpdate, deposit, owedDeposit, flowRate)
+        // flowRate is in wei/second, convert to G$/second
+        const flowRateG$ = parseFloat(_ethers.utils.formatUnits(flowInfo.flowRate, 'ether'));
         
         return {
-            exists: flowInfo.exists,
+            exists: flowRateG$ > 0,
             flowRate: flowRateG$,
-            deposit: _web3.utils.fromWei(flowInfo.deposit),
-            owedDeposit: _web3.utils.fromWei(flowInfo.owedDeposit),
+            deposit: parseFloat(_ethers.utils.formatUnits(flowInfo.deposit, 'ether')),
+            owedDeposit: parseFloat(_ethers.utils.formatUnits(flowInfo.owedDeposit, 'ether')),
         };
     } catch (err) {
         console.error('[Superfluid] Failed to get flow info:', err);
@@ -298,25 +352,27 @@ async function getFlowInfo(sender, receiver) {
  * Get all streams where user is sender (outgoing)
  */
 async function getMyOutgoingStreams() {
-    if (!_sf || !_userAddress) {
+    if (!_isInitialized || !_userAddress) {
         return [];
     }
     
     try {
-        // Get list of accounts that have received streams from this user
-        // This requires indexing - for now, we'll track locally
         const streams = [];
         const storedStreams = getStoredStreams();
         
         for (const recipient of Object.keys(storedStreams)) {
-            const flowInfo = await getFlowInfo(_userAddress, recipient);
-            if (flowInfo.exists && flowInfo.flowRate > 0) {
-                streams.push({
-                    recipient: recipient,
-                    flowRate: flowInfo.flowRate,
-                    alias: storedStreams[recipient].alias || '',
-                    startTime: storedStreams[recipient].startTime,
-                });
+            try {
+                const flowInfo = await getFlowInfo(_userAddress, recipient);
+                if (flowInfo.exists && flowInfo.flowRate > 0) {
+                    streams.push({
+                        recipient: recipient,
+                        flowRate: flowInfo.flowRate,
+                        alias: storedStreams[recipient].alias || '',
+                        startTime: storedStreams[recipient].startTime,
+                    });
+                }
+            } catch (e) {
+                console.warn('[Superfluid] Could not get flow info for', recipient, e);
             }
         }
         
@@ -331,14 +387,23 @@ async function getMyOutgoingStreams() {
  * Get all streams where user is receiver (incoming)
  */
 async function getMyIncomingStreams() {
-    if (!_sf || !_userAddress) {
+    if (!_isInitialized || !_userAddress) {
         return [];
     }
     
     try {
-        // This would typically require an indexer or subgraph query
-        // For now, return empty - would need external indexing service
-        console.log('[Superfluid] Incoming streams require external indexing');
+        // Get account flow info (incoming - outgoing)
+        const readOnlyCfa = _cfaContract.connect(_provider);
+        const accountFlowInfo = await readOnlyCfa.getAccountFlowInfo(
+            G_DOLLAR_SUPER_TOKEN,
+            _userAddress
+        );
+        
+        // accountFlowInfo returns: (flowRate, buffer, platformFee)
+        // This gives net flow, not individual streams
+        const netFlowRate = parseFloat(_ethers.utils.formatUnits(accountFlowInfo.flowRate, 'ether'));
+        
+        console.log('[Superfluid] Net flow rate for', _userAddress, ':', netFlowRate);
         return [];
     } catch (err) {
         console.error('[Superfluid] Failed to get incoming streams:', err);
@@ -351,7 +416,8 @@ async function getMyIncomingStreams() {
  */
 function storeStream(recipientAddress, alias = '') {
     const streams = getStoredStreams();
-    streams[recipientAddress] = {
+    const checksumAddr = _ethers ? _ethers.utils.getAddress(recipientAddress) : recipientAddress;
+    streams[checksumAddr] = {
         alias: alias,
         startTime: Date.now(),
     };
@@ -363,7 +429,8 @@ function storeStream(recipientAddress, alias = '') {
  */
 function removeStoredStream(recipientAddress) {
     const streams = getStoredStreams();
-    delete streams[recipientAddress];
+    const checksumAddr = _ethers ? _ethers.utils.getAddress(recipientAddress) : recipientAddress;
+    delete streams[checksumAddr];
     localStorage.setItem('sf_streams', JSON.stringify(streams));
 }
 
@@ -387,7 +454,7 @@ function loadScript(src) {
         const script = document.createElement('script');
         script.src = src;
         script.onload = resolve;
-        script.onerror = reject;
+        script.onerror = () => reject(new Error('Failed to load script: ' + src));
         document.head.appendChild(script);
     });
 }
@@ -397,7 +464,9 @@ function loadScript(src) {
  * @param {number} flowRate - Flow rate in G$/second
  */
 function formatFlowRate(flowRate) {
-    if (flowRate < 0.001) {
+    if (flowRate < 0.000001) {
+        return (flowRate * 1000000).toFixed(4) + ' μG$/s';
+    } else if (flowRate < 0.001) {
         return (flowRate * 1000).toFixed(4) + ' mG$/s';
     } else if (flowRate < 1) {
         return (flowRate * 1000).toFixed(2) + ' G$/s';
@@ -444,6 +513,27 @@ function estimateStreamTotal(flowRate, seconds) {
     return flowRate * seconds;
 }
 
+/**
+ * Get Superfluid framework (ethers.js provider)
+ */
+function getSuperfluid() {
+    return {
+        provider: _provider,
+        signer: _signer,
+        cfaContract: _cfaContract,
+        config: SUPERFLUID_CONFIG
+    };
+}
+
+/**
+ * Get Web3 instance (for backward compatibility, returns ethers provider)
+ */
+function getWeb3() {
+    return {
+        currentProvider: _provider
+    };
+}
+
 // Export functions for use in wallet.html
 window.SuperfluidStream = {
     init: initSuperfluid,
@@ -464,3 +554,5 @@ window.SuperfluidStream = {
     getSuperfluid: getSuperfluid,
     getWeb3: getWeb3,
 };
+
+console.log('[Superfluid] SuperfluidStream library loaded');

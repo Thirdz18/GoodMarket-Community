@@ -1704,6 +1704,10 @@
     <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+    <!-- Superfluid G$ Streaming configuration from backend -->
+    <script>
+        window.SUPERFLUID_CONFIG = {{ superfluid_config | tojson }};
+    </script>
     <script src="{{ url_for('static', filename='js/superfluid-stream.js', v=ASSET_VERSION) }}"></script>
     <!--
         MiniPay gas top-up: detect users with CELO but no stablecoin and
