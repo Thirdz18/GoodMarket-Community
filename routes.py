@@ -6535,16 +6535,6 @@ def wallet_page():
                         buy_eth_visible = False
     except Exception:
         pass
-
-    # Superfluid configuration for G$ streaming on Celo Mainnet
-    # Addresses from: https://github.com/superfluid-finance/protocol-monorepo
-    superfluid_config = {
-        'host_address': os.environ.get('SUPERFLUID_HOST_ADDRESS', '0xEB796bdb90fFA0da2d5c532F2bA53Fb15E59344b'),
-        'cfa_v1_address': os.environ.get('SUPERFLUID_CFA_V1_ADDRESS', '0x254A4D3b2a5D9B8C7D6E5F4A3B2C1D0E9F8A7B6C'),
-        'resolver_address': os.environ.get('SUPERFLUID_RESOLVER_ADDRESS', '0x85998f8F8B0C69CBE8F31F56C7A5C79E16a7dF59'),
-        'super_token_address': os.environ.get('GOODDOLLAR_SUPERTOKEN_ADDRESS', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A'),
-    }
-
     return render_template(
         "wallet.html",
         wallet=wallet,
@@ -6552,7 +6542,6 @@ def wallet_page():
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         buy_eth_visible=buy_eth_visible,
-        superfluid_config=superfluid_config,
     )
 
 
