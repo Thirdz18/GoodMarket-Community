@@ -5816,21 +5816,6 @@
 
     // Get provider for signing (Injected or WalletConnect)
     async function _getSigningProvider() {
-        // IMPORTANT: Check WalletConnect FIRST if it's the preferred login method
-        // This ensures users who logged in via WalletConnect use WalletConnect for signing
-        
-        if (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()) {
-            try {
-                const wcProvider = GMWalletConnect.getProvider();
-                if (wcProvider) {
-                    console.log('Using WalletConnect for signing');
-                    return wcProvider;
-                }
-            } catch (err) {
-                console.error('WC provider error:', err);
-            }
-        }
-        
         // Check for various wallet providers (injected wallets / browser extensions)
         const providers = [
             // MetaMask and compatible browsers
@@ -5871,6 +5856,15 @@
                 }
             } catch (err) {
                 console.warn('Provider check error:', err);
+            }
+        }
+        
+        // Fallback to WalletConnect
+        if (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()) {
+            try {
+                return GMWalletConnect.getProvider();
+            } catch (err) {
+                console.error('WC provider error:', err);
             }
         }
         
