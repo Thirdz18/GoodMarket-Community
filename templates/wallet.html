@@ -1267,6 +1267,10 @@
                     </div>
                     <span class="action-label">Claim</span>
                 </div>
+                <div class="action-item" onclick="openModal('streamModal')">
+                    <div class="action-circle" style="background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;">💸</div>
+                    <span class="action-label">Stream G$</span>
+                </div>
                 <div class="action-item" id="actionBridge" onclick="return navigateWithFeedback('/swap?tab=bridge', 'Opening Bridge…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">🌉</div>
                     <span class="action-label">Bridge</span>
@@ -1278,10 +1282,6 @@
                 <div class="action-item" id="actionP2P" onclick="return navigateWithFeedback('/p2p/', 'Opening P2P Trade…')">
                     <div class="action-circle" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;">🤝</div>
                     <span class="action-label">P2P Trade</span>
-                </div>
-                <div class="action-item" onclick="openModal('streamModal')">
-                    <div class="action-circle" style="background:linear-gradient(135deg,#06b6d4,#0891b2);color:#fff;">💸</div>
-                    <span class="action-label">Stream G$</span>
                 </div>
                 <div class="action-item" onclick="handleVirtualCardAction()">
                     <div class="action-circle">💳</div>
