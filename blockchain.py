@@ -2376,8 +2376,18 @@ def get_required_buffer(g_dollar_address: str, flow_rate: int) -> float:
         ).call()
         return buffer_raw / (10 ** 18)
     except Exception as e:
-        logger.error(f"get_required_buffer error: {e}")
-        return 0.0
+        logger.warning(f"get_required_buffer contract call failed: {e}, using fallback calculation")
+        # Fallback: Calculate buffer based on flow rate
+        # Buffer = 1 day's worth of flow + 10% safety margin
+        # This is a conservative estimate when contract call fails
+        try:
+            flow_per_day = (flow_rate / (10 ** 18)) * 86400  # G$ per day
+            fallback_buffer = flow_per_day * 1.1  # 1 day + 10% safety
+            logger.info(f"Calculated fallback buffer: {fallback_buffer} G$ for flow rate {flow_rate}")
+            return fallback_buffer
+        except Exception as fallback_err:
+            logger.error(f"get_required_buffer fallback also failed: {fallback_err}")
+            return 0.0
 
 
 def get_p2p_stream_info(g_dollar_address: str, sender: str, receiver: str) -> dict:
