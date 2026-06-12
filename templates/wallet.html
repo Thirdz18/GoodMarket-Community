@@ -3266,18 +3266,41 @@
                 }
             }
 
-            // Some wallets (notably MetaMask Mobile, Trust Wallet) reject
-            // eth_sendTransaction when a non-standard `chainId` field is
-            // present in the tx params. The chain switch above already
-            // pinned the wallet to XDC, so we omit it from params.
+            // Build transaction params with chainId
+            // Include chainId for WalletConnect, but some injected wallets may reject it
+            const isWalletConnect = provider && (provider.isWalletConnect || 
+                (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()));
+            
+            const txParams = {
+                from,
+                to: XDC_UBI_CONTRACT,
+                data: CLAIM_DATA,
+                value: '0x0'
+            };
+            
+            // Only add chainId for non-injected wallets (like WalletConnect)
+            // Injected wallets get the chain from the wallet_switchEthereumChain call above
+            if (isWalletConnect) {
+                txParams.chainId = XDC_CHAIN_ID_HEX;
+            }
+
             const sendXdcTx = () => provider.request({
                 method: 'eth_sendTransaction',
-                params: [{ from, to: XDC_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
+                params: [txParams]
             });
 
             try {
                 return await sendXdcTx();
             } catch (sendErr) {
+                // If WalletConnect fails with chainId, retry without it
+                if (isWalletConnect && sendErr && (sendErr.code === -32000 || sendErr.message?.includes('chain'))) {
+                    console.warn('XDC claim with chainId failed, retrying without chainId...');
+                    delete txParams.chainId;
+                    return await provider.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams]
+                    });
+                }
                 if (_isUserRejectedError(sendErr)) throw sendErr;
                 // The wallet's own XDC RPC is unreachable (e.g. still pinned to
                 // the dead erpc.xinfin.network). Ask it to adopt our healthy
@@ -3338,14 +3361,39 @@
                 }
             }
 
+            // Build transaction params with chainId
+            const isWalletConnect = provider && (provider.isWalletConnect || 
+                (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()));
+            
+            const txParams = {
+                from,
+                to: FUSE_UBI_CONTRACT,
+                data: CLAIM_DATA,
+                value: '0x0'
+            };
+            
+            // Only add chainId for WalletConnect
+            if (isWalletConnect) {
+                txParams.chainId = FUSE_CHAIN_ID_HEX;
+            }
+
             const sendFuseTx = () => provider.request({
                 method: 'eth_sendTransaction',
-                params: [{ from, to: FUSE_UBI_CONTRACT, data: CLAIM_DATA, value: '0x0' }]
+                params: [txParams]
             });
 
             try {
                 return await sendFuseTx();
             } catch (sendErr) {
+                // If WalletConnect fails with chainId, retry without it
+                if (isWalletConnect && sendErr && (sendErr.code === -32000 || sendErr.message?.includes('chain'))) {
+                    console.warn('Fuse claim with chainId failed, retrying without chainId...');
+                    delete txParams.chainId;
+                    return await provider.request({
+                        method: 'eth_sendTransaction',
+                        params: [txParams]
+                    });
+                }
                 if (_isUserRejectedError(sendErr)) throw sendErr;
                 if (!_isRpcHtmlError(sendErr)) throw sendErr;
                 await new Promise(r => setTimeout(r, 3500));
@@ -5947,10 +5995,16 @@
             }
             
             // Pass the full txData object to signTransaction
+            // Include chainId for WalletConnect (convert snake_case chain_id to camelCase)
+            const chainIdHex = prepareData.data.chain_id 
+                ? '0x' + parseInt(prepareData.data.chain_id).toString(16) 
+                : '0xa4ec'; // Default to Celo
+            
             const txData = {
                 to: prepareData.data.to,
                 data: prepareData.data.data,
-                value: prepareData.data.value || '0x0'
+                value: prepareData.data.value || '0x0',
+                chainId: chainIdHex
             };
             const txHash = await signTransaction(txData);
             
@@ -6044,10 +6098,16 @@
             }
             
             // Pass the full txData object to signTransaction
+            // Include chainId for WalletConnect (convert snake_case chain_id to camelCase)
+            const chainIdHex = prepareData.data.chain_id 
+                ? '0x' + parseInt(prepareData.data.chain_id).toString(16) 
+                : '0xa4ec'; // Default to Celo
+            
             const txData = {
                 to: prepareData.data.to,
                 data: prepareData.data.data,
-                value: prepareData.data.value || '0x0'
+                value: prepareData.data.value || '0x0',
+                chainId: chainIdHex
             };
             const txHash = await signTransaction(txData);
             
@@ -6108,10 +6168,16 @@
             }
             
             // Pass the full txData object to signTransaction
+            // Include chainId for WalletConnect (convert snake_case chain_id to camelCase)
+            const chainIdHex = prepareData.data.chain_id 
+                ? '0x' + parseInt(prepareData.data.chain_id).toString(16) 
+                : '0xa4ec'; // Default to Celo
+            
             const txData = {
                 to: prepareData.data.to,
                 data: prepareData.data.data,
-                value: prepareData.data.value || '0x0'
+                value: prepareData.data.value || '0x0',
+                chainId: chainIdHex
             };
             const txHash = await signTransaction(txData);
             
