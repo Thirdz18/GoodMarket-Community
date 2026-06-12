@@ -5710,7 +5710,13 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            const txHash = await signTransaction(prepareData.data);
+            // Pass the full txData object to signTransaction
+            const txData = {
+                to: prepareData.data.to,
+                data: prepareData.data.data,
+                value: prepareData.data.value || '0x0'
+            };
+            const txHash = await signTransaction(txData);
             
             // Add to history
             addToStreamHistory({
@@ -5772,7 +5778,13 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            const txHash = await signTransaction(prepareData.data);
+            // Pass the full txData object to signTransaction
+            const txData = {
+                to: prepareData.data.to,
+                data: prepareData.data.data,
+                value: prepareData.data.value || '0x0'
+            };
+            const txHash = await signTransaction(txData);
             
             // Update history
             addToStreamHistory({
@@ -5830,7 +5842,13 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            const txHash = await signTransaction(prepareData.data);
+            // Pass the full txData object to signTransaction
+            const txData = {
+                to: prepareData.data.to,
+                data: prepareData.data.data,
+                value: prepareData.data.value || '0x0'
+            };
+            const txHash = await signTransaction(txData);
             
             // Update history to stopped
             addToStreamHistory({
