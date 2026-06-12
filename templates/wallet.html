@@ -5629,9 +5629,13 @@
                 statusText = 'STOPPED';
             }
             
-            // Make the entire history item clickable
+            const actionBtns = isActuallyActive ? `
+                <button onclick="loadFromHistory(${idx})" style="padding:0.25rem 0.5rem;border-radius:6px;border:1px solid rgba(6,182,212,0.4);background:rgba(6,182,212,0.1);color:#06b6d4;font-size:0.7rem;cursor:pointer;margin-right:0.25rem;">Load</button>
+                <button onclick="handleStopFromHistory('${item.receiver}')" style="padding:0.25rem 0.5rem;border-radius:6px;border:1px solid rgba(255,82,82,0.4);background:rgba(255,82,82,0.08);color:#ff7070;font-size:0.7rem;cursor:pointer;">Stop</button>
+            ` : '';
+            
             return `
-                <div onclick="fillStreamFromHistory(${idx})" style="background:rgba(255,255,255,0.03);border:1px solid ${isActuallyActive ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.06)'};border-radius:8px;padding:0.6rem;margin-bottom:0.5rem;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+                <div style="background:rgba(255,255,255,0.03);border:1px solid ${isActuallyActive ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.06)'};border-radius:8px;padding:0.6rem;margin-bottom:0.5rem;">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
                         <span style="font-size:0.75rem;color:${statusColor};font-weight:600;text-transform:uppercase;">● ${statusText}</span>
                         <span style="font-size:0.7rem;color:var(--text-muted);">${date}</span>
@@ -5643,7 +5647,7 @@
                         💰 Rate: ${item.rate || '—'} G$/day
                     </div>
                     ${streamedAmount}
-                    <div style="font-size:0.65rem;color:var(--text-muted);margin-top:0.3rem;">Tap to fill fields</div>
+                    ${actionBtns}
                 </div>
             `;
         }).join('');
@@ -5656,33 +5660,15 @@
         }
     }
 
-    // Load stream data from history (fills the form fields)
-    function fillStreamFromHistory(idx) {
+    // Load stream data from history
+    function loadFromHistory(idx) {
         if (streamHistory[idx]) {
             const item = streamHistory[idx];
-            const receiverInput = document.getElementById('streamReceiver');
-            const amountInput = document.getElementById('streamAmount');
-            
-            if (receiverInput) receiverInput.value = item.receiver || '';
-            if (amountInput) amountInput.value = item.rate || '';
-            
-            // Trigger validation and buffer calculation
-            if (typeof validateStreamReceiver === 'function') validateStreamReceiver();
-            if (typeof calculateStreamBuffer === 'function') calculateStreamBuffer();
-            
-            // Show feedback
-            const result = document.getElementById('streamResult');
-            if (result) {
-                result.innerHTML = `<div style="color:#00e676;">✅ Filled: ${item.receiver?.slice(0,8)}... at ${item.rate} G$/day</div>`;
-                result.style.display = 'block';
-                setTimeout(() => { result.style.display = 'none'; }, 3000);
-            }
+            document.getElementById('streamReceiver').value = item.receiver || '';
+            document.getElementById('streamAmount').value = item.rate || '';
+            validateStreamReceiver();
+            calculateStreamBuffer();
         }
-    }
-    
-    // Alias for backward compatibility
-    function loadFromHistory(idx) {
-        fillStreamFromHistory(idx);
     }
 
     // Stop stream from history
@@ -5844,31 +5830,11 @@
         }
     }
     
-    // Fill receiver from incoming stream
+    // Fill receiver from incoming stream (placeholder for future implementation)
     function fillFromIncomingStream() {
-        if (incomingStreamSender) {
-            const receiverInput = document.getElementById('streamReceiver');
-            if (receiverInput) {
-                receiverInput.value = incomingStreamSender;
-                validateStreamReceiver();
-                
-                // Show feedback
-                const result = document.getElementById('streamResult');
-                if (result) {
-                    result.innerHTML = `<div style="color:#00e676;">✅ Filled from incoming: ${incomingStreamSender.slice(0,8)}...</div>`;
-                    result.style.display = 'block';
-                    setTimeout(() => { result.style.display = 'none'; }, 3000);
-                }
-            }
-        } else {
-            // Show message that incoming stream sender is not available
-            const result = document.getElementById('streamResult');
-            if (result) {
-                result.innerHTML = `<div style="color:#fbbf24;">⚠️ Sender address not available. Please enter manually.</div>`;
-                result.style.display = 'block';
-                setTimeout(() => { result.style.display = 'none'; }, 3000);
-            }
-        }
+        // This would need the actual sender address from the API
+        console.log('[StreamModal] fillFromIncomingStream called');
+        // For now, just log - actual sender needs to come from stream summary API
     }
 
     // Get provider for signing (Injected or WalletConnect)
