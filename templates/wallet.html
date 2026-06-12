@@ -1633,32 +1633,32 @@
 
     <!-- Stream G$ Modal -->
     <div class="modal-overlay" id="streamModal">
-        <div class="modal-sheet" style="max-height:85vh;overflow-y:auto;">
+        <div class="modal-sheet" style="max-height:90vh;overflow-y:auto;">
             <div class="modal-handle"></div>
             <div class="modal-title">💸 Stream G$</div>
             
-            <!-- Stream Status -->
-            <div id="streamStatusSection" style="margin-bottom:1rem;">
-                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Current Stream</div>
-                <div id="streamStatusCard" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:0.85rem;">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+            <!-- Incoming Stream Status -->
+            <div style="margin-bottom:1rem;">
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">📥 Incoming Stream</div>
+                <div style="background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:12px;padding:0.85rem;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
                         <span style="color:var(--text-dim);font-size:0.85rem;">Status</span>
-                        <span id="streamStatusBadge" style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;background:rgba(0,230,118,0.15);color:#00e676;">No active stream</span>
+                        <span id="incomingStreamBadge" style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;background:rgba(255,255,255,0.08);color:var(--text-dim);">No incoming stream</span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
-                        <span style="color:var(--text-dim);font-size:0.85rem;">Rate</span>
-                        <span id="streamRateDisplay" style="color:#fff;font-weight:600;">— G$/month</span>
+                        <span style="color:var(--text-dim);font-size:0.85rem;">Flow Rate</span>
+                        <span id="incomingStreamRate" style="color:#00e676;font-weight:700;font-size:0.95rem;">— G$/day</span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;">
-                        <span style="color:var(--text-dim);font-size:0.85rem;">Receiver</span>
-                        <span id="streamReceiverDisplay" style="color:#fff;font-family:monospace;font-size:0.8rem;">—</span>
+                        <span style="color:var(--text-dim);font-size:0.85rem;">From</span>
+                        <span id="incomingStreamFrom" style="color:#fff;font-family:monospace;font-size:0.8rem;">—</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Stream Form -->
+            <!-- Outgoing Stream Form -->
             <div style="margin-bottom:1rem;">
-                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Stream Settings</div>
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">📤 Outgoing Stream (Send to)</div>
                 
                 <div style="margin-bottom:0.85rem;">
                     <label style="display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:0.3rem;">Recipient Address</label>
@@ -1669,19 +1669,10 @@
                 </div>
 
                 <div style="margin-bottom:0.85rem;">
-                    <label style="display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:0.3rem;">Stream Amount</label>
-                    <div style="display:flex;gap:0.5rem;">
-                        <input type="number" id="streamAmount" placeholder="100" min="0.000001" step="0.01"
-                               style="flex:1;padding:0.7rem 0.85rem;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.05);color:#fff;font-size:0.88rem;outline:none;"
-                               oninput="calculateStreamBuffer()">
-                        <select id="streamPeriod" onchange="calculateStreamBuffer()"
-                                style="padding:0.7rem 0.85rem;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.05);color:#fff;font-size:0.88rem;outline:none;cursor:pointer;min-width:110px;">
-                            <option value="minute">per minute</option>
-                            <option value="hour">per hour</option>
-                            <option value="day" selected>per day</option>
-                            <option value="month">per month</option>
-                        </select>
-                    </div>
+                    <label style="display:block;font-size:0.78rem;color:var(--text-dim);margin-bottom:0.3rem;">Amount (G$/day)</label>
+                    <input type="number" id="streamAmount" placeholder="10" min="0.000001" step="0.01"
+                           style="width:100%;padding:0.7rem 0.85rem;border-radius:10px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.05);color:#fff;font-size:0.88rem;outline:none;"
+                           oninput="calculateStreamBuffer()">
                 </div>
 
                 <div id="streamBufferInfo" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);border-radius:10px;padding:0.7rem;margin-bottom:0.85rem;display:none;">
@@ -1690,7 +1681,7 @@
                         <span id="streamMonthlyDisplay" style="color:#06b6d4;font-weight:600;font-size:0.85rem;">— G$/month</span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3rem;">
-                        <span style="color:var(--text-dim);font-size:0.8rem;">Flow rate</span>
+                        <span style="color:var(--text-dim);font-size:0.8rem;">Flow rate per sec</span>
                         <span id="streamFlowRateDisplay" style="color:#06b6d4;font-weight:600;font-size:0.85rem;">— G$/sec</span>
                     </div>
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.3rem;">
@@ -1716,7 +1707,7 @@
                 </button>
                 <button id="btnUpdateStream" onclick="handleUpdateStream()" 
                         style="flex:1;padding:0.85rem;border-radius:14px;border:1px solid rgba(6,182,212,0.5);background:rgba(6,182,212,0.1);color:#06b6d4;font-weight:700;font-size:0.95rem;cursor:pointer;display:none;">
-                    🔄 Update Stream
+                    🔄 Update
                 </button>
                 <button id="btnStopStream" onclick="handleStopStream()" 
                         style="padding:0.85rem;border-radius:14px;border:1px solid rgba(255,82,82,0.4);background:rgba(255,82,82,0.08);color:#ff7070;font-weight:700;font-size:0.9rem;cursor:pointer;display:none;">
@@ -1730,9 +1721,19 @@
 
             <div id="streamResult" style="margin-top:0.75rem;text-align:center;font-size:0.85rem;display:none;"></div>
 
+            <!-- Stream History -->
             <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid rgba(255,255,255,0.07);">
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">📜 Stream History</div>
+                <div id="streamHistoryList" style="max-height:200px;overflow-y:auto;">
+                    <div id="streamHistoryEmpty" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">
+                        No stream history yet
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.07);">
                 <div style="font-size:0.72rem;color:var(--text-muted);line-height:1.5;">
-                    💡 <strong>Note:</strong> Stream requires G$ balance + security buffer. Streams flow every second automatically. CELO needed for gas fees.
+                    💡 <strong>Note:</strong> Stream requires G$ balance + security buffer. Streams flow every second. CELO needed for gas fees.
                 </div>
             </div>
 
@@ -5394,6 +5395,110 @@
     // Stream state
     let currentStreamInfo = null;
     let streamConstants = null;
+    let streamHistory = [];  // Local storage stream history
+
+    // LocalStorage keys
+    const STREAM_HISTORY_KEY = 'goodmarket_stream_history';
+    const MAX_HISTORY_ITEMS = 50;
+
+    // Load stream history from localStorage
+    function loadStreamHistory() {
+        try {
+            const stored = localStorage.getItem(STREAM_HISTORY_KEY);
+            if (stored) {
+                streamHistory = JSON.parse(stored);
+            }
+        } catch (err) {
+            streamHistory = [];
+        }
+        renderStreamHistory();
+    }
+
+    // Save stream history to localStorage
+    function saveStreamHistory() {
+        try {
+            localStorage.setItem(STREAM_HISTORY_KEY, JSON.stringify(streamHistory));
+        } catch (err) {
+            console.error('Failed to save stream history:', err);
+        }
+    }
+
+    // Add to stream history
+    function addToStreamHistory(entry) {
+        streamHistory.unshift({
+            ...entry,
+            timestamp: Date.now()
+        });
+        // Keep only last MAX_HISTORY_ITEMS
+        if (streamHistory.length > MAX_HISTORY_ITEMS) {
+            streamHistory = streamHistory.slice(0, MAX_HISTORY_ITEMS);
+        }
+        saveStreamHistory();
+        renderStreamHistory();
+    }
+
+    // Render stream history list
+    function renderStreamHistory() {
+        const listEl = document.getElementById('streamHistoryList');
+        const emptyEl = document.getElementById('streamHistoryEmpty');
+        
+        if (!listEl) return;
+        
+        if (streamHistory.length === 0) {
+            if (emptyEl) emptyEl.style.display = 'block';
+            listEl.innerHTML = '<div id="streamHistoryEmpty" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">No stream history yet</div>';
+            return;
+        }
+        
+        if (emptyEl) emptyEl.style.display = 'none';
+        
+        const html = streamHistory.map((item, idx) => {
+            const shortReceiver = item.receiver ? item.receiver.slice(0, 6) + '...' + item.receiver.slice(-4) : '—';
+            const date = new Date(item.timestamp).toLocaleDateString();
+            const statusColor = item.status === 'active' ? '#00e676' : (item.status === 'stopped' ? '#ff7070' : '#f59e0b');
+            const actionBtns = item.status === 'active' ? `
+                <button onclick="loadFromHistory(${idx})" style="padding:0.25rem 0.5rem;border-radius:6px;border:1px solid rgba(6,182,212,0.4);background:rgba(6,182,212,0.1);color:#06b6d4;font-size:0.7rem;cursor:pointer;margin-right:0.25rem;">Load</button>
+                <button onclick="handleStopFromHistory('${item.receiver}')" style="padding:0.25rem 0.5rem;border-radius:6px;border:1px solid rgba(255,82,82,0.4);background:rgba(255,82,82,0.08);color:#ff7070;font-size:0.7rem;cursor:pointer;">Stop</button>
+            ` : '';
+            
+            return `
+                <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:0.6rem;margin-bottom:0.5rem;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
+                        <span style="font-size:0.75rem;color:${statusColor};font-weight:600;text-transform:uppercase;">${item.status}</span>
+                        <span style="font-size:0.7rem;color:var(--text-muted);">${date}</span>
+                    </div>
+                    <div style="font-size:0.8rem;color:#fff;margin-bottom:0.3rem;">
+                        📤 To: <span style="font-family:monospace;">${shortReceiver}</span>
+                    </div>
+                    <div style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.3rem;">
+                        💰 Rate: ${item.rate || '—'} G$/day
+                    </div>
+                    ${actionBtns}
+                </div>
+            `;
+        }).join('');
+        
+        listEl.innerHTML = html;
+    }
+
+    // Load stream data from history
+    function loadFromHistory(idx) {
+        if (streamHistory[idx]) {
+            const item = streamHistory[idx];
+            document.getElementById('streamReceiver').value = item.receiver || '';
+            document.getElementById('streamAmount').value = item.rate || '';
+            validateStreamReceiver();
+            calculateStreamBuffer();
+        }
+    }
+
+    // Stop stream from history
+    async function handleStopFromHistory(receiver) {
+        if (!receiver) return;
+        document.getElementById('streamReceiver').value = receiver;
+        validateStreamReceiver();
+        await handleStopStream();
+    }
 
     // Load stream constants on modal open
     async function loadStreamConstants() {
@@ -5418,7 +5523,7 @@
         
         if (!value) {
             input.style.borderColor = 'rgba(255,255,255,0.12)';
-            error.style.display = 'none';
+            if (error) error.style.display = 'none';
             return false;
         }
         
@@ -5426,45 +5531,32 @@
         
         if (!isValid) {
             input.style.borderColor = 'rgba(255,82,82,0.5)';
-            error.textContent = 'Invalid address format';
-            error.style.display = 'block';
+            if (error) {
+                error.textContent = 'Invalid address format';
+                error.style.display = 'block';
+            }
             return false;
         }
         
         input.style.borderColor = 'rgba(0,230,118,0.5)';
-        error.style.display = 'none';
+        if (error) error.style.display = 'none';
         return true;
     }
 
-    // Calculate buffer when amount changes
+    // Calculate buffer when amount changes (always per day now)
     async function calculateStreamBuffer() {
         const amount = parseFloat(document.getElementById('streamAmount').value) || 0;
-        const period = document.getElementById('streamPeriod').value;
         const bufferInfo = document.getElementById('streamBufferInfo');
         const balanceWarning = document.getElementById('streamBalanceWarning');
         
         if (amount <= 0) {
-            bufferInfo.style.display = 'none';
-            balanceWarning.style.display = 'none';
+            if (bufferInfo) bufferInfo.style.display = 'none';
+            if (balanceWarning) balanceWarning.style.display = 'none';
             return;
         }
         
-        // Convert to monthly equivalent based on period
-        let monthlyAmount = amount;
-        switch (period) {
-            case 'minute':
-                monthlyAmount = amount * 60 * 24 * 30; // minutes * 60 (hour) * 24 (day) * 30
-                break;
-            case 'hour':
-                monthlyAmount = amount * 24 * 30; // hours * 24 (day) * 30
-                break;
-            case 'day':
-                monthlyAmount = amount * 30; // days * 30
-                break;
-            case 'month':
-                monthlyAmount = amount;
-                break;
-        }
+        // Amount is per day, convert to monthly (30 days)
+        const monthlyAmount = amount * 30;
         
         try {
             const res = await fetch(`/api/p2p/buffer/calculate?flow_rate_per_month=${monthlyAmount}`);
@@ -5472,17 +5564,22 @@
             
             if (data.success) {
                 const flowPerSec = (data.flow_rate / 1e18).toFixed(8);
-                document.getElementById('streamMonthlyDisplay').textContent = `${monthlyAmount.toFixed(2)} G$/month`;
-                document.getElementById('streamFlowRateDisplay').textContent = `${flowPerSec} G$/sec`;
-                document.getElementById('streamBufferDisplay').textContent = `${data.required_buffer.toFixed(2)} G$`;
-                document.getElementById('streamTotalDisplay').textContent = `${data.total_required.toFixed(2)} G$`;
-                bufferInfo.style.display = 'block';
+                const monthlyEl = document.getElementById('streamMonthlyDisplay');
+                const flowEl = document.getElementById('streamFlowRateDisplay');
+                const bufferEl = document.getElementById('streamBufferDisplay');
+                const totalEl = document.getElementById('streamTotalDisplay');
+                
+                if (monthlyEl) monthlyEl.textContent = `${monthlyAmount.toFixed(2)} G$/month`;
+                if (flowEl) flowEl.textContent = `${flowPerSec} G$/sec`;
+                if (bufferEl) bufferEl.textContent = `${data.required_buffer.toFixed(2)} G$`;
+                if (totalEl) totalEl.textContent = `${data.total_required.toFixed(2)} G$`;
+                if (bufferInfo) bufferInfo.style.display = 'block';
                 
                 // Check balance
                 if (typeof gdBal !== 'undefined' && gdBal < data.total_required) {
-                    balanceWarning.style.display = 'block';
+                    if (balanceWarning) balanceWarning.style.display = 'block';
                 } else {
-                    balanceWarning.style.display = 'none';
+                    if (balanceWarning) balanceWarning.style.display = 'none';
                 }
             }
         } catch (err) {
@@ -5490,78 +5587,45 @@
         }
     }
 
-    // Load current stream info
-    async function loadStreamInfo() {
+    // Load incoming stream info
+    async function loadIncomingStreamInfo() {
         try {
             const res = await fetch(`/api/p2p/stream/summary?wallet=${WALLET}`);
             const data = await res.json();
             
-            if (data.success && data.net_flow_rate !== 0) {
-                currentStreamInfo = data;
-                updateStreamUI(data);
+            const badge = document.getElementById('incomingStreamBadge');
+            const rate = document.getElementById('incomingStreamRate');
+            const from = document.getElementById('incomingStreamFrom');
+            
+            if (data.success && data.net_flow_rate > 0) {
+                // Convert to daily rate
+                const dailyRate = (data.net_flow_rate / 1e18 * 86400).toFixed(4);
+                if (badge) {
+                    badge.textContent = 'Active';
+                    badge.style.background = 'rgba(0,230,118,0.15)';
+                    badge.style.color = '#00e676';
+                }
+                if (rate) rate.textContent = `${dailyRate} G$/day`;
+                if (from) from.textContent = 'Someone';
             } else {
-                currentStreamInfo = null;
-                updateStreamUI(null);
+                if (badge) {
+                    badge.textContent = 'No incoming stream';
+                    badge.style.background = 'rgba(255,255,255,0.08)';
+                    badge.style.color = 'var(--text-dim)';
+                }
+                if (rate) rate.textContent = '— G$/day';
+                if (from) from.textContent = '—';
             }
         } catch (err) {
-            console.error('Failed to load stream info:', err);
-        }
-    }
-
-    // Update stream UI based on current stream
-    function updateStreamUI(streamInfo) {
-        const badge = document.getElementById('streamStatusBadge');
-        const rateDisplay = document.getElementById('streamRateDisplay');
-        const receiverDisplay = document.getElementById('streamReceiverDisplay');
-        const btnStart = document.getElementById('btnStartStream');
-        const btnUpdate = document.getElementById('btnUpdateStream');
-        const btnStop = document.getElementById('btnStopStream');
-        const receiverInput = document.getElementById('streamReceiver');
-        const amountInput = document.getElementById('streamAmount');
-        
-        if (streamInfo && streamInfo.net_flow_rate !== 0) {
-            badge.textContent = 'Active';
-            badge.style.background = 'rgba(0,230,118,0.15)';
-            badge.style.color = '#00e676';
-            
-            const monthlyRate = (streamInfo.net_flow_rate / 1e18 * 2592000).toFixed(2);
-            rateDisplay.textContent = `${monthlyRate} G$/month`;
-            receiverDisplay.textContent = streamInfo.wallet.slice(0, 6) + '...' + streamInfo.wallet.slice(-4);
-            
-            // Show update/stop buttons
-            btnStart.style.display = 'none';
-            btnUpdate.style.display = 'block';
-            btnStop.style.display = 'block';
-            
-            // Pre-fill form
-            receiverInput.value = streamInfo.wallet;
-            amountInput.value = monthlyRate;
-        } else {
-            badge.textContent = 'No active stream';
-            badge.style.background = 'rgba(255,255,255,0.08)';
-            badge.style.color = 'var(--text-dim)';
-            rateDisplay.textContent = '— G$/month';
-            receiverDisplay.textContent = '—';
-            
-            // Show start button
-            btnStart.style.display = 'block';
-            btnUpdate.style.display = 'none';
-            btnStop.style.display = 'none';
-            
-            // Clear form
-            receiverInput.value = '';
-            amountInput.value = '';
+            console.error('Failed to load incoming stream info:', err);
         }
     }
 
     // Get provider for signing (Injected or WalletConnect)
     async function _getSigningProvider() {
-        // Try injected provider first
         if (window.ethereum) {
             return window.ethereum;
         }
-        
-        // Try WalletConnect
         if (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()) {
             try {
                 return GMWalletConnect.getProvider();
@@ -5569,7 +5633,6 @@
                 console.error('WC provider error:', err);
             }
         }
-        
         return null;
     }
 
@@ -5581,7 +5644,6 @@
         }
         
         try {
-            // Request accounts if needed
             const accounts = await provider.request({ method: 'eth_requestAccounts' });
             if (!accounts || accounts.length === 0) {
                 throw new Error('No accounts found. Please unlock your wallet.');
@@ -5594,7 +5656,6 @@
                 throw new Error(`Wrong wallet. Expected ${expectedAccount.slice(0, 10)}..., got ${connectedAccount.slice(0, 10)}...`);
             }
             
-            // Send transaction
             const txHash = await provider.request({
                 method: 'eth_sendTransaction',
                 params: [{
@@ -5619,28 +5680,13 @@
     async function handleStartStream() {
         const receiver = document.getElementById('streamReceiver').value.trim();
         const amount = parseFloat(document.getElementById('streamAmount').value);
-        const period = document.getElementById('streamPeriod').value;
         
         if (!validateStreamReceiver() || amount <= 0) {
             return;
         }
         
-        // Convert to monthly equivalent based on period
-        let monthlyAmount = amount;
-        switch (period) {
-            case 'minute':
-                monthlyAmount = amount * 60 * 24 * 30;
-                break;
-            case 'hour':
-                monthlyAmount = amount * 24 * 30;
-                break;
-            case 'day':
-                monthlyAmount = amount * 30;
-                break;
-            case 'month':
-                monthlyAmount = amount;
-                break;
-        }
+        // Amount is per day, convert to monthly
+        const monthlyAmount = amount * 30;
         
         const loading = document.getElementById('streamLoading');
         const result = document.getElementById('streamResult');
@@ -5649,7 +5695,6 @@
             loading.style.display = 'block';
             result.style.display = 'none';
             
-            // Prepare transaction
             const prepareRes = await fetch('/api/p2p/stream/create/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -5665,8 +5710,15 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            // Sign and send transaction
             const txHash = await signTransaction(prepareData.data);
+            
+            // Add to history
+            addToStreamHistory({
+                receiver: receiver,
+                rate: amount,
+                status: 'active',
+                txHash: txHash
+            });
             
             result.innerHTML = `
                 <div style="color:#00e676;margin-bottom:0.5rem;">✅ Stream created!</div>
@@ -5674,9 +5726,8 @@
             `;
             result.style.display = 'block';
             
-            // Reload stream info after delay
             setTimeout(() => {
-                loadStreamInfo();
+                loadIncomingStreamInfo();
             }, 3000);
             
         } catch (err) {
@@ -5692,28 +5743,12 @@
     async function handleUpdateStream() {
         const receiver = document.getElementById('streamReceiver').value.trim();
         const amount = parseFloat(document.getElementById('streamAmount').value);
-        const period = document.getElementById('streamPeriod').value;
         
         if (!validateStreamReceiver() || amount < 0) {
             return;
         }
         
-        // Convert to monthly equivalent based on period
-        let monthlyAmount = amount;
-        switch (period) {
-            case 'minute':
-                monthlyAmount = amount * 60 * 24 * 30;
-                break;
-            case 'hour':
-                monthlyAmount = amount * 24 * 30;
-                break;
-            case 'day':
-                monthlyAmount = amount * 30;
-                break;
-            case 'month':
-                monthlyAmount = amount;
-                break;
-        }
+        const monthlyAmount = amount * 30;
         
         const loading = document.getElementById('streamLoading');
         const result = document.getElementById('streamResult');
@@ -5722,7 +5757,6 @@
             loading.style.display = 'block';
             result.style.display = 'none';
             
-            // Prepare transaction
             const prepareRes = await fetch('/api/p2p/stream/update/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -5738,8 +5772,15 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            // Sign and send transaction
             const txHash = await signTransaction(prepareData.data);
+            
+            // Update history
+            addToStreamHistory({
+                receiver: receiver,
+                rate: amount,
+                status: 'active',
+                txHash: txHash
+            });
             
             result.innerHTML = `
                 <div style="color:#00e676;margin-bottom:0.5rem;">✅ Stream updated!</div>
@@ -5747,9 +5788,8 @@
             `;
             result.style.display = 'block';
             
-            // Reload stream info after delay
             setTimeout(() => {
-                loadStreamInfo();
+                loadIncomingStreamInfo();
             }, 3000);
             
         } catch (err) {
@@ -5776,7 +5816,6 @@
             loading.style.display = 'block';
             result.style.display = 'none';
             
-            // Prepare transaction
             const prepareRes = await fetch('/api/p2p/stream/delete/prepare', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -5791,18 +5830,24 @@
                 throw new Error(prepareData.error || 'Failed to prepare transaction');
             }
             
-            // Sign and send transaction
             const txHash = await signTransaction(prepareData.data);
+            
+            // Update history to stopped
+            addToStreamHistory({
+                receiver: receiver,
+                rate: 0,
+                status: 'stopped',
+                txHash: txHash
+            });
             
             result.innerHTML = `
                 <div style="color:#00e676;margin-bottom:0.5rem;">✅ Stream stopped!</div>
-                <div style="color:var(--text-dim);font-size:0.75rem;">Buffer returned to your wallet. TX: ${txHash.slice(0, 10)}...</div>
+                <div style="color:var(--text-dim);font-size:0.75rem;">Buffer returned. TX: ${txHash.slice(0, 10)}...</div>
             `;
             result.style.display = 'block';
             
-            // Reload stream info after delay
             setTimeout(() => {
-                loadStreamInfo();
+                loadIncomingStreamInfo();
             }, 3000);
             
         } catch (err) {
@@ -5819,7 +5864,8 @@
     window.openModal = function(modalId) {
         if (modalId === 'streamModal') {
             loadStreamConstants();
-            loadStreamInfo();
+            loadIncomingStreamInfo();
+            loadStreamHistory();
         }
         return _originalOpenModal(modalId);
     };
