@@ -1641,20 +1641,25 @@
             <div style="margin-bottom:1rem;">
                 <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">📥 Incoming Stream</div>
                 <div id="incomingStreamCard" style="background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.15);border-radius:12px;padding:0.85rem;cursor:pointer;transition:all 0.2s;" onclick="fillFromIncomingStream()">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
-                        <span style="color:var(--text-dim);font-size:0.85rem;">Status</span>
-                        <span id="incomingStreamBadge" style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;background:rgba(255,255,255,0.08);color:var(--text-dim);">No incoming stream</span>
+                    <div id="incomingStreamLoading" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:0.5rem;">
+                        ⏳ Loading...
                     </div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
-                        <span style="color:var(--text-dim);font-size:0.85rem;">Flow Rate</span>
-                        <span id="incomingStreamRate" style="color:#00e676;font-weight:700;font-size:0.95rem;">— G$/day</span>
+                    <div id="incomingStreamContent" style="display:none;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
+                            <span style="color:var(--text-dim);font-size:0.85rem;">Status</span>
+                            <span id="incomingStreamBadge" style="padding:0.2rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:600;background:rgba(255,255,255,0.08);color:var(--text-dim);">—</span>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
+                            <span style="color:var(--text-dim);font-size:0.85rem;">Flow Rate</span>
+                            <span id="incomingStreamRate" style="color:#00e676;font-weight:700;font-size:0.95rem;">— G$/day</span>
+                        </div>
+                        <div style="display:flex;align-items:center;justify-content:space-between;">
+                            <span style="color:var(--text-dim);font-size:0.85rem;">From</span>
+                            <span id="incomingStreamFrom" style="color:#fff;font-family:monospace;font-size:0.8rem;">—</span>
+                        </div>
                     </div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;">
-                        <span style="color:var(--text-dim);font-size:0.85rem;">From</span>
-                        <span id="incomingStreamFrom" style="color:#fff;font-family:monospace;font-size:0.8rem;">—</span>
-                    </div>
+                    <div id="incomingStreamHint" style="font-size:0.7rem;color:var(--text-muted);margin-top:0.4rem;text-align:center;opacity:0;">Click to fill recipient</div>
                 </div>
-                <div id="incomingStreamHint" style="font-size:0.7rem;color:var(--text-muted);margin-top:0.4rem;text-align:center;opacity:0;">Click to fill recipient</div>
             </div>
 
             <!-- Outgoing Stream Form -->
@@ -1743,7 +1748,10 @@
             <!-- Stream History -->
             <div style="margin-top:1rem;padding-top:0.85rem;border-top:1px solid rgba(255,255,255,0.07);">
                 <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">📜 Stream History</div>
-                <div id="streamHistoryList" style="max-height:200px;overflow-y:auto;">
+                <div id="streamHistoryLoading" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">
+                    ⏳ Loading...
+                </div>
+                <div id="streamHistoryList" style="max-height:200px;overflow-y:auto;display:none;">
                     <div id="streamHistoryEmpty" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">
                         No stream history yet
                     </div>
@@ -5591,20 +5599,20 @@
     function renderStreamHistory() {
         const listEl = document.getElementById('streamHistoryList');
         const emptyEl = document.getElementById('streamHistoryEmpty');
-        
-        console.log('[StreamModal] renderStreamHistory called, history length:', streamHistory.length);
+        const loadingEl = document.getElementById('streamHistoryLoading');
         
         if (!listEl) return;
         
+        // Hide loading, show list
+        if (loadingEl) loadingEl.style.display = 'none';
+        listEl.style.display = 'block';
+        
         if (streamHistory.length === 0) {
             if (emptyEl) emptyEl.style.display = 'block';
-            listEl.innerHTML = '<div id="streamHistoryEmpty" style="text-align:center;color:var(--text-muted);font-size:0.8rem;padding:1rem;">No stream history yet</div>';
             return;
         }
         
         if (emptyEl) emptyEl.style.display = 'none';
-        
-        console.log('[StreamModal] Rendering', streamHistory.length, 'history items');
         
         const html = streamHistory.map((item, idx) => {
             const shortReceiver = item.receiver ? item.receiver.slice(0, 6) + '...' + item.receiver.slice(-4) : '—';
@@ -5801,19 +5809,32 @@
 
     // Load incoming stream info
     let incomingStreamSender = null; // Store incoming stream sender
+    let lastStreamLoadTime = 0; // Track last load time to prevent rapid calls
     
     async function loadIncomingStreamInfo() {
+        const now = Date.now();
+        // Prevent rapid calls (debounce 1 second)
+        if (now - lastStreamLoadTime < 1000) return;
+        lastStreamLoadTime = now;
+        
+        const loadingEl = document.getElementById('incomingStreamLoading');
+        const contentEl = document.getElementById('incomingStreamContent');
+        const badge = document.getElementById('incomingStreamBadge');
+        const rate = document.getElementById('incomingStreamRate');
+        const from = document.getElementById('incomingStreamFrom');
+        const hint = document.getElementById('incomingStreamHint');
+        
+        // Show loading state
+        if (loadingEl) loadingEl.style.display = 'block';
+        if (contentEl) contentEl.style.display = 'none';
+        
         try {
-            console.log('[StreamModal] Fetching stream summary for:', WALLET);
             const res = await fetch(`/api/p2p/stream/summary?wallet=${WALLET}`);
             const data = await res.json();
             
-            console.log('[StreamModal] Stream summary response:', data);
-            
-            const badge = document.getElementById('incomingStreamBadge');
-            const rate = document.getElementById('incomingStreamRate');
-            const from = document.getElementById('incomingStreamFrom');
-            const hint = document.getElementById('incomingStreamHint');
+            // Hide loading, show content
+            if (loadingEl) loadingEl.style.display = 'none';
+            if (contentEl) contentEl.style.display = 'block';
             
             if (data.success && data.net_flow_rate > 0) {
                 // Convert to daily rate
@@ -5831,7 +5852,7 @@
                 incomingStreamSender = null; // TODO: Get actual sender from API
             } else {
                 if (badge) {
-                    badge.textContent = 'No incoming stream';
+                    badge.textContent = 'None';
                     badge.style.background = 'rgba(255,255,255,0.08)';
                     badge.style.color = 'var(--text-dim)';
                 }
@@ -5841,6 +5862,12 @@
             }
         } catch (err) {
             console.error('Failed to load incoming stream info:', err);
+            if (loadingEl) loadingEl.innerHTML = '❌ Failed to load';
+            if (badge) {
+                badge.textContent = 'Error';
+                badge.style.background = 'rgba(255,82,82,0.15)';
+                badge.style.color = '#ff7070';
+            }
         }
     }
     
@@ -6310,12 +6337,8 @@
     // Override openModal to load stream info when stream modal opens
     const _originalOpenModal = window.openModal;
     window.openModal = function(modalId) {
-        console.log('[StreamModal] openModal called for:', modalId);
-        
         if (modalId === 'streamModal') {
-            console.log('[StreamModal] Loading stream data...');
-            
-            // Load stream data
+            // Load stream data when modal opens
             loadStreamConstants();
             loadIncomingStreamInfo();
             loadStreamHistory();
@@ -6324,11 +6347,6 @@
             setTimeout(function() {
                 const receiverInput = document.getElementById('streamReceiver');
                 const amountInput = document.getElementById('streamAmount');
-                
-                console.log('[StreamModal] Inputs found:', {
-                    receiver: !!receiverInput,
-                    amount: !!amountInput
-                });
                 
                 if (receiverInput) {
                     receiverInput.removeAttribute('readonly');
@@ -6343,11 +6361,7 @@
                     amountInput.style.pointerEvents = 'auto';
                     amountInput.style.cursor = 'text';
                 }
-                
-                // Debug: log streamHistory
-                console.log('[StreamModal] streamHistory:', streamHistory);
-                console.log('[StreamModal] streamConstants:', streamConstants);
-            }, 200);
+            }, 100);
         }
         return _originalOpenModal(modalId);
     };
