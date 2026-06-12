@@ -1092,11 +1092,116 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
 
+                <!-- Submenu: G$ Streaming Stats -->
+                <div class="submenu-item">
+                    <div class="submenu-header" onclick="toggleSubmenu('streaming'); loadStreamingStats();">
+                        <div class="submenu-title">
+                            <span>💸</span><span>G$ Streaming Overview</span>
+                        </div>
+                        <svg class="submenu-chevron" id="chevron-streaming" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </div>
+                    <div class="submenu-content" id="content-streaming">
+                        <div class="submenu-body">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                                <!-- Incoming Section -->
+                                <div style="background: rgba(74, 222, 128, 0.08); border: 1px solid rgba(74, 222, 128, 0.2); border-radius: 12px; padding: 1rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                        <span style="font-size: 1.2rem;">📥</span>
+                                        <span style="font-weight: 600; color: #4ade80;">Incoming Streams</span>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 1.8rem; font-weight: 800; color: #4ade80;" id="streamingIncomingRate">— G$/day</div>
+                                        <div style="font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 0.5rem;">
+                                            <span id="streamingIncomingCount">0</span> active streams
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Outgoing Section -->
+                                <div style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 12px; padding: 1rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                        <span style="font-size: 1.2rem;">📤</span>
+                                        <span style="font-weight: 600; color: #06b6d4;">Outgoing Streams</span>
+                                    </div>
+                                    <div style="text-align: center;">
+                                        <div style="font-size: 1.8rem; font-weight: 800; color: #06b6d4;" id="streamingOutgoingRate">— G$/day</div>
+                                        <div style="font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 0.5rem;">
+                                            <span id="streamingOutgoingCount">0</span> active streams
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Total Summary -->
+                            <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 12px; padding: 1rem; text-align: center;">
+                                <div style="font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-bottom: 0.5rem;">Total G$ Streaming on GoodMarket</div>
+                                <div style="font-size: 2rem; font-weight: 800; color: #a855f7;" id="streamingTotalRate">— G$/day</div>
+                            </div>
+                            
+                            <div id="streamingLoading" style="text-align: center; padding: 20px; color: rgba(255,255,255,0.4); display: none;">
+                                Loading streaming data...
+                            </div>
+                            <div id="streamingError" style="text-align: center; padding: 20px; color: #ff7070; display: none;">
+                                Failed to load streaming stats
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div><!-- /submenu-list -->
         </div><!-- /main-menu -->
 
         <button class="refresh-btn" onclick="refreshAnalytics()">🔄 Refresh Analytics</button>
     </div>
+
+    <script>
+        /* ── G$ Streaming Stats Loader ── */
+        function loadStreamingStats() {
+            const incomingRateEl = document.getElementById('streamingIncomingRate');
+            const outgoingRateEl = document.getElementById('streamingOutgoingRate');
+            const totalRateEl = document.getElementById('streamingTotalRate');
+            const incomingCountEl = document.getElementById('streamingIncomingCount');
+            const outgoingCountEl = document.getElementById('streamingOutgoingCount');
+            const loadingEl = document.getElementById('streamingLoading');
+            const errorEl = document.getElementById('streamingError');
+            
+            if (!incomingRateEl) return;
+            
+            // Check if already loaded
+            if (incomingRateEl.textContent !== '— G$/day') return;
+            
+            loadingEl.style.display = 'block';
+            errorEl.style.display = 'none';
+            
+            fetch('/api/streaming/stats')
+                .then(response => response.json())
+                .then(data => {
+                    loadingEl.style.display = 'none';
+                    
+                    if (data.success && data.data) {
+                        const stats = data.data;
+                        
+                        incomingRateEl.textContent = stats.total_incoming.toFixed(2) + ' G$/day';
+                        outgoingRateEl.textContent = stats.total_outgoing.toFixed(2) + ' G$/day';
+                        totalRateEl.textContent = (stats.total_incoming + stats.total_outgoing).toFixed(2) + ' G$/day';
+                        incomingCountEl.textContent = stats.active_incoming_count;
+                        outgoingCountEl.textContent = stats.active_outgoing_count;
+                    } else {
+                        incomingRateEl.textContent = '0.00 G$/day';
+                        outgoingRateEl.textContent = '0.00 G$/day';
+                        totalRateEl.textContent = '0.00 G$/day';
+                        incomingCountEl.textContent = '0';
+                        outgoingCountEl.textContent = '0';
+                    }
+                })
+                .catch(error => {
+                    loadingEl.style.display = 'none';
+                    errorEl.style.display = 'block';
+                    console.error('Failed to load streaming stats:', error);
+                });
+        }
+    </script>
 
     <script>
         /* ── Network Canvas (same as homepage) ── */
