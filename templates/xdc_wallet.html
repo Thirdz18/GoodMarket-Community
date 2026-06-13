@@ -2271,6 +2271,43 @@
                 }
 
                 // Call UBIScheme.claim() — function selector: keccak256("claim()") = 0x4e71d92d
+                
+                // IMPORTANT: Switch wallet to XDC explicitly right before sending tx.
+                // This ensures the wallet displays "XDC Network" in the signature prompt,
+                // not "Celo" or whatever the wallet's current selection is.
+                // This is a separate switch call right before tx because:
+                // 1. The earlier switch might have been acknowledged by WC relay but wallet UI didn't update
+                // 2. Some wallets cache the chain display until the next user interaction
+                try {
+                    await ep.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: XDC_CHAIN_ID_HEX }]
+                    });
+                    // Brief pause to allow wallet UI to update its chain display
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (switchErr) {
+                    // If chain not recognized, try to add it
+                    if (switchErr.code === 4902) {
+                        try {
+                            await ep.request({
+                                method: 'wallet_addEthereumChain',
+                                params: [{
+                                    chainId: XDC_CHAIN_ID_HEX,
+                                    chainName: 'XDC Network',
+                                    rpcUrls: ['https://earpc.xinfin.network', 'https://rpc.ankr.com/xdc'],
+                                    nativeCurrency: { name: 'XDC', symbol: 'XDC', decimals: 18 },
+                                    blockExplorerUrls: ['https://xdcscan.com']
+                                }]
+                            });
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        } catch (addErr) {
+                            // Proceed anyway - the tx might still work
+                            console.warn('[xdc-wallet] Could not add XDC network:', addErr);
+                        }
+                    }
+                    // User rejected or other error - proceed anyway, tx will still go to XDC
+                }
+                
                 const txHash = await ep.request({
                     method: 'eth_sendTransaction',
                     params: [{
