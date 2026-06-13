@@ -5555,11 +5555,17 @@
         }
     }
 
-    // Check for incoming streams from Superfluid events
+    // Check for incoming streams from known counterparties
     async function checkIncomingStreams() {
+        const counterparties = getKnownCounterparties();
+        if (counterparties.length === 0) {
+            console.log('No known counterparties to check for incoming streams');
+            return;
+        }
+
         try {
-            // Query Superfluid events to find ALL incoming streams (no senders param needed)
-            const res = await fetch(`/api/p2p/stream/incoming?wallet=${WALLET}`);
+            const sendersParam = counterparties.join(',');
+            const res = await fetch(`/api/p2p/stream/incoming?wallet=${WALLET}&senders=${sendersParam}`);
             const data = await res.json();
 
             if (data.success && data.incoming_streams) {
@@ -5583,11 +5589,6 @@
                     }
                 }
                 saveIncomingStreamHistory();
-                
-                // Also save senders as known counterparties for future reference
-                for (const stream of data.incoming_streams) {
-                    addKnownCounterparty(stream.sender);
-                }
             }
         } catch (err) {
             console.error('Failed to check incoming streams:', err);
