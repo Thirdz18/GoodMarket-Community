@@ -801,6 +801,13 @@
             }
             // Validate that the network is supported
             if (SUPPORTED_NETWORKS[chainId]) {
+                // Update _config to reflect the new chain so subsequent requests
+                // (eth_chainId, eth_sendTransaction, etc.) use the correct chain
+                var newChainId = SUPPORTED_NETWORKS[chainId].chainId;
+                var newChainHex = chainId; // Already in hex format like "0x32"
+                _config.chainId = newChainId;
+                _config.chainHex = newChainHex;
+                try { _config.log("[wc-bridge] Switched to chainId:", newChainId, "hex:", newChainHex); } catch (_) {}
                 // Return success - let the wallet handle the actual switch
                 return Promise.resolve(null);
             }
