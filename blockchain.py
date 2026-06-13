@@ -2333,20 +2333,6 @@ SUPERFLUID_CFA_ABI = [
         "outputs": [{"internalType": "int96", "name": "flowRate", "type": "int96"}],
         "stateMutability": "view",
         "type": "function"
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "address", "name": "token", "type": "address"},
-            {"indexed": True, "internalType": "address", "name": "sender", "type": "address"},
-            {"indexed": True, "internalType": "address", "name": "receiver", "type": "address"},
-            {"indexed": False, "internalType": "int96", "name": "flowRate", "type": "int96"},
-            {"indexed": False, "internalType": "int256", "name": "totalFlowRate", "type": "int256"},
-            {"indexed": False, "internalType": "int256", "name": "deposit", "type": "int256"},
-            {"indexed": False, "internalType": "uint64", "name": "updatedAt", "type": "uint64"}
-        ],
-        "name": "FlowUpdated",
-        "type": "event"
     }
 ]
 
@@ -2727,11 +2713,11 @@ def get_incoming_streams(g_dollar_address: str, receiver: str, known_senders: li
 
 def get_all_incoming_streams_from_events(g_dollar_address: str, receiver: str, max_block_range: int = 10000) -> dict:
     """
-    Get all incoming streams to a wallet by querying Superfluid SuperToken events.
+    Get all incoming streams to a wallet by querying Superfluid CFA events.
     This finds ALL senders who have ever streamed to the receiver.
     
     Args:
-        g_dollar_address: G$ token address (SuperToken)
+        g_dollar_address: G$ token address
         receiver: Receiver wallet address
         max_block_range: Max blocks to query per request (to avoid RPC limits)
     
@@ -2741,72 +2727,60 @@ def get_all_incoming_streams_from_events(g_dollar_address: str, receiver: str, m
     try:
         w3 = _get_w3()
         
-        # Get CFA contract for flow info
-        cfa_contract = w3.eth.contract(
+        # Get CFA contract for events
+        contract = w3.eth.contract(
             address=Web3.to_checksum_address(SUPERFLUID_CFAV1_FORWARDER),
             abi=SUPERFLUID_CFA_ABI
         )
         
-        # Build addresses
+        # FlowUpdated event signature
+        # event FlowUpdated(
+        #     address indexed token,
+        #     address indexed sender,
+        #     address indexed receiver,
+        #     int96 flowRate,
+        #     uint256 totalFlowRate,
+        #     int256 deposit,
+        #     uint64 updatedAt,
+        #     bytes userData
+        # )
+        
+        # Build event filter for this receiver
         receiver_checksum = Web3.to_checksum_address(receiver)
         token_checksum = Web3.to_checksum_address(g_dollar_address)
         
         # Get current block
         current_block = w3.eth.block_number
         
-        # Query only the last ~100k blocks to avoid RPC limits
-        from_block = max(0, current_block - max_block_range)
-        
+        # Query events in chunks (to avoid RPC limits)
         all_senders = set()
+        sender_flow_rates = {}
+        
+        # Start from a reasonable past block (e.g., 1 year ago or genesis)
+        # We'll query in batches of max_block_range
+        from_block = max(0, current_block - max_block_range * 10)  # Query last ~100k blocks
         
         try:
-            # Try to get events from SuperToken contract
-            # SuperToken ABI for FlowUpdated event
-            supertoken_abi = [{
-                "anonymous": False,
-                "inputs": [
-                    {"indexed": True, "internalType": "address", "name": "token", "type": "address"},
-                    {"indexed": True, "internalType": "address", "name": "sender", "type": "address"},
-                    {"indexed": True, "internalType": "address", "name": "receiver", "type": "address"},
-                    {"indexed": False, "internalType": "int96", "name": "flowRate", "type": "int96"},
-                    {"indexed": False, "internalType": "int256", "name": "totalFlowRate", "type": "int256"},
-                    {"indexed": False, "internalType": "int256", "name": "deposit", "type": "int256"},
-                    {"indexed": False, "internalType": "uint64", "name": "updatedAt", "type": "uint64"}
-                ],
-                "name": "FlowUpdated",
-                "type": "event"
-            }]
-            
-            supertoken_contract = w3.eth.contract(
-                address=token_checksum,
-                abi=supertoken_abi
-            )
-            
             # Get FlowUpdated events where this address is the receiver
-            events = supertoken_contract.events.FlowUpdated.get_logs(
-                argument_filters={'receiver': receiver_checksum},
+            events = contract.events.FlowUpdated.get_logs(
+                argument_filters={
+                    'receiver': receiver_checksum,
+                    'token': token_checksum
+                },
                 from_block=from_block,
                 to_block='latest'
             )
             
             for event in events:
                 sender = event['args']['sender']
+                flow_rate = event['args']['flowRate']
                 all_senders.add(sender)
                 
+                # Track the most recent flow rate for each sender
+                sender_flow_rates[sender] = flow_rate
+                
         except Exception as event_err:
-            logger.warning(f"Error querying SuperToken events: {event_err}")
-            # Fallback: Try CFA Forwarder events
-            try:
-                events = cfa_contract.events.FlowUpdated.get_logs(
-                    argument_filters={'receiver': receiver_checksum},
-                    from_block=from_block,
-                    to_block='latest'
-                )
-                for event in events:
-                    sender = event['args']['sender']
-                    all_senders.add(sender)
-            except Exception as cfa_err:
-                logger.warning(f"Error querying CFA events: {cfa_err}")
+            logger.warning(f"Error querying events: {event_err}")
         
         # Now check current status for each sender
         incoming_streams = []
@@ -2814,7 +2788,7 @@ def get_all_incoming_streams_from_events(g_dollar_address: str, receiver: str, m
         for sender in all_senders:
             try:
                 sender_checksum = Web3.to_checksum_address(sender)
-                info = cfa_contract.functions.getFlowInfo(
+                info = contract.functions.getFlowInfo(
                     token_checksum,
                     sender_checksum,
                     receiver_checksum

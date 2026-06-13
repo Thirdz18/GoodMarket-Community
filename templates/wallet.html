@@ -5889,37 +5889,23 @@
     // Load incoming stream info
     async function loadIncomingStreamInfo() {
         try {
-            // First get the summary for net flow rate
-            const summaryRes = await fetch(`/api/p2p/stream/summary?wallet=${WALLET}`);
-            const summaryData = await summaryRes.json();
+            const res = await fetch(`/api/p2p/stream/summary?wallet=${WALLET}`);
+            const data = await res.json();
             
             const badge = document.getElementById('incomingStreamBadge');
             const rate = document.getElementById('incomingStreamRate');
             const from = document.getElementById('incomingStreamFrom');
             
-            if (summaryData.success && summaryData.net_flow_rate > 0) {
+            if (data.success && data.net_flow_rate > 0) {
                 // Convert to daily rate
-                const dailyRate = (summaryData.net_flow_rate / 1e18 * 86400).toFixed(4);
+                const dailyRate = (data.net_flow_rate / 1e18 * 86400).toFixed(4);
                 if (badge) {
                     badge.textContent = 'Active';
                     badge.style.background = 'rgba(0,230,118,0.15)';
                     badge.style.color = '#00e676';
                 }
                 if (rate) rate.textContent = `${dailyRate} G$/day`;
-                
-                // Try to get actual sender from incoming streams
-                try {
-                    const incomingRes = await fetch(`/api/p2p/stream/incoming?wallet=${WALLET}`);
-                    const incomingData = await incomingRes.json();
-                    if (incomingData.success && incomingData.incoming_streams && incomingData.incoming_streams.length > 0) {
-                        const sender = incomingData.incoming_streams[0].sender;
-                        if (from) from.textContent = sender.slice(0, 6) + '...' + sender.slice(-4);
-                    } else {
-                        if (from) from.textContent = 'Unknown';
-                    }
-                } catch (e) {
-                    if (from) from.textContent = 'Unknown';
-                }
+                if (from) from.textContent = 'Someone';
             } else {
                 if (badge) {
                     badge.textContent = 'No incoming stream';
