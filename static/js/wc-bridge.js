@@ -385,31 +385,14 @@
                                     }
                                 } catch (_) { /* optional — ignore */ }
 
-                                // Verify the relay subscription actually works by checking
-                                // if the topic is registered in the client's session store.
-                                // Without this verification, we mark the session as restored
-                                // but it will fail on the first actual request.
-                                var sessionsAfterRestore = client.getActiveSessions();
-                                var sessionRestored = sessionsAfterRestore && 
-                                    Object.keys(sessionsAfterRestore).length > 0 &&
-                                    sessionsAfterRestore[parsedSession.topic];
-
-                                if (sessionRestored) {
-                                    _state.browserSession = parsedSession;
-                                    _state.address = storedAddress;
-                                    try { _config.log("[wc-bridge] Restored WC session from localStorage backup:", storedTopic); } catch (_) {}
-                                } else {
-                                    // Session couldn't be restored — the relay subscription
-                                    // likely failed. Clear localStorage so next login starts fresh.
-                                    try {
-                                        localStorage.removeItem('wc_session_topic');
-                                        localStorage.removeItem('wc_session_address');
-                                        localStorage.removeItem('wc_session_data');
-                                        localStorage.removeItem('wc_session_timestamp');
-                                        localStorage.removeItem('wc_session_chains');
-                                    } catch (_) {}
-                                    try { _config.log("[wc-bridge] localStorage session restoration failed — clearing stale data"); } catch (_) {}
-                                }
+                                // Session restored from localStorage.
+                                // The relay subscription is async; if it fails, the first
+                                // actual request will fail with "session expired" and the
+                                // user can re-login. This is better than incorrectly
+                                // clearing valid localStorage data.
+                                _state.browserSession = parsedSession;
+                                _state.address = storedAddress;
+                                try { _config.log("[wc-bridge] Restored WC session from localStorage backup:", storedTopic); } catch (_) {}
                             }
                         } catch (parseErr) { /* ignore */ }
                     }
