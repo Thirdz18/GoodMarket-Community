@@ -262,60 +262,29 @@
         } catch (_) { return null; }
     }
 
-    // Pick the best session from a sessions map, preferring:
-    // 1. A session whose namespaces include the currently configured chain
-    //    (e.g. XDC chain when the user is on xdc_wallet.html)
-    // 2. A session whose address matches _config.walletAddress
-    // 3. Any valid session as last resort
+    // Pick the best session from a sessions map, preferring the one whose
+    // address matches _config.walletAddress (when set).
     function _pickBestSession(sessions) {
         var nowSec = Math.floor(Date.now() / 1000);
-        var wantedChain = "eip155:" + (_config.chainId || DEFAULT_CHAIN_ID);
-        var wantedAddr = String(_config.walletAddress || "").toLowerCase();
-
         var keys = Object.keys(sessions || {}).filter(function (k) {
             var s = sessions[k];
             return s && s.topic && (!s.expiry || s.expiry > nowSec);
         });
         if (!keys.length) return null;
 
-        // Priority 1: session that includes the currently configured chain
-        for (var i = 0; i < keys.length; i++) {
-            var s = sessions[keys[i]];
-            var ns = s && (s.namespaces || {});
-            var hasChain = Object.keys(ns).some(function (k) {
-                return ((ns[k] && ns[k].accounts) || []).some(function (a) {
-                    return String(a).toLowerCase().startsWith(wantedChain.toLowerCase());
-                });
-            });
-            if (hasChain) {
-                // Within chain-matched sessions, prefer one with matching address
-                if (wantedAddr) {
-                    var addrMatch = Object.keys(ns).some(function (k) {
-                        return ((ns[k] && ns[k].accounts) || []).some(function (a) {
-                            return String(a).split(":").pop().toLowerCase() === wantedAddr;
-                        });
-                    });
-                    if (addrMatch) return s;
-                }
-                return s;
-            }
-        }
-
-        // Priority 2: session with matching address (even if on different chain)
+        var wantedAddr = String(_config.walletAddress || "").toLowerCase();
         if (wantedAddr) {
-            for (var j = 0; j < keys.length; j++) {
-                var s2 = sessions[keys[j]];
-                var ns2 = s2 && (s2.namespaces || {});
-                var addrMatch2 = Object.keys(ns2).some(function (k) {
-                    return ((ns2[k] && ns2[k].accounts) || []).some(function (a) {
+            for (var i = 0; i < keys.length; i++) {
+                var s = sessions[keys[i]];
+                var ns = s && (s.namespaces || {});
+                var matched = Object.keys(ns).some(function (k) {
+                    return ((ns[k] && ns[k].accounts) || []).some(function (a) {
                         return String(a).split(":").pop().toLowerCase() === wantedAddr;
                     });
                 });
-                if (addrMatch2) return s2;
+                if (matched) return s;
             }
         }
-
-        // Priority 3: any valid session
         return sessions[keys[0]];
     }
 
@@ -963,23 +932,19 @@
         function _doWcRequest(client, method, p) {
             // Determine the target chain for this specific request.
             //
-            // The caller may embed a `chainId` field inside the tx-params object
-            // (index 0 of the params array). We honour that field so cross-chain
-            // pages (e.g. xdc_wallet.html which sets chainId:"0x32" / 50) route
-            // the request to the correct EIP-155 chain instead of always using
-            // the session's default chain (_config.chainId is set at configure()
-            // time and defaults to Celo).
+            // For eth_sendTransaction the caller may embed a `chainId` field
+            // inside the tx-params object (index 0 of the params array).  We
+            // honour that field so cross-chain pages (e.g. xdc_wallet.html
+            // which sets chainId:"0x32" / 50) route the request to the correct
+            // EIP-155 chain instead of always using the session's default chain
+            // (_config.chainId is set at configure() time and defaults to Celo).
             //
             // Without this, a WalletConnect session established on Celo would
             // send an XDC eth_sendTransaction as "eip155:42220" — causing the
             // wallet app to label the prompt "Celo" and execute the call on the
             // wrong network.
-            //
-            // For non-transaction methods (personal_sign, eth_signTypedData, etc.)
-            // we use _config.chainId which was set by GMWalletConnect.configure()
-            // based on the current page (e.g., XDC on xdc_wallet.html).
             var targetChainId = Number(_config.chainId || DEFAULT_CHAIN_ID);
-            if (Array.isArray(p) && p[0] && p[0].chainId) {
+            if (method === "eth_sendTransaction" && Array.isArray(p) && p[0] && p[0].chainId) {
                 var txChain = parseInt(String(p[0].chainId), 16);
                 if (!isNaN(txChain) && txChain > 0) targetChainId = txChain;
             }
