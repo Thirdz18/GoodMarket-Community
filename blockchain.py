@@ -2875,3 +2875,97 @@ def get_p2p_stream_constants() -> dict:
         "flow_rate_divisor": 2592000,  # seconds in 30 days
         "docs_url": "https://docs.gooddollar.org/for-developers/developer-guides/use-gusd-streaming"
     }
+"""
+Superfluid subgraph query for incoming streams.
+"""
+
+def get_incoming_streams_subgraph(receiver: str) -> dict:
+    """
+    Get incoming streams to a wallet using Superfluid subgraph.
+    Queries The Graph for Superfluid CFA V1 data on Celo.
+    
+    Args:
+        receiver: Receiver wallet address
+        
+    Returns:
+        Dict with incoming streams including sender addresses
+    """
+    try:
+        import requests
+        
+        # Superfluid CFA V1 subgraph on Celo
+        subgraph_url = "https://api.thegraph.com/subgraphs/name/superfluid-finance/superfluid-celo"
+        
+        query = """
+        query GetIncomingStreams($receiver: String!) {
+            flowUpdates(
+                where: {receiver: $receiver}
+                orderBy: timestamp
+                orderDirection: desc
+                first: 100
+            ) {
+                id
+                sender { id }
+                receiver
+                flowRate
+                totalFlowRate
+                timestamp
+                transactionHash
+            }
+        }
+        """
+        
+        response = requests.post(
+            subgraph_url,
+            json={"query": query, "variables": {"receiver": receiver.lower()}},
+            timeout=15
+        )
+        
+        if response.status_code != 200:
+            logger.warning(f"Subgraph request failed: {response.status_code}")
+            return {"success": False, "error": f"Subgraph request failed: {response.status_code}"}
+        
+        data = response.json()
+        
+        if "errors" in data:
+            logger.warning(f"GraphQL errors: {data['errors']}")
+            return {"success": False, "error": str(data['errors'])}
+        
+        flow_updates = data.get("data", {}).get("flowUpdates", [])
+        
+        sender_streams = {}
+        for update in flow_updates:
+            sender_addr = update.get("sender", {}).get("id", "")
+            if sender_addr and sender_addr.lower() != receiver.lower():
+                sender_key = sender_addr.lower()
+                if sender_key not in sender_streams:
+                    fr = update["flowRate"] or "0"
+                    sender_streams[sender_key] = {
+                        "sender": update["sender"]["id"],
+                        "sender_address": update["sender"]["id"],
+                        "flow_rate": fr,
+                        "flow_rate_gps": float(int(fr) / 1e18) if fr else 0,
+                        "flow_rate_per_day": float(int(fr) / 1e18 * 86400) if fr else 0,
+                        "flow_rate_per_month": float(int(fr) / 1e18 * 2592000) if fr else 0,
+                        "last_update": update["timestamp"],
+                        "tx_hash": update["transactionHash"],
+                        "is_active": int(fr) > 0 if fr else False
+                    }
+        
+        incoming_streams = list(sender_streams.values())
+        active_count = sum(1 for s in incoming_streams if s.get("is_active"))
+        
+        return {
+            "success": True,
+            "receiver": receiver,
+            "incoming_streams": incoming_streams,
+            "count": len(incoming_streams),
+            "active_count": active_count
+        }
+        
+    except ImportError:
+        logger.error("requests library not available")
+        return {"success": False, "error": "requests library not available"}
+    except Exception as e:
+        logger.error(f"get_incoming_streams_subgraph error: {e}")
+        return {"success": False, "error": str(e)}
