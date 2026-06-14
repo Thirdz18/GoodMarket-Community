@@ -138,18 +138,6 @@ def _inject_asset_version():
     return {'ASSET_VERSION': ASSET_VERSION}
 
 
-@app.context_processor
-def _inject_privy_config():
-    """Expose Privy embedded-wallet config to all templates so the shared
-    `_privy_signer.html` include works on every signing page without each
-    route having to pass it explicitly."""
-    return {
-        'privy_app_id': os.getenv('PRIVY_APP_ID', ''),
-        'celo_rpc_url': os.getenv('CELO_RPC_URL', 'https://forno.celo.org'),
-        'celo_explorer': os.getenv('CELO_EXPLORER_URL', 'https://celoscan.io'),
-    }
-
-
 @app.after_request
 def _add_cache_headers(response):
     """Ensure HTML pages are always revalidated so new deployments are
@@ -219,7 +207,6 @@ _CSP_DIRECTIVES = (
     "img-src 'self' data: blob: https:",
     "connect-src 'self' https: wss:",
     "frame-src 'self' "
-    "https://auth.privy.io "
     "https://telegram.org https://*.telegram.org "
     "https://www.youtube.com https://www.youtube-nocookie.com "
     "https://platform.twitter.com "
@@ -949,18 +936,6 @@ def profile():
     analytics.track_page_view(wallet, "profile")
     return render_template("profile.html", wallet=wallet)
 
-@app.route("/embedded-wallet")
-def embedded_wallet():
-    """Privy embedded-wallet proof of concept (MiniPay-style, seedless wallet
-    with no per-transaction signing popup). Standalone demo page — Privy manages
-    its own auth, so this does not require the GoodMarket session."""
-    return render_template(
-        "embedded_wallet.html",
-        privy_app_id=os.getenv("PRIVY_APP_ID", ""),
-        celo_rpc_url=os.getenv("CELO_RPC_URL", "https://forno.celo.org"),
-        celo_explorer=os.getenv("CELO_EXPLORER_URL", "https://celoscan.io"),
-    )
-
 @app.route("/api/analytics")
 @cached_response(duration=30)  # Cache for 30 seconds
 def api_analytics():
@@ -1592,7 +1567,6 @@ def verify_identity():
         data = request.get_json()
         wallet_address = data.get('wallet_address', '').strip()
         referral_code = data.get('referral_code', '').strip()
-        login_method = data.get('login_method', 'walletconnect').strip()
 
         if not wallet_address:
             return jsonify({'error': 'Wallet address is required'}), 400
@@ -1608,7 +1582,7 @@ def verify_identity():
         except Exception:
             return jsonify({'error': 'Could not normalize wallet address'}), 400
 
-        logger.info(f"🔐 Identity verification attempt for {wallet_address} via {login_method}")
+        logger.info(f"🔐 Identity verification attempt for {wallet_address}")
 
         # Check if user is already verified in the session
         if session.get('verified') and session.get('wallet') == wallet_address:
@@ -1683,7 +1657,6 @@ def verify_identity():
         session['wallet_address'] = wallet_address
         session['verified'] = True
         session['ubi_verified'] = True
-        session['login_method'] = login_method
         session['verification_time'] = datetime.now().isoformat()
 
         # Record unverified visit or log face-verified status for attribution

@@ -1599,16 +1599,6 @@
             });
         }
     </script>
-
-    <!-- Privy embedded-wallet config (consumed by static/js/privy-wallet.js,
-         lazy-loaded when the user taps "Create Wallet"). -->
-    <script>
-        window.__GM_PRIVY_CONFIG__ = {
-            appId: {{ (privy_app_id or "") | tojson }},
-            rpcUrl: {{ (celo_rpc_url or "https://forno.celo.org") | tojson }},
-            explorer: {{ (celo_explorer or "https://celoscan.io") | tojson }}
-        };
-    </script>
 </head>
 <body>
     <!-- Header -->
@@ -2106,15 +2096,6 @@
 
             <!-- Step 1: Choose login path -->
             <div class="wallet-options" id="walletOptions">
-                <button class="wallet-option-card primary" id="privyCreateBtn" onclick="connectPrivyWallet()">
-                    <div class="option-icon">✨</div>
-                    <div class="option-text">
-                        <div class="option-title">Create Wallet</div>
-                        <p class="option-desc">Email or Google — no seed phrase. Powered by Privy</p>
-                    </div>
-                    <span class="option-arrow">→</span>
-                </button>
-
                 <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
                     <div class="option-icon">🔗</div>
                     <div class="option-text">
@@ -2123,8 +2104,6 @@
                     </div>
                     <span class="option-arrow">→</span>
                 </button>
-
-                <div id="privyStatus" class="status-message"></div>
             </div>
 
             <!-- Step 2A: WalletConnect / injected -->
@@ -2274,83 +2253,6 @@
             if (!el) return;
             el.className = 'status-message ' + type;
             el.textContent = message;
-        }
-
-        // ── Privy embedded wallet (Create Wallet) ────────────────────────────
-        // The Privy SDK bundle is large, so we lazy-load it only when the user
-        // taps "Create Wallet" rather than on every homepage visit.
-        let _gmPrivyLoading = null;
-        function _loadPrivyBundle() {
-            if (window.GMPrivy) return Promise.resolve();
-            if (_gmPrivyLoading) return _gmPrivyLoading;
-            _gmPrivyLoading = new Promise((resolve, reject) => {
-                const s = document.createElement('script');
-                s.src = "{{ url_for('static', filename='js/privy-wallet.js', v=ASSET_VERSION) }}";
-                s.onload = () => {
-                    // GMPrivy is set synchronously by the bundle. Its login()
-                    // method now gates internally on SDK readiness, so we can
-                    // resolve immediately once the script has executed.
-                    if (window.GMPrivy) { resolve(); return; }
-                    reject(new Error('Privy bundle loaded but GMPrivy not found.'));
-                };
-                s.onerror = () => {
-                    _gmPrivyLoading = null;  // allow retry on next click
-                    reject(new Error('Failed to load Privy. Check your connection and try again.'));
-                };
-                document.body.appendChild(s);
-            });
-            return _gmPrivyLoading;
-        }
-
-        async function connectPrivyWallet() {
-            const statusId = 'privyStatus';
-            const btn = document.getElementById('privyCreateBtn');
-            const walletOptions = document.getElementById('walletOptions');
-
-            // Hide the option buttons so they don't show behind the Privy modal
-            const optionCards = walletOptions ? walletOptions.querySelectorAll('.wallet-option-card') : [];
-            optionCards.forEach(function(c) { c.style.display = 'none'; });
-
-            if (btn) btn.disabled = true;
-            try {
-                showWalletStatus(statusId, '⏳ Loading secure wallet…', 'info');
-                await _loadPrivyBundle();
-                if (!window.GMPrivy || !window.GMPrivy.isConfigured()) {
-                    showWalletStatus(statusId, '❌ Wallet creation is not configured on the server (PRIVY_APP_ID missing).', 'error');
-                    return;
-                }
-                showWalletStatus(statusId, '⏳ Opening login — sign up with email or Google.', 'info');
-                // Hide our modal while Privy shows its own UI so they don't overlap.
-                closeWalletModal();
-                const { address } = await window.GMPrivy.login();
-                if (!address) throw new Error('No wallet address returned by Privy.');
-                
-                // Get user info for export feature
-                const user = window.GMPrivy.getUser();
-                if (user && user.email) {
-                    try { localStorage.setItem('privy_email', user.email); } catch (_) {}
-                }
-                
-                showWalletStatus(statusId, '✍️ Verifying your new wallet…', 'info');
-                const message = makeLoginMessage(address);
-                const signature = await window.GMPrivy.signMessage(message);
-                const verifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode(), 'privy');
-                try { localStorage.setItem('gm_login_method', 'privy'); } catch (_) {}
-                const okMsg = (verifyData && verifyData.referral_warning)
-                    ? ('✅ Wallet created. ⚠️ ' + verifyData.referral_warning + ' Redirecting...')
-                    : '✅ Wallet created & verified. Redirecting...';
-                showWalletStatus(statusId, okMsg, verifyData && verifyData.referral_warning ? 'warning' : 'success');
-                setTimeout(() => { window.location.href = '/wallet'; }, verifyData && verifyData.referral_warning ? 2400 : 900);
-            } catch (err) {
-                const msg = (err && err.message) ? err.message : 'Wallet creation failed';
-                const cancelled = /reject|denied|cancel|close|exit/i.test(msg);
-                // Restore option cards and reopen our modal (we closed it when Privy opened)
-                optionCards.forEach(function(c) { c.style.display = ''; });
-                openWalletModal();
-                showWalletStatus(statusId, (cancelled ? '⚠️ Login was cancelled. ' : '❌ ') + msg, cancelled ? 'warning' : 'error');
-            } finally {
-                if (btn) btn.disabled = false;
-            }
         }
 
         // EIP-6963 provider discovery — Trust Wallet (mobile dApp browser +
@@ -2990,7 +2892,7 @@
                 .join('');
         }
 
-        async function postVerifyIdentity(walletAddress, signature, message, referralCode = '', loginMethod = 'walletconnect') {
+        async function postVerifyIdentity(walletAddress, signature, message, referralCode = '') {
             const resp = await fetch('/verify-identity', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2998,8 +2900,7 @@
                     wallet_address: walletAddress,
                     signature,
                     message,
-                    referral_code: referralCode || '',
-                    login_method: loginMethod
+                    referral_code: referralCode || ''
                 })
             });
             const data = await resp.json();
