@@ -1224,8 +1224,8 @@
                 <div class="pc-field-value" id="pcCardholder">{{ wallet[:6] }}…{{ wallet[-4:] }}</div>
             </div>
             <div>
-                <div class="pc-field-label">Balance · Celo</div>
-                <div class="pc-field-value pc-balance" id="totalBalanceUSD">— G$</div>
+                <div class="pc-field-label">Balance</div>
+                <div class="pc-field-value pc-balance" id="totalBalanceUSD">—</div>
             </div>
             <div class="pc-brand-marks" aria-hidden="true">
                 <div class="mc-c1"></div>
@@ -2157,14 +2157,20 @@
         const totalBalanceEl = document.getElementById('totalBalanceUSD');
         if (!totalBalanceEl) return;
 
-        // Convert non-G$ balances into G$ units using live G$/USD price when available.
-        // cUSD and USDT are treated as ~1 USD; CELO uses an existing rough USD estimate.
+        // Calculate total balance in USD across all networks (Celo, Fuse, XDC)
+        // cUSD and USDT are treated as ~1 USD; CELO uses a rough USD estimate.
         const celoUsdEstimate = (celoBal || 0) * 0.75;
         const stableUsdTotal = (cusdBal || 0) + (usdtBal || 0);
-        const convertedToGd = gdUsdPrice > 0 ? (celoUsdEstimate + stableUsdTotal) / gdUsdPrice : 0;
-        const totalGd = (gdBal || 0) + (xdcGdBal || 0) + (fuseGdBal || 0) + convertedToGd;
+        
+        // Convert G$ balances from all networks to USD using live G$/USD price
+        const gdOnCeloUsd = (gdBal || 0) * (gdUsdPrice || 0);
+        const gdOnXdcUsd = (xdcGdBal || 0) * (gdUsdPrice || 0);
+        const gdOnFuseUsd = (fuseGdBal || 0) * (gdUsdPrice || 0);
+        
+        // Calculate total USD value across all networks
+        const totalUsd = celoUsdEstimate + stableUsdTotal + gdOnCeloUsd + gdOnXdcUsd + gdOnFuseUsd;
 
-        totalBalanceEl.textContent = fmt(totalGd, 4) + ' G$';
+        totalBalanceEl.textContent = '$' + fmt(totalUsd, 2);
     }
 
     async function handleVirtualCardAction() {
