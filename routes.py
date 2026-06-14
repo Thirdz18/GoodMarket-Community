@@ -8016,7 +8016,7 @@ _faucet_lock = threading.Lock()
 # trigger faucet requests at higher balances. Operators can override via the
 # FAUCET_MIN_CELO env var.
 FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.1"))
-FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.003"))
+FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.005"))
 FAUCET_MIN_FUSE = float(os.getenv("FAUCET_MIN_FUSE", "0.003"))
 FAUCET_BUFFER_MULTIPLIER = float(os.getenv("FAUCET_BUFFER_MULTIPLIER", "1.35"))
 FAUCET_DUPLICATE_WINDOW_MIN = int(os.getenv("FAUCET_DUPLICATE_WINDOW_MIN", "30"))
