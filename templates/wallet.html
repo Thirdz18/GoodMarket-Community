@@ -2682,12 +2682,11 @@
         loadFuseBalances();
     }
 
-    async function loadXdcBalances(forceRefresh = false) {
+    async function loadXdcBalances() {
         try {
-            const refreshParam = forceRefresh ? '?refresh=true' : '';
             const [xdcRes, gdRes] = await Promise.all([
-                fetch('/api/xdc/balances' + refreshParam),
-                fetch('/api/xdc/gd-info' + refreshParam),
+                fetch('/api/xdc/balances'),
+                fetch('/api/xdc/gd-info'),
             ]);
             const xdcData = await xdcRes.json();
             const gdData  = await gdRes.json();
@@ -5178,7 +5177,7 @@
                 try { window.showClaimCelebration && window.showClaimCelebration({ networks: [network] }); } catch (_) {}
                 setTimeout(() => {
                     if (network === 'fuse' && typeof loadFuseBalances === 'function') loadFuseBalances();
-                    if (network === 'xdc' && typeof loadXdcBalances === 'function') loadXdcBalances(true);  // Force refresh after XDC claim
+                    if (network === 'xdc' && typeof loadXdcBalances === 'function') loadXdcBalances();
                     fetchEntitlement();
                 }, 4000);
             } catch (err) {

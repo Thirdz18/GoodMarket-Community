@@ -1594,7 +1594,7 @@ _fuse_w3_lock = threading.Lock()
 
 _xdc_balance_cache: dict = {}
 _xdc_balance_cache_lock = threading.Lock()
-XDC_BALANCE_CACHE_TTL = 30  # 30 seconds (reduced from 2 minutes for faster balance updates)
+XDC_BALANCE_CACHE_TTL = 120  # 2 minutes
 
 _fuse_balance_cache: dict = {}
 _fuse_balance_cache_lock = threading.Lock()
@@ -1683,19 +1683,14 @@ def _normalize_xdc_address(address: str) -> str:
     return address
 
 
-def get_xdc_balance(wallet_address: str, no_cache: bool = False) -> dict:
-    """Get native XDC balance for a wallet address (cached 30 seconds by default).
-    
-    Args:
-        wallet_address: The wallet address to check balance for
-        no_cache: If True, bypass the cache and fetch fresh balance from chain
-    """
+def get_xdc_balance(wallet_address: str) -> dict:
+    """Get native XDC balance for a wallet address (cached 2 minutes)."""
     import time
     norm = _normalize_xdc_address(wallet_address)
     key = norm.lower()
     with _xdc_balance_cache_lock:
         entry = _xdc_balance_cache.get(key)
-        if entry and entry.get("xdc") and entry["expires_at"] > time.time() and not no_cache:
+        if entry and entry.get("xdc") and entry["expires_at"] > time.time():
             return entry["xdc"]
     try:
         from web3 import Web3
