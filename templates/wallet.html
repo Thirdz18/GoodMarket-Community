@@ -3544,7 +3544,8 @@
                 _hideReVerifyHint();
                 needsVerification = false;
                 window._walletNeedsFV = false;
-                label.textContent = 'Claim ' + d.entitlement_formatted + ' G$ on Celo';
+                const claimAmount = d.claimable_formatted || d.entitlement_formatted || (d.claimable ? Number(d.claimable).toFixed(2) : '0.00');
+                label.textContent = 'Claim ' + claimAmount + ' G$ on Celo';
                 icon.textContent = '🪙';
                 btn.style.background = '';
                 btn.disabled = false;
