@@ -8012,7 +8012,14 @@ _faucet_lock = threading.Lock()
 # congestion (e.g. 200+ gwei → 0.06 CELO+ required) so spike-time claims still
 # trigger faucet requests at higher balances. Operators can override via the
 # FAUCET_MIN_CELO env var.
-FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.1"))
+#
+# IMPORTANT: Raised from 0.1 to 0.15 CELO to fix WalletConnect users issue.
+# WalletConnect users (Trust Wallet, MetaMask Mobile via WC) can set completely
+# wrong gas parameters (e.g. gas limit 416 instead of 220,000 + gas price
+# 300,000 gwei instead of ~10 gwei), resulting in actual tx cost ~0.127 CELO.
+# With 0.1 floor, users with 0.109 CELO pass the check but fail the tx.
+# With 0.15 floor, users with <0.15 CELO always trigger faucet top-up.
+FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.15"))
 FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.005"))
 FAUCET_MIN_FUSE = float(os.getenv("FAUCET_MIN_FUSE", "0.003"))
 FAUCET_BUFFER_MULTIPLIER = float(os.getenv("FAUCET_BUFFER_MULTIPLIER", "1.35"))
