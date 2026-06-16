@@ -135,18 +135,33 @@ class DiscourseTaskService:
                 settings = self.get_settings()
                 current_link = settings.get('link', DEFAULT_DISCOURSE_LINK)
 
+            query = self.supabase.table('discourse_task_log')\
+                .select('*')\
+                .eq('wallet_address', wallet_address.lower())
+
             # Filter by current link if the column exists
-            result = safe_supabase_operation(
-                lambda: self.supabase.table('discourse_task_log')
-                    .select('*')
-                    .eq('wallet_address', wallet_address.lower())
-                    .eq('discourse_link', current_link)
-                    .order('submitted_at', desc=True)
-                    .limit(1)
-                    .execute(),
-                fallback_result=None,
-                operation_name="get discourse user status by link"
-            )
+            try:
+                result = safe_supabase_operation(
+                    lambda: query
+                        .eq('discourse_link', current_link)
+                        .order('submitted_at', desc=True)
+                        .limit(1)
+                        .execute(),
+                    fallback_result=None,
+                    operation_name="get discourse user status by link"
+                )
+            except Exception:
+                # Fallback: table may not have discourse_link column yet
+                result = safe_supabase_operation(
+                    lambda: self.supabase.table('discourse_task_log')
+                        .select('*')
+                        .eq('wallet_address', wallet_address.lower())
+                        .order('submitted_at', desc=True)
+                        .limit(1)
+                        .execute(),
+                    fallback_result=None,
+                    operation_name="get discourse user status fallback"
+                )
 
             if result and result.data:
                 row = result.data[0]
