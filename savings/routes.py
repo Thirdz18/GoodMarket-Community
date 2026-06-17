@@ -66,6 +66,15 @@ def api_deposits():
     return jsonify({"deposits": deposits})
 
 
+@savings_bp.route("/api/history")
+def api_history():
+    wallet, verified = _require_auth()
+    if not wallet or not verified:
+        return jsonify({"error": "Unauthorized"}), 401
+    history = svc.get_user_history(wallet)
+    return jsonify({"history": history})
+
+
 @savings_bp.route("/api/allowance")
 def api_allowance():
     """Backwards-compatible: G$ allowance only."""
