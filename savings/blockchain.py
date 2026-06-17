@@ -56,7 +56,7 @@ CELO_RPC_URLS = tuple(
 )
 CHAIN_ID = int(os.getenv('CHAIN_ID', 42220))
 SAVINGS_CONTRACT_ADDRESS = os.getenv('SAVINGS_CONTRACT_ADDRESS', '')
-SAVINGS_DEPLOYMENT_BLOCK = int(os.getenv('SAVINGS_DEPLOYMENT_BLOCK', 65917286))
+SAVINGS_DEPLOYMENT_BLOCK = int(os.getenv('SAVINGS_DEPLOYMENT_BLOCK', '65917286'))
 GD_TOKEN_ADDRESS = os.getenv('GOODDOLLAR_CONTRACT_ADDRESS', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
 CELO_TOKEN_ADDRESS = os.getenv('CELO_TOKEN_ADDRESS', '0x471EcE3750Da237f93B8E339c536989b8978a438')
 CUSD_TOKEN_ADDRESS = os.getenv('CUSD_TOKEN_ADDRESS', '0x765DE816845861e75A25fCA122bb6898B8B1282a')
@@ -77,11 +77,9 @@ LEGACY_V2_CONTRACT_ADDRESS = '0xF3cca43F5C108d3dEf01Ff1E138866aC1ed00e9c'
 
 _w3_pool = {}
 _w3_lock = threading.Lock()
-
 _history_cache = {}
 _history_cache_lock = threading.Lock()
 HISTORY_CACHE_TTL = 300
-
 # Map of supported tokens, used by the frontend / API to label slots.
 # USDT uses 6 decimals; all others are 18. Anywhere we convert raw on-chain
 # amounts to human-readable values we must scale by the token's own decimals
@@ -571,18 +569,28 @@ def _history_cache_set(wallet_address, value):
             del _history_cache[oldest]
 
 
-def _chunked_event_logs(event, wallet_address, from_block, to_block, chunk_size=250_000):
+def _log_event(log):
+    args = getattr(log, "args", None) or {}
+    return {
+        "blockNumber": int(getattr(log, "blockNumber", 0) or 0),
+        "logIndex": int(getattr(log, "logIndex", getattr(log, "index", 0)) or 0),
+        "transactionHash": getattr(log, "transactionHash", b""),
+        "args": args,
+    }
+
+
+def _chunked_event_logs(event, wallet_address, from_block, to_block, chunk_size=200_000):
     logs = []
-    step = max(10_000, int(chunk_size or 250_000))
     start = int(from_block)
     end = int(to_block)
+    step = max(10_000, int(chunk_size or 200_000))
     while start <= end:
         stop = min(start + step - 1, end)
         try:
             logs.extend(event.get_logs(
+                argument_filters={"user": wallet_address},
                 from_block=start,
                 to_block=stop,
-                argument_filters={"user": wallet_address},
             ))
         except Exception:
             if step > 10_000:
@@ -592,48 +600,39 @@ def _chunked_event_logs(event, wallet_address, from_block, to_block, chunk_size=
     return logs
 
 
-def _merge_savings_history(saved_logs, withdrawn_logs):
+def _merge_history(saved_logs, withdrawn_logs):
     events = []
     for log in saved_logs or []:
-        events.append({"kind": "saved", "log": log})
+        events.append(("saved", _log_event(log)))
     for log in withdrawn_logs or []:
-        events.append({"kind": "withdrawn", "log": log})
-    events.sort(
-        key=lambda item: (
-            int(getattr(item["log"], "blockNumber", item["log"].get("blockNumber", 0))),
-            int(getattr(item["log"], "logIndex", item["log"].get("logIndex", item["log"].get("index", 0)))),
-        )
-    )
+        events.append(("withdrawn", _log_event(log)))
+    events.sort(key=lambda item: (item[1]["blockNumber"], item[1]["logIndex"]))
 
     open_cycles = {}
     closed_cycles = []
-
-    for item in events:
-        log = item["log"]
-        args = getattr(log, "args", None) or log.get("args", {})
-        token_addr = str(args.get("token") or args.get(1) or "")
+    for kind, log in events:
+        args = log["args"]
+        token = str(args.get("token") or args.get(1) or "")
         lock_days = int(args.get("lockDays") or args.get(2) or 0)
-        key = f"{token_addr.lower()}|{lock_days}"
-        meta = _token_meta(token_addr)
+        key = f"{token.lower()}|{lock_days}"
+        meta = _token_meta(token)
 
-        if item["kind"] == "saved":
-            new_slot_total = args.get("newSlotTotal") or args.get(4)
-            unlocks_at_raw = args.get("unlocksAt") or args.get(5) or 0
+        if kind == "saved":
+            unlocks_at = int(args.get("unlocksAt") or args.get(5) or 0)
             is_top_up = bool(args.get("isTopUp") if "isTopUp" in args else args.get(6))
-            unlocks_at = int(unlocks_at_raw)
-            total_h = _raw_to_human(new_slot_total or 0, meta["decimals"])
-
+            new_slot_total = args.get("newSlotTotal") or args.get(4) or 0
+            total_h = _raw_to_human(new_slot_total, meta["decimals"])
             cycle = open_cycles.get(key)
             if not cycle or not is_top_up:
                 cycle = {
-                    "token": token_addr,
+                    "token": token,
                     "token_symbol": meta["symbol"],
                     "decimals": meta["decimals"],
                     "lock_days": lock_days,
                     "amount_h": total_h,
                     "deposited_at": max(0, unlocks_at - lock_days * 86400),
                     "unlocks_at": unlocks_at,
-                    "first_block": int(getattr(log, "blockNumber", log.get("blockNumber", 0))),
+                    "first_block": log["blockNumber"],
                 }
                 open_cycles[key] = cycle
             else:
@@ -641,24 +640,22 @@ def _merge_savings_history(saved_logs, withdrawn_logs):
         else:
             principal = args.get("principal") or args.get(3) or 0
             timestamp = int(args.get("timestamp") or args.get(4) or 0)
-            cycle = open_cycles.get(key)
-            if not cycle:
-                cycle = {
-                    "token": token_addr,
-                    "token_symbol": meta["symbol"],
-                    "decimals": meta["decimals"],
-                    "lock_days": lock_days,
-                    "amount_h": _raw_to_human(principal, meta["decimals"]),
-                    "deposited_at": 0,
-                    "unlocks_at": timestamp,
-                    "first_block": int(getattr(log, "blockNumber", log.get("blockNumber", 0))),
-                }
+            cycle = open_cycles.get(key) or {
+                "token": token,
+                "token_symbol": meta["symbol"],
+                "decimals": meta["decimals"],
+                "lock_days": lock_days,
+                "amount_h": _raw_to_human(principal, meta["decimals"]),
+                "deposited_at": 0,
+                "unlocks_at": timestamp,
+                "first_block": log["blockNumber"],
+            }
             cycle["status"] = "withdrawn"
             cycle["amount_h"] = _raw_to_human(principal, cycle["decimals"])
             cycle["withdrawn_at"] = timestamp
-            tx_hash_value = getattr(log, "transactionHash", None) or log.get("transactionHash", "")
-            cycle["tx_hash"] = tx_hash_value.hex() if hasattr(tx_hash_value, "hex") else str(tx_hash_value)
-            cycle["withdrawn_block"] = int(getattr(log, "blockNumber", log.get("blockNumber", 0)))
+            tx_hash = log["transactionHash"]
+            cycle["tx_hash"] = tx_hash.hex() if hasattr(tx_hash, "hex") else str(tx_hash)
+            cycle["withdrawn_block"] = log["blockNumber"]
             closed_cycles.append(cycle)
             open_cycles.pop(key, None)
 
@@ -667,12 +664,11 @@ def _merge_savings_history(saved_logs, withdrawn_logs):
     for cycle in open_cycles.values():
         cycle["status"] = "ready" if cycle.get("unlocks_at") and now >= cycle["unlocks_at"] else "locked"
         active_cycles.append(cycle)
-
     return [*active_cycles, *closed_cycles]
 
 
 def get_user_history(wallet_address):
-    """Return active and withdrawn savings cycles for a wallet."""
+    """Return active + withdrawn savings cycles for a wallet."""
     if not wallet_address:
         return []
     cached = _history_cache_get(wallet_address)
@@ -683,22 +679,14 @@ def get_user_history(wallet_address):
         contract = get_savings_contract(w3)
         addr = Web3.to_checksum_address(wallet_address)
         latest = int(w3.eth.block_number)
-        saved_logs, withdrawn_logs = [], []
-        try:
-            saved_logs = _chunked_event_logs(contract.events.Saved(), addr, SAVINGS_DEPLOYMENT_BLOCK, latest)
-        except Exception as exc:
-            logger.warning(f"get_user_history saved log scan failed: {exc}")
-        try:
-            withdrawn_logs = _chunked_event_logs(contract.events.Withdrawn(), addr, SAVINGS_DEPLOYMENT_BLOCK, latest)
-        except Exception as exc:
-            logger.warning(f"get_user_history withdrawn log scan failed: {exc}")
-        merged = _merge_savings_history(saved_logs, withdrawn_logs)
+        saved = _chunked_event_logs(contract.events.Saved(), addr, SAVINGS_DEPLOYMENT_BLOCK, latest)
+        withdrawn = _chunked_event_logs(contract.events.Withdrawn(), addr, SAVINGS_DEPLOYMENT_BLOCK, latest)
+        merged = _merge_history(saved, withdrawn)
         _history_cache_set(wallet_address, merged)
         return merged
     except Exception as e:
         logger.error(f"get_user_history error: {e}")
         return []
-
 
 def get_token_allowance(wallet_address, token_address):
     """Check how much `token_address` the user has approved for the savings contract."""
