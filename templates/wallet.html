@@ -2176,6 +2176,15 @@
         const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
         const stepMs = 120;
         const start = Date.now();
+
+        // WalletConnect logins should prefer the WC bridge/provider so we
+        // don't accidentally bind claim/sign flows to a broken injected shim.
+        const wcPreferred = typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred();
+        if (wcPreferred) {
+            const wcProvider = await _walletGetWcProviderIfPreferred();
+            if (wcProvider) return wcProvider;
+        }
+
         let first = _getEthProvider();
         if (first) return first;
         while (Date.now() - start < budget) {
@@ -5966,6 +5975,14 @@
 
     // Get provider for signing (Injected or WalletConnect)
     async function _getSigningProvider() {
+        if (typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred()) {
+            try {
+                const wcProvider = GMWalletConnect.getProvider();
+                if (wcProvider) return wcProvider;
+            } catch (err) {
+                console.error('WC provider error:', err);
+            }
+        }
         if (window.ethereum) {
             return window.ethereum;
         }
