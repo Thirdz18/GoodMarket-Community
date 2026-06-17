@@ -751,6 +751,13 @@
     // browser localStorage to remember past withdrawals.
     async function loadOnchainSavingsHistory(walletAddress) {
         if (!walletAddress || !SAVINGS_CONTRACT) return [];
+        try {
+            const res = await fetch('/savings/api/history');
+            const data = await res.json();
+            if (data && Array.isArray(data.history)) {
+                return data.history;
+            }
+        } catch (_) {}
         const provider = getReadProvider();
         const contract = new ethers.Contract(SAVINGS_CONTRACT, SAVINGS_ABI, provider);
         const latest = await provider.getBlockNumber();
