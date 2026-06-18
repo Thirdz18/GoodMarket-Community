@@ -27,11 +27,6 @@ Contract mechanics (v5 — multi-token, slot-based, custom-duration bonuses):
   - Bonus only paid if reward pool has sufficient G$ (optional / trustless).
   - No owner, no pause, no early withdrawal.
 
-Legacy contracts (read-only):
-  - v4 (multi-token, fixed durations [1, 30, ..., 365]). Was the live
-    contract before v5; users with active v4 saves can still see and
-    withdraw them via the legacy v4 panel.
-  - v2 (single-token G$ only, deposit-id based). Frozen permanently.
 """
 import os
 import logging
@@ -56,24 +51,13 @@ CELO_RPC_URLS = tuple(
 )
 CHAIN_ID = int(os.getenv('CHAIN_ID', 42220))
 SAVINGS_CONTRACT_ADDRESS = os.getenv('SAVINGS_CONTRACT_ADDRESS', '')
+LEGACY_V5_CONTRACT_ADDRESS = os.getenv('LEGACY_V5_CONTRACT_ADDRESS', '')
 SAVINGS_DEPLOYMENT_BLOCK = int(os.getenv('SAVINGS_DEPLOYMENT_BLOCK', '65917286'))
 GD_TOKEN_ADDRESS = os.getenv('GOODDOLLAR_CONTRACT_ADDRESS', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
 CELO_TOKEN_ADDRESS = os.getenv('CELO_TOKEN_ADDRESS', '0x471EcE3750Da237f93B8E339c536989b8978a438')
 CUSD_TOKEN_ADDRESS = os.getenv('CUSD_TOKEN_ADDRESS', '0x765DE816845861e75A25fCA122bb6898B8B1282a')
 # Tether (USD₮) on Celo — 6-decimal ERC-20, not the 18-decimal pattern.
 USDT_TOKEN_ADDRESS = os.getenv('USDT_TOKEN_ADDRESS', '0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e')
-
-# Legacy v4 contract — multi-token (G$/CELO/cUSD) savings vault that used
-# fixed preset durations. Kept read-only so users with active v4 slots can
-# still see and withdraw them in the UI after the v5 redeploy.
-LEGACY_V4_CONTRACT_ADDRESS = os.getenv(
-    'LEGACY_V4_CONTRACT_ADDRESS',
-    '0x78d2a6Dd976337d3bEaFA0c30df6a0fDE949a618',
-)
-
-# Legacy v2 contract — frozen-in-place forever, read-only support so users with
-# old (single-token, deposit-id-based) saves can still see and withdraw them.
-LEGACY_V2_CONTRACT_ADDRESS = '0xF3cca43F5C108d3dEf01Ff1E138866aC1ed00e9c'
 
 _w3_pool = {}
 _w3_lock = threading.Lock()
@@ -324,52 +308,6 @@ SAVINGS_ABI = [
      "stateMutability": "view", "type": "function"},
 ]
 
-# Legacy v4 ABI — only the read functions used by the legacy v4 panel.
-# v4 used fixed [1, 30, 60, ..., 365] durations and 3 tokens (G$/CELO/cUSD).
-# Withdrawals from v4 are signed directly by the user's wallet on the
-# frontend using the matching JS ABI, so we only need the reads here.
-LEGACY_V4_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
-        "name": "getUserActiveSlots",
-        "outputs": _USER_ACTIVE_SLOTS_OUT,
-        "stateMutability": "view",
-        "type": "function",
-    },
-]
-
-# Legacy v2 ABI — only the read functions we need to list a user's old deposits.
-# Withdrawals from the v2 contract are signed by the user's wallet on the
-# frontend (using the same v2 ABI hardcoded in templates/savings.html), so this
-# backend-side ABI does not need to include the `withdraw(uint256)` mutation.
-LEGACY_V2_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
-        "name": "getUserDepositIds",
-        "outputs": [{"internalType": "uint256[]", "name": "", "type": "uint256[]"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "inputs": [{"internalType": "uint256", "name": "depositId", "type": "uint256"}],
-        "name": "getDeposit",
-        "outputs": [
-            {"internalType": "address", "name": "owner_",        "type": "address"},
-            {"internalType": "uint256", "name": "amount",        "type": "uint256"},
-            {"internalType": "uint256", "name": "lockDays",      "type": "uint256"},
-            {"internalType": "uint256", "name": "depositedAt",   "type": "uint256"},
-            {"internalType": "uint256", "name": "unlocksAt",     "type": "uint256"},
-            {"internalType": "bool",    "name": "withdrawn",     "type": "bool"},
-            {"internalType": "bool",    "name": "bonusClaimed",  "type": "bool"},
-            {"internalType": "bool",    "name": "isUnlocked",    "type": "bool"},
-            {"internalType": "bool",    "name": "bonusEligible", "type": "bool"},
-            {"internalType": "uint256", "name": "pendingBonus",  "type": "uint256"},
-        ],
-        "stateMutability": "view",
-        "type": "function",
-    },
-]
-
 ERC20_ABI = [
     {
         "inputs": [{"name": "owner", "type": "address"}],
@@ -424,8 +362,14 @@ def get_w3():
 def get_savings_contract(w3):
     if not SAVINGS_CONTRACT_ADDRESS:
         raise ValueError("SAVINGS_CONTRACT_ADDRESS not set")
+    return get_savings_contract_at(w3, SAVINGS_CONTRACT_ADDRESS)
+
+
+def get_savings_contract_at(w3, contract_address):
+    if not contract_address:
+        raise ValueError("contract address not set")
     return w3.eth.contract(
-        address=Web3.to_checksum_address(SAVINGS_CONTRACT_ADDRESS),
+        address=Web3.to_checksum_address(contract_address),
         abi=SAVINGS_ABI,
     )
 
@@ -539,13 +483,30 @@ def get_user_deposits(wallet_address):
     """
     try:
         w3 = get_w3()
-        contract = get_savings_contract(w3)
+        return get_user_deposits_at(wallet_address, SAVINGS_CONTRACT_ADDRESS, w3=w3)
+    except Exception as e:
+        logger.error(f"get_user_deposits error: {e}")
+        return []
+
+
+def get_user_deposits_at(wallet_address, contract_address, w3=None):
+    if not contract_address:
+        return []
+    try:
+        if w3 is None:
+            w3 = get_w3()
+        contract = get_savings_contract_at(w3, contract_address)
         addr = Web3.to_checksum_address(wallet_address)
         raw_slots = contract.functions.getUserActiveSlots(addr).call()
         return _normalize_active_slots(raw_slots)
     except Exception as e:
-        logger.error(f"get_user_deposits error: {e}")
+        logger.error(f"get_user_deposits_at({contract_address}) error: {e}")
         return []
+
+
+def get_user_legacy_v5_deposits(wallet_address):
+    """Return active slots from the frozen v5 contract."""
+    return get_user_deposits_at(wallet_address, LEGACY_V5_CONTRACT_ADDRESS)
 
 
 def _history_cache_get(wallet_address):
@@ -753,93 +714,3 @@ def get_user_token_balances(wallet_address):
     except Exception as e:
         logger.error(f"get_user_token_balances error: {e}")
         return {}
-
-
-def get_legacy_contract(w3):
-    """The frozen v2 contract (single-token, deposit-id based). Read-only here."""
-    return w3.eth.contract(
-        address=Web3.to_checksum_address(LEGACY_V2_CONTRACT_ADDRESS),
-        abi=LEGACY_V2_ABI,
-    )
-
-
-def get_legacy_v4_contract(w3):
-    """The v4 multi-token savings contract — read-only after the v5 redeploy.
-    Users with active v4 slots can still withdraw them from the frontend."""
-    return w3.eth.contract(
-        address=Web3.to_checksum_address(LEGACY_V4_CONTRACT_ADDRESS),
-        abi=LEGACY_V4_ABI,
-    )
-
-
-def get_user_legacy_v4_deposits(wallet_address):
-    """Return all active v4 slots for the given wallet.
-
-    Same shape as `get_user_deposits` (active-only), so the frontend can
-    reuse the same row-rendering logic for the legacy v4 panel. Returns an
-    empty list if the wallet never opened a v4 slot or the contract call
-    fails (e.g. v4 contract address not configured).
-    """
-    if not LEGACY_V4_CONTRACT_ADDRESS:
-        return []
-    try:
-        w3 = get_w3()
-        contract = get_legacy_v4_contract(w3)
-        addr = Web3.to_checksum_address(wallet_address)
-        raw_slots = contract.functions.getUserActiveSlots(addr).call()
-        return _normalize_active_slots(raw_slots)
-    except Exception as e:
-        logger.error(f"get_user_legacy_v4_deposits error: {e}")
-        return []
-
-
-def get_user_legacy_deposits(wallet_address):
-    """Return all v2 deposits (old contract) for the given wallet.
-
-    Each entry uses the v2 schema: id, amount (G$ wei), lock_days,
-    deposited_at, unlocks_at, withdrawn, bonus_claimed, is_unlocked,
-    bonus_eligible, pending_bonus_gd. The frontend renders these in a
-    separate, collapsible "Legacy Saves" panel; users can withdraw them
-    by signing `withdraw(depositId)` directly to the v2 contract.
-    """
-    try:
-        w3 = get_w3()
-        legacy = get_legacy_contract(w3)
-        addr = Web3.to_checksum_address(wallet_address)
-        ids = legacy.functions.getUserDepositIds(addr).call()
-        result = []
-        for dep_id in ids:
-            try:
-                (
-                    _owner,
-                    amount_raw,
-                    lock_days,
-                    deposited_at,
-                    unlocks_at,
-                    withdrawn,
-                    bonus_claimed,
-                    is_unlocked,
-                    bonus_eligible,
-                    pending_bonus_raw,
-                ) = legacy.functions.getDeposit(int(dep_id)).call()
-            except Exception as inner:
-                logger.warning(f"legacy getDeposit({dep_id}) failed: {inner}")
-                continue
-            result.append({
-                "id":               int(dep_id),
-                "amount":           str(amount_raw),
-                "amount_gd":        float(Web3.from_wei(amount_raw, 'ether')),
-                "lock_days":        int(lock_days),
-                "deposited_at":     int(deposited_at),
-                "unlocks_at":       int(unlocks_at),
-                "withdrawn":        bool(withdrawn),
-                "bonus_claimed":    bool(bonus_claimed),
-                "is_unlocked":      bool(is_unlocked),
-                "bonus_eligible":   bool(bonus_eligible),
-                "pending_bonus":    str(pending_bonus_raw),
-                "pending_bonus_gd": float(Web3.from_wei(pending_bonus_raw, 'ether')),
-            })
-        return result
-    except Exception as e:
-        logger.error(f"get_user_legacy_deposits error: {e}")
-        return []
