@@ -401,7 +401,7 @@
         }
 
         function isServerSigningLoginMethod() {
-            return false;
+            return ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
         }
 
         async function claimPayment() {
