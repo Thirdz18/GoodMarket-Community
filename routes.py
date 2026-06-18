@@ -1531,11 +1531,17 @@ def index():
             "active_earners_formatted": "—",
             "tasks_last_30_days_formatted": "—",
         }
+    google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    turnkey_auth_proxy_config_id = os.environ.get("TURNKEY_AUTH_PROXY_CONFIG_ID", "")
+    turnkey_organization_id = os.environ.get("TURNKEY_ORGANIZATION_ID", "")
     return render_template(
         "homepage.html",
         walletconnect_project_id=wc_project_id,
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         homepage_stats=homepage_stats,
+        google_client_id=google_client_id,
+        turnkey_auth_proxy_config_id=turnkey_auth_proxy_config_id,
+        turnkey_organization_id=turnkey_organization_id,
     )
 
 
@@ -8035,7 +8041,7 @@ FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
 # (approve + swap), not just one claim(), so the default must cover a small
 # two-transaction gas budget while keeping faucet spend bounded. Operators can
 # override via env if Celo gas conditions change.
-MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.017"))
+MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.016"))
 MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # Threshold below which we treat the user as needing a stablecoin gas top-up.
 # Must be <= MINIPAY_CUSD_FAUCET_AMOUNT so the user graduates to "stable_ready"
