@@ -6877,7 +6877,9 @@ def claim_page():
     return render_template(
         "claim.html",
         login_method=session.get("login_method", "walletconnect"),
-        wallet=session.get("wallet", "")
+        wallet=session.get("wallet", ""),
+        walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
     )
 
 
