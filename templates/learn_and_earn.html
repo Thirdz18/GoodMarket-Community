@@ -4845,7 +4845,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const BUY_LOGIN_METHOD = "{{ login_method }}";
         const BUY_WALLET_ADDRESS = (document.getElementById('sw-wallet-input') || {}).value || '';
-        const BUY_SERVER_SIGNING = (BUY_LOGIN_METHOD === 'walletconnect' || BUY_LOGIN_METHOD === 'walletconnect');
+        const BUY_SERVER_SIGNING = ['turnkey_google', 'turnkey_email'].includes((BUY_LOGIN_METHOD || '').toLowerCase());
 
         // ── Core buy logic after wallet is connected (shared by DApp + WC) ──────
         async function _executeBuyWithProvider(provider, buyerAddress) {
