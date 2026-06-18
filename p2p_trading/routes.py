@@ -192,6 +192,8 @@ def accept_p2p_terms():
 @p2p_terms_required
 def p2p_dashboard():
     wallet = _wallet_from_session()
+    import os
+
     return render_template(
         "p2p_trading.html",
         wallet=wallet,
@@ -199,6 +201,9 @@ def p2p_dashboard():
         payment_methods=escrow_service.payment_methods,
         fiat_currencies=escrow_service.fiat_currencies,
         is_admin=_is_admin(wallet),
+        login_method=session.get("login_method", "walletconnect"),
+        walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
+        walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
     )
 
 
