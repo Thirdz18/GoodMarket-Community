@@ -1277,13 +1277,12 @@ async function dappSendPayment() {
             return;
         }
 
-        const prefersWc = !!PREFER_WC_SIGNING;
-        const ep = prefersWc ? null : _getEthProvider();
+        const ep = _getEthProvider();
         let from;
-        if (prefersWc) {
-            from = await wcConnectForReloadly();
-        } else if (ep) {
+        if (ep) {
             from = await dappConnect();
+        } else if (PREFER_WC_SIGNING) {
+            from = await wcConnectForReloadly();
         } else {
             throw new Error('No wallet found. Use a dApp browser or WalletConnect login.');
         }
