@@ -1948,8 +1948,8 @@
 
     <script>
     const WALLET = "{{ wallet }}";
-    // GoodMarket is pure self-custody now: signing must come from injected wallet / WalletConnect.
-    window.useServerSigning = false;
+    var LOGIN_METHOD = '{{ login_method }}';
+    window.useServerSigning = ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
 
     // Configure the shared WalletConnect bridge so users that logged in via
     // WalletConnect (no `window.ethereum`) can still claim / send / sign with
@@ -5375,7 +5375,6 @@
     })();
 
     // ── FV Link Generator (mirrors ClaimSDK.generateFVLink from @gooddollar/web3sdk-v2) ─────
-    const LOGIN_METHOD = '{{ login_method }}';
     const PREFER_WC_SIGNING = ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
     window._fvGenerateLink = null;
     (function() {
