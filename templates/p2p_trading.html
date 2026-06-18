@@ -543,7 +543,32 @@
 
 <div class="toast-host" id="toastHost"></div>
 
+<script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
 <script src="/static/js/p2p_escrow.js"></script>
+<script>
+if (typeof GMWalletConnect !== "undefined") {
+  GMWalletConnect.configure({
+    walletAddress: "{{ wallet }}",
+    loginMethod: "{{ login_method | default('walletconnect') }}",
+    projectId: "{{ walletconnect_project_id | default('', true) }}",
+    sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled else 'false' }},
+    dappName: "GoodMarket — P2P",
+    dappDescription: "Trustless peer-to-peer escrow trading on Celo",
+    assetVersion: "{{ ASSET_VERSION }}",
+  });
+}
+if (window.P2PEscrow && typeof window.P2PEscrow.configure === "function") {
+  window.P2PEscrow.configure({
+    walletAddress: "{{ wallet }}",
+    loginMethod: "{{ login_method | default('walletconnect') }}",
+    projectId: "{{ walletconnect_project_id | default('', true) }}",
+    sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled else 'false' }},
+    dappName: "GoodMarket — P2P",
+    dappDescription: "Trustless peer-to-peer escrow trading on Celo",
+    assetVersion: "{{ ASSET_VERSION }}",
+  });
+}
+</script>
 <script>
 (function () {
   // -------- how-it-works modal --------
