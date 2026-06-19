@@ -1931,7 +1931,6 @@
     <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
     <!-- Shared WalletConnect bridge (claim / send / FV signing fallback for WC users). -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
-<script src="{{ url_for('static', filename='js/unified-signer.js', v=ASSET_VERSION) }}"></script>
     <!--
         MiniPay gas top-up: detect users with CELO but no stablecoin and
         auto-prompt a CELO -> cUSD swap before tx-bound actions (claim, etc.)
@@ -1974,9 +1973,13 @@
     // WalletConnect (e.g. server-side signing, or a regular browser without
     // a WC login).
     async function _walletGetWcProviderIfPreferred() {
-        return typeof GMUnifiedSigner !== "undefined"
-            ? GMUnifiedSigner.getSigningProvider(0)
-            : null;
+        try {
+            if (typeof GMWalletConnect === "undefined") return null;
+            if (!GMWalletConnect.isPreferred()) return null;
+            return GMWalletConnect.getProvider();
+        } catch (_) {
+            return null;
+        }
     }
 
     // ── Token state ──────────────────────────────────────────
@@ -2150,9 +2153,14 @@
     }
 
     function _getEthProvider() {
-        return typeof GMUnifiedSigner !== "undefined"
-            ? GMUnifiedSigner.getInjectedProvider()
-            : null;
+        // Re-dispatch EIP-6963 discovery on every call — Trust Wallet mobile
+        // and some MetaMask Mobile builds announce only after the dApp asks,
+        // and idempotent re-dispatch costs nothing for wallets that don't.
+        try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+
+        const candidates = _collectInjectedProviders();
+        if (!candidates.length) return null;
+        return _pickProviderFromCandidates(candidates);
     }
 
     // Async variant that tolerates late provider injection. Trust Wallet's
@@ -2163,9 +2171,31 @@
     // Send, FV signing) should use this instead of the sync `_getEthProvider`
     // so a first click doesn't spuriously fail with "No wallet detected".
     async function _awaitEthProvider(timeoutMs) {
-        return typeof GMUnifiedSigner !== "undefined"
-            ? GMUnifiedSigner.getSigningProvider(timeoutMs)
-            : null;
+        // Keep the longer wait strictly for Trust Wallet mobile.
+        const trustBudget = _isTrustWalletMobileContext() ? 4200 : 800;
+        const budget = typeof timeoutMs === 'number' ? timeoutMs : trustBudget;
+        const stepMs = 120;
+        const start = Date.now();
+
+        let first = _getEthProvider();
+        if (first) return first;
+        while (Date.now() - start < budget) {
+            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
+            await new Promise(r => setTimeout(r, stepMs));
+            const p = _getEthProvider();
+            if (p) return p;
+        }
+        // WalletConnect fallback: if no injected provider was found, try the
+        // existing WC session so users who logged in via WalletConnect can
+        // still sign transactions.
+        if (!first) {
+            const wcPreferred = typeof GMWalletConnect !== 'undefined' && GMWalletConnect.isPreferred();
+            if (wcPreferred) {
+                const wcProvider = await _walletGetWcProviderIfPreferred();
+                if (wcProvider) return wcProvider;
+            }
+        }
+        return null;
     }
 
     // Re-prime discovery only for Trust Wallet mobile transitions.
