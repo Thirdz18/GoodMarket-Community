@@ -142,6 +142,12 @@
                 sidecarEnabled: {{ 'true' if walletconnect_sidecar_enabled else 'false' }},
             });
         }
+        if (typeof GMUnifiedSigner !== "undefined") {
+            GMUnifiedSigner.configure({
+                walletAddress: SESSION_WALLET || "",
+                loginMethod: LOGIN_METHOD,
+            });
+        }
 
         (function initEip6963Discovery() {
             try {
