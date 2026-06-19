@@ -795,6 +795,7 @@
     </style>
     <!-- WalletConnect bridge for users without injected wallet -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+<script src="{{ url_for('static', filename='js/unified-signer.js', v=ASSET_VERSION) }}"></script>
     <script>
         if (typeof GMWalletConnect !== "undefined") {
             GMWalletConnect.configure({
@@ -1716,52 +1717,14 @@
         // Handles EIP-5749 multi-wallet: prefer Trust Wallet in Trust mobile;
         // otherwise preserve MetaMask-first behavior.
         function _getEthProvider() {
-            try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
-            const providers = _collectSwapProviders();
-            if (!providers.length) return null;
-            if (_isTrustWalletMobileContext()) {
-                const trust = providers.find(p => p && (p.isTrust || p.isTrustWallet));
-                if (trust) return trust;
-                const trust6963 = _swapEip6963Providers().find(d => {
-                    const info = d.info || {};
-                    const rdns = String(info.rdns || '').toLowerCase();
-                    const name = String(info.name || '').toLowerCase();
-                    return rdns.includes('trustwallet') || name.includes('trust');
-                });
-                if (trust6963 && trust6963.provider) return trust6963.provider;
-                return providers[0];
-            }
-            if (window.ethereum && window.ethereum.providers && window.ethereum.providers.length) {
-                const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
-                if (miniPay) return miniPay;
-                const trust = window.ethereum.providers.find(p => p && (p.isTrust || p.isTrustWallet));
-                if (trust) return trust;
-                const mm = window.ethereum.providers.find(p => p.isMetaMask && !p.isBraveWallet);
-                if (mm) return mm;
-                return window.ethereum.providers[0];
-            }
-            return window.ethereum || providers[0];
+            return typeof GMUnifiedSigner !== "undefined"
+                ? GMUnifiedSigner.getInjectedProvider()
+                : null;
         }
         async function _awaitEthProvider(timeoutMs) {
-            const budget = typeof timeoutMs === 'number'
-                ? timeoutMs
-                : (_isTrustWalletMobileContext() ? 4200 : (_isLikelyMobileWalletContext() ? 2200 : 800));
-            const start = Date.now();
-            let p = _getEthProvider();
-            if (p) return p;
-            while (Date.now() - start < budget) {
-                try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
-                await _delay(120);
-                p = _getEthProvider();
-                if (p) return p;
-            }
-            if (typeof GMWalletConnect !== "undefined" && GMWalletConnect.isPreferred()) {
-                try {
-                    const wcProvider = await GMWalletConnect.getProvider();
-                    if (wcProvider) return wcProvider;
-                } catch (_) {}
-            }
-            return null;
+            return typeof GMUnifiedSigner !== "undefined"
+                ? GMUnifiedSigner.getSigningProvider(timeoutMs)
+                : null;
         }
         if (_isTrustWalletMobileContext()) {
             window.addEventListener('pageshow', () => { try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {} });
