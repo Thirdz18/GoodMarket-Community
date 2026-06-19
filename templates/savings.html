@@ -1424,6 +1424,20 @@
         if (window.useServerSigning) {
             throw new Error('This account uses server-side signing. Please continue with automatic server signing.');
         }
+        // If user logged in via WalletConnect, restore and use WC session as signer
+        // regardless of any browser extension that may be installed
+        const wcTopic = localStorage.getItem('wc_session_topic');
+        const wcTimestamp = parseInt(localStorage.getItem('wc_session_timestamp') || '0', 10);
+        const wcAge = Date.now() - wcTimestamp;
+        const wcSessionValid = wcTopic && wcAge < 7 * 24 * 60 * 60 * 1000;
+        if (wcSessionValid) {
+            await window._wcGetClient().catch(function() {});
+            if (window._wcSignClient && window._wcSession) {
+                const shim = new WCEthersShim(window._wcSignClient, window._wcSession, WALLET);
+                const provider = new ethers.BrowserProvider(shim);
+                return await provider.getSigner();
+            }
+        }
         const ep = await _awaitEthProvider();
         if (ep) {
             const accounts = await ep.request({ method: 'eth_requestAccounts' });
@@ -2187,6 +2201,25 @@ window._wcProjectId = '{{ walletconnect_project_id }}';
 window._wcSignClient = null;
 window._wcSession = null;
 
+function _wcExtendIfExpiring(client, topic, session) {
+    if (!client || !topic || !session || !session.expiry) return;
+    var secsLeft = session.expiry - Math.floor(Date.now() / 1000);
+    if (secsLeft <= 0 || secsLeft > 2 * 24 * 3600) return;
+    console.log('[WC] Session expires in', Math.round(secsLeft / 3600), 'h — requesting extension...');
+    client.extend({ topic: topic }).then(function() {
+        console.log('[WC] Session extended successfully');
+        try { localStorage.setItem('wc_session_timestamp', Date.now().toString()); } catch(_) {}
+        try {
+            var active = client.getActiveSessions ? client.getActiveSessions() : {};
+            var updated = active[topic];
+            if (!updated && client.session && client.session.getAll) {
+                updated = client.session.getAll().find(function(x) { return x.topic === topic; });
+            }
+            if (updated) localStorage.setItem('wc_session_data', JSON.stringify(updated));
+        } catch(_) {}
+    }).catch(function(e) { console.warn('[WC] Extend failed:', e && e.message); });
+}
+
 function _wcLoadSdk() {
     return new Promise(function(resolve, reject) {
         var s = document.createElement('script');
@@ -2251,20 +2284,18 @@ window._wcGetClient = function() {
                             if (sdkSessions[storedTopic]) {
                                 window._wcSession = sdkSessions[storedTopic];
                                 console.log('✅ WC session restored from SDK storage:', storedTopic);
+                                _wcExtendIfExpiring(client, storedTopic, window._wcSession);
                                 return client;
                             }
                             
                             // Try to restore from localStorage
                             if (parsedSession.topic === storedTopic) {
-                                // Subscribe to relay first - must await this!
+                                // Subscribe to relay first
                                 try {
                                     if (client.core && client.core.relayer && typeof client.core.relayer.subscribe === 'function') {
-                                        await client.core.relayer.subscribe(storedTopic);
-                                        console.log('[savings] Relay subscription established');
+                                        client.core.relayer.subscribe(storedTopic).catch(function(_){});
                                     }
-                                } catch (err) {
-                                    console.warn('[savings] Relay subscribe error:', err && err.message);
-                                }
+                                } catch (_) {}
                                 
                                 // Inject session
                                 try {
@@ -2275,6 +2306,7 @@ window._wcGetClient = function() {
                                 
                                 window._wcSession = parsedSession;
                                 console.log('✅ WC session restored from localStorage:', storedTopic);
+                                _wcExtendIfExpiring(client, storedTopic, window._wcSession);
                                 return client;
                             }
                         }
