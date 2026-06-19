@@ -3332,6 +3332,43 @@
             return msg.includes('user rejected') || msg.includes('user denied') || msg.includes('cancelled');
         }
 
+        // Detects Celo RPC errors that WalletConnect users commonly hit.
+        // Similar to _isWalletRpcUnreachableError but includes "invalid rpc url" pattern.
+        function _isCeloRpcUnreachableError(err) {
+            if (!err) return false;
+            const msg = ((err.shortMessage || err.message) || '').toLowerCase();
+            if (!msg) return false;
+            return (
+                msg.includes('invalid rpc url')
+                || msg.includes('invalid rpc')
+                || msg.includes('invalid endpoint')
+                || msg.includes('too many errors')
+                || msg.includes('different rpc endpoint')
+                || msg.includes('rpc endpoint returned')
+                || msg.includes('could not be reached')
+                || msg.includes('internal json-rpc error')
+                || msg.includes('bad gateway')
+                || msg.includes('502')
+                || msg.includes('503')
+                || msg.includes('504')
+                || msg.includes('gateway timeout')
+            );
+        }
+
+        // Ask the wallet to (re)register Celo with our healthy multi-RPC list.
+        async function _promptAddHealthyCeloRpc(provider) {
+            return provider.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                    chainId: CELO_CHAIN_ID_HEX,
+                    chainName: 'Celo Mainnet',
+                    rpcUrls: CELO_RPC_URLS.slice(),
+                    nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                    blockExplorerUrls: ['https://celoscan.io']
+                }]
+            });
+        }
+
         async function claimXdcInjected(provider, from) {
             const currentChain = await provider.request({ method: 'eth_chainId' });
             const normalizedCurrentChain = _normalizeChainIdHex(currentChain);
@@ -3507,6 +3544,18 @@
                 return await sendCeloTx();
             } catch (sendErr) {
                 if (_isUserRejectedError(sendErr)) throw sendErr;
+                // Handle Celo RPC errors that WalletConnect users commonly hit.
+                // Prompt to update RPC and retry once.
+                if (_isCeloRpcUnreachableError(sendErr)) {
+                    try {
+                        await _promptAddHealthyCeloRpc(provider);
+                        await new Promise(r => setTimeout(r, 1200));
+                        return await sendCeloTx();
+                    } catch (rpcFixErr) {
+                        if (_isUserRejectedError(rpcFixErr)) throw rpcFixErr;
+                        throw sendErr;
+                    }
+                }
                 if (!_isRpcHtmlError(sendErr)) throw sendErr;
                 // Transient public-RPC HTML/parse error — wait a moment and
                 // try once more before giving up.
