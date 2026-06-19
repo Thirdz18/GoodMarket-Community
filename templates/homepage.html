@@ -3108,6 +3108,32 @@
         window._wcSession = null;
         window._wcSdkLoading = null;
 
+        // Periodically extend the WalletConnect session before it expires (every 6 hours)
+        setInterval(function() {
+            try {
+                var topic = localStorage.getItem('wc_session_topic');
+                var sessionData = localStorage.getItem('wc_session_data');
+                if (!topic || !sessionData || !window._wcSignClient) return;
+                var session = JSON.parse(sessionData);
+                if (!session || !session.expiry) return;
+                var secsLeft = session.expiry - Math.floor(Date.now() / 1000);
+                if (secsLeft <= 0 || secsLeft > 2 * 24 * 3600) return;
+                console.log('[WC] Periodic renewal: session expires in', Math.round(secsLeft / 3600), 'h');
+                window._wcSignClient.extend({ topic: topic }).then(function() {
+                    console.log('[WC] Session renewed by periodic check');
+                    try { localStorage.setItem('wc_session_timestamp', Date.now().toString()); } catch(_) {}
+                    try {
+                        var active = window._wcSignClient.getActiveSessions ? window._wcSignClient.getActiveSessions() : {};
+                        var updated = active[topic];
+                        if (!updated && window._wcSignClient.session && window._wcSignClient.session.getAll) {
+                            updated = window._wcSignClient.session.getAll().find(function(x) { return x.topic === topic; });
+                        }
+                        if (updated) localStorage.setItem('wc_session_data', JSON.stringify(updated));
+                    } catch(_) {}
+                }).catch(function(e) { console.warn('[WC] Periodic renew failed:', e && e.message); });
+            } catch(_) {}
+        }, 6 * 60 * 60 * 1000);
+
         function _wcLoadSdk() {
             if (window._wcSdkLoading) return window._wcSdkLoading;
             window._wcSdkLoading = new Promise(function(resolve, reject) {
