@@ -109,6 +109,7 @@
     -->
     <script src="/static/js/gas-coverage-banner.js?v={{ ASSET_VERSION }}"></script>
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+<script src="{{ url_for('static', filename='js/unified-signer.js', v=ASSET_VERSION) }}"></script>
     <script>
         const LOGIN_METHOD = "{{ login_method | default('walletconnect') }}";
         const SESSION_WALLET = "{{ wallet | default('') }}";
@@ -269,32 +270,15 @@
         }
 
         function _getEthProvider() {
-            try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch (_) {}
-            const candidates = _collectInjectedProviders();
-            if (!candidates.length) return null;
-            return _pickProviderFromCandidates(candidates);
+            return typeof GMUnifiedSigner !== "undefined"
+                ? GMUnifiedSigner.getInjectedProvider()
+                : null;
         }
 
         async function _awaitEthProvider(timeoutMs) {
-            const trustBudget = _isTrustWalletMobileContext() ? 2600 : 800;
-            const budget = typeof timeoutMs === "number" ? timeoutMs : trustBudget;
-            const start = Date.now();
-            let found = _getEthProvider();
-            if (found) return found;
-            while (Date.now() - start < budget) {
-                try { window.dispatchEvent(new Event("eip6963:requestProvider")); } catch (_) {}
-                await new Promise((r) => setTimeout(r, 120));
-                found = _getEthProvider();
-                if (found) return found;
-            }
-            const wcPreferred = typeof GMWalletConnect !== "undefined" && GMWalletConnect.isPreferred();
-            if (wcPreferred) {
-                try {
-                    const wcProvider = await GMWalletConnect.getProvider();
-                    if (wcProvider) return wcProvider;
-                } catch (_) {}
-            }
-            return null;
+            return typeof GMUnifiedSigner !== "undefined"
+                ? GMUnifiedSigner.getSigningProvider(timeoutMs)
+                : null;
         }
         if (_isTrustWalletMobileContext()) {
             window.addEventListener("pageshow", () => {
