@@ -6760,13 +6760,20 @@ def _goodreserve_get_exchange_id():
 
 
 def _goodreserve_get_pool(exchange_id):
-    """Fetch the pool struct (returns dict with reserveRatio, exitContribution)."""
+    """Fetch the pool struct (returns dict with reserveRatio, exitContribution).
+    Result is cached for 5 minutes — the pool parameters change only during
+    governance updates, so one RPC round-trip per exchange session is enough.
+    """
+    cache_key = f"pool:{exchange_id}"
+    cached = _goodreserve_quote_cache["data"].get(cache_key)
+    if cached and time.time() < _goodreserve_quote_cache["expires"].get(cache_key, 0):
+        return cached
     data_hex = "0x278488a4" + exchange_id
     raw = _goodreserve_eth_call(GOODRESERVE_PROVIDER_CELO, data_hex)
     hexd = raw[2:] if raw.startswith("0x") else raw
     if len(hexd) < 64 * 6:
         return None
-    return {
+    pool = {
         "reserve_asset":      "0x" + hexd[24:64],
         "token_address":      "0x" + hexd[64 + 24:128],
         "token_supply":       int(hexd[128:192], 16),
@@ -6774,6 +6781,9 @@ def _goodreserve_get_pool(exchange_id):
         "reserve_ratio":      int(hexd[256:320], 16),
         "exit_contribution":  int(hexd[320:384], 16),
     }
+    _goodreserve_quote_cache["data"][cache_key] = pool
+    _goodreserve_quote_cache["expires"][cache_key] = time.time() + 300  # 5-minute TTL
+    return pool
 
 
 def _goodreserve_quote(direction, amount_in_wei):
