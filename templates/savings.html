@@ -363,8 +363,27 @@
                 <p style="font-size:.74rem; color:rgba(255,255,255,.45); margin-bottom:.7rem;">
                     Old v5 slots remain withdrawable here while the new v6 flow runs on the current contract. Top-ups and new deposits should go to v6; this panel is only for legacy v5 withdrawals.
                 </p>
-                <div id="legacyV5List" class="dep-list">
+                <div id="legacyV5ActiveList" class="dep-list">
                     <div class="empty-state">No legacy v5 saves yet.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Legacy v5 withdrawn history panel -->
+        <div class="card" id="legacyV5WithdrawnCard" style="display:none; margin-top:1.25rem; border-color:rgba(167,139,250,.18); background:rgba(167,139,250,.03);">
+            <button type="button"
+                    id="legacyV5WithdrawnToggle"
+                    onclick="toggleLegacyV5Withdrawn()"
+                    style="width:100%; background:transparent; border:none; padding:0; cursor:pointer; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:.75rem;">
+                <span style="font-size:.95rem; font-weight:600; color:#ddd6fe;">
+                    ⏪Legacy v5 Withdrawn
+                    <span id="legacyV5WithdrawnCount" style="display:inline-block; margin-left:.4rem; padding:.05rem .5rem; background:rgba(167,139,250,.18); color:#c4b5fd; border-radius:999px; font-size:.7rem; font-weight:600;">0</span>
+                </span>
+                <span id="legacyV5WithdrawnChevron" style="color:rgba(255,255,255,.35); font-size:.9rem;">▾</span>
+            </button>
+            <div id="legacyV5WithdrawnBody" style="display:none; margin-top:.75rem;">
+                <div id="legacyV5WithdrawnList" class="dep-list">
+                    <div class="empty-state">No legacy v5 withdrawals yet.</div>
                 </div>
             </div>
         </div>
@@ -903,45 +922,131 @@
         chev.textContent = open ? '▾' : '▴';
     }
 
+    function toggleLegacyV5Withdrawn() {
+        const body = document.getElementById('legacyV5WithdrawnBody');
+        const chev = document.getElementById('legacyV5WithdrawnChevron');
+        const open = body.style.display === 'block';
+        body.style.display = open ? 'none' : 'block';
+        chev.textContent = open ? '▾' : '▴';
+    }
+
     async function loadLegacyV5Deposits() {
         const card = document.getElementById('legacyV5Card');
+        const withdrawnCard = document.getElementById('legacyV5WithdrawnCard');
         const body = document.getElementById('legacyV5Body');
         const chev = document.getElementById('legacyV5Chevron');
-        const list = document.getElementById('legacyV5List');
+        const activeList = document.getElementById('legacyV5ActiveList');
+        const withdrawnList = document.getElementById('legacyV5WithdrawnList');
         const countEl = document.getElementById('legacyV5Count');
-        if (!card || !body || !chev || !list || !countEl || !LEGACY_V5_CONTRACT) {
+        const withdrawnCountEl = document.getElementById('legacyV5WithdrawnCount');
+
+        if (!card || !body || !chev || !activeList || !countEl || !LEGACY_V5_CONTRACT) {
             return;
         }
+
         try {
-            const data = await fetch('/savings/api/legacy-v5-deposits').then(r => r.json());
-            const deps = (data.deposits || []).map(d => ({
+            // Fetch both active deposits and full history in parallel
+            const [depsData, historyData] = await Promise.all([
+                fetch('/savings/api/legacy-v5-deposits').then(r => r.json()).catch(() => ({deposits: []})),
+                fetch('/savings/api/legacy-v5-history').then(r => r.json()).catch(() => ({history: []}))
+            ]);
+
+            const deps = (depsData.deposits || []).map(d => ({
                 ...d,
                 withdraw_contract: LEGACY_V5_CONTRACT,
             }));
-            if (deps.length === 0) {
+            const history = historyData.history || [];
+
+            // Create a map of active deposits by slot key for merging with history
+            const activeByKey = new Map();
+            for (const d of deps) {
+                const k = `${d.token || ''}|${d.lock_days || 0}`;
+                activeByKey.set(k, d);
+            }
+
+            // Separate history into active and withdrawn
+            const activeFromHistory = [];
+            const withdrawnFromHistory = [];
+
+            for (const cycle of history) {
+                if (cycle.status === 'withdrawn') {
+                    withdrawnFromHistory.push({
+                        ...cycle,
+                        withdraw_contract: LEGACY_V5_CONTRACT,
+                    });
+                } else {
+                    // Check if we have live data for this slot
+                    const k = `${cycle.token || ''}|${cycle.lock_days || 0}`;
+                    const live = activeByKey.get(k);
+                    if (live) {
+                        activeFromHistory.push({
+                            ...cycle,
+                            ...live,
+                            withdraw_contract: LEGACY_V5_CONTRACT,
+                        });
+                    } else {
+                        activeFromHistory.push({
+                            ...cycle,
+                            withdraw_contract: LEGACY_V5_CONTRACT,
+                        });
+                    }
+                }
+            }
+
+            // Add any active deposits not in history
+            for (const d of deps) {
+                const k = `${d.token || ''}|${d.lock_days || 0}`;
+                const inHistory = activeFromHistory.some(h =>
+                    `${h.token || ''}|${h.lock_days || 0}` === k
+                );
+                if (!inHistory) {
+                    activeFromHistory.push({
+                        ...d,
+                        withdraw_contract: LEGACY_V5_CONTRACT,
+                    });
+                }
+            }
+
+            // Display active saves
+            const ready = activeFromHistory.filter(d => d.is_unlocked);
+            if (activeFromHistory.length === 0) {
                 card.style.display = 'none';
-                return;
-            }
-            const ready = deps.filter(d => d.is_unlocked);
-            countEl.textContent = ready.length > 0
-                ? `${ready.length} ready · ${deps.length} total`
-                : `${deps.length} locked`;
-            list.innerHTML = '';
-            const ordered = [...ready, ...deps.filter(d => !d.is_unlocked)];
-            for (const d of ordered) {
-                list.appendChild(buildDepCard(d));
-            }
-            card.style.display = 'block';
-            if (ready.length > 0) {
-                body.style.display = 'block';
-                chev.textContent = '▴';
             } else {
-                body.style.display = 'none';
-                chev.textContent = '▾';
+                countEl.textContent = ready.length > 0
+                    ? `${ready.length} ready · ${activeFromHistory.length} total`
+                    : `${activeFromHistory.length} locked`;
+                activeList.innerHTML = '';
+                const ordered = [...ready, ...activeFromHistory.filter(d => !d.is_unlocked)];
+                for (const d of ordered) {
+                    activeList.appendChild(buildDepCard(d));
+                }
+                card.style.display = 'block';
+                if (ready.length > 0) {
+                    body.style.display = 'block';
+                    chev.textContent = '▴';
+                } else {
+                    body.style.display = 'none';
+                    chev.textContent = '▾';
+                }
+            }
+
+            // Display withdrawn history
+            if (withdrawnCard && withdrawnList && withdrawnCountEl) {
+                if (withdrawnFromHistory.length === 0) {
+                    withdrawnCard.style.display = 'none';
+                } else {
+                    withdrawnCountEl.textContent = String(withdrawnFromHistory.length);
+                    withdrawnList.innerHTML = '';
+                    for (const d of withdrawnFromHistory) {
+                        withdrawnList.appendChild(buildDepCard(d));
+                    }
+                    withdrawnCard.style.display = 'block';
+                }
             }
         } catch (e) {
             console.warn('Legacy v5 load failed', e);
             card.style.display = 'none';
+            if (withdrawnCard) withdrawnCard.style.display = 'none';
         }
     }
 
