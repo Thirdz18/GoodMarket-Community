@@ -115,3 +115,16 @@ def api_legacy_v5_deposits():
         "contract": LEGACY_V5_CONTRACT_ADDRESS,
         "deposits": deposits,
     })
+
+
+@savings_bp.route("/api/legacy-v5-history")
+def api_legacy_v5_history():
+    """Read-only v5 savings transaction history (deposits + withdrawals) for the connected wallet."""
+    wallet, verified = _require_auth()
+    if not wallet or not verified:
+        return jsonify({"error": "Unauthorized"}), 401
+    history = svc.get_user_legacy_v5_history(wallet)
+    return jsonify({
+        "contract": LEGACY_V5_CONTRACT_ADDRESS,
+        "history": history,
+    })
