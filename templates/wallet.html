@@ -3898,25 +3898,32 @@
                 
                 if (_isUserRejectedError(sendErr)) throw sendErr;
                 
-                // Handle Celo RPC errors that WalletConnect users commonly hit.
-                // Prompt to update RPC and retry once (only for injected providers).
-                if (!isWcShim && _isCeloRpcUnreachableError(sendErr)) {
+                // Handle Celo RPC errors — prompt wallet to adopt a healthy RPC
+                // and retry once. Works for both injected AND WalletConnect providers.
+                if (_isCeloRpcUnreachableError(sendErr)) {
                     try {
                         await _promptAddHealthyCeloRpc(provider);
                         await new Promise(r => setTimeout(r, 1200));
                         return await sendCeloTx();
                     } catch (rpcFixErr) {
                         if (_isUserRejectedError(rpcFixErr)) throw rpcFixErr;
+                        // If the wallet rejected the chain update, surface a clear message
+                        if (isWcShim) {
+                            throw new Error(
+                                '❌ Celo claim failed: your wallet has an invalid RPC URL for the Celo network ' +
+                                '(e.g. a session-based URL from txnodes.com). ' +
+                                'Please open your wallet app, go to Settings → Networks → Celo, ' +
+                                'and change the RPC URL to https://forno.celo.org or https://rpc.ankr.com/celo, ' +
+                                'then try claiming again.'
+                            );
+                        }
                         throw sendErr;
                     }
                 }
                 
-                // For WalletConnect users, provide more helpful error messages
+                // WalletConnect-specific error messages for non-RPC errors
                 if (isWcShim) {
                     const errMsg = String((sendErr && (sendErr.message || sendErr.shortMessage)) || '').toLowerCase();
-                    if (errMsg.includes('rejected') || errMsg.includes('denied')) {
-                        throw sendErr;
-                    }
                     if (errMsg.includes('chain') || errMsg.includes('network') || errMsg.includes('unsupported')) {
                         throw new Error('WalletConnect: Your wallet may not be connected to Celo network. Please switch to Celo in your wallet and try again. ' + (sendErr.message || ''));
                     }
