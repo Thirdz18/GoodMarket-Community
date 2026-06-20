@@ -1348,7 +1348,6 @@
         <button type="button" id="fvExpiryBannerCta" onclick="handleFvReverifyClick()" style="margin-left:0.6rem;padding:0.35rem 0.8rem;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;font-size:0.8rem;font-weight:600;cursor:pointer;">Re-verify</button>
     </div>
 
-
     <!-- Portfolio Card (credit-card style) -->
     <div class="balance-card" role="group" aria-label="GoodDollar portfolio card">
         <div class="pc-top">
@@ -6155,9 +6154,6 @@
                 });
             } catch (_) { /* no-op */ }
         })();
-
-        // WalletConnect session expiry guard is handled globally by wc-bridge.js
-        // (auto-starts when GMWalletConnect.configure() is called with loginMethod: "walletconnect")
     });
     </script>
 
