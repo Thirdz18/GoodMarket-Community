@@ -2198,11 +2198,6 @@
             <div class="wallet-form" id="walletConnectOptions">
                 <button class="back-btn" onclick="showWalletOptions()">← Back to login options</button>
 
-                <div id="googleReferralWrap" class="wallet-input-group" style="margin-bottom:0.85rem;">
-                    <label class="wallet-label" for="googleReferralCode">Referral Code <span style="font-weight:400;color:#9ca3af;">(Optional)</span></label>
-                    <input type="text" id="googleReferralCode" class="wallet-input" placeholder="Enter referral code if you have one" autocomplete="off" oninput="syncReferralInputs(this)" />
-                </div>
-
                 <div id="wcReferralWrap" class="wallet-input-group" style="margin-bottom:0.85rem;">
                     <label class="wallet-label" for="wcReferralCode">Referral Code <span style="font-weight:400;color:#9ca3af;">(Optional)</span></label>
                     <input type="text" id="wcReferralCode" class="wallet-input" placeholder="Enter referral code if you have one" autocomplete="off" oninput="syncReferralInputs(this)" />
@@ -2910,14 +2905,13 @@
 
         function getPendingReferralCode() {
             const fromWc = ((document.getElementById('wcReferralCode') || {}).value || '').trim();
-            const fromGoogle = ((document.getElementById('googleReferralCode') || {}).value || '').trim();
             const saved = (sessionStorage.getItem('pending_referral_code') || '').trim();
-            return (fromWc || fromGoogle || saved || '').toUpperCase();
+            return (fromWc || saved || '').toUpperCase();
         }
 
         function syncReferralInputs(sourceEl) {
             const value = (sourceEl && sourceEl.value ? sourceEl.value : '').trim().toUpperCase();
-            const ids = ['wcReferralCode', 'googleReferralCode'];
+            const ids = ['wcReferralCode'];
             ids.forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el && el !== sourceEl && el.value !== value) el.value = value;
@@ -3563,20 +3557,34 @@
                 const signature = await sigReqPromise;
                 const wcFbVerifyData = await postVerifyIdentity(address, signature, message, getPendingReferralCode());
                 
-                // CRITICAL: Wait for session to be persisted before redirect.
-                // WalletConnect v2 uses IndexedDB for session storage. A 1 s delay
-                // is not enough on low-end Android devices; 2.5 s gives the browser
-                // enough time to flush the IndexedDB transaction so that the session
-                // is available via getActiveSessions() on the next page load.
-                await new Promise(resolve => setTimeout(resolve, 2500));
-                
+                // Show success immediately — the session is already in localStorage.
+                // The 2.5 s wait below is only to let IndexedDB flush; any IDB
+                // "database connection is closing" errors that fire during this
+                // window are a known WalletConnect SDK side-effect on desktop and
+                // do NOT mean the login failed, so we swallow them here.
                 const wcFbOkMsg = (wcFbVerifyData && wcFbVerifyData.referral_warning)
-                    ? ('✅ Wallet connected via browser WalletConnect fallback. ⚠️ ' + wcFbVerifyData.referral_warning + ' Redirecting...')
-                    : '✅ Wallet connected via browser WalletConnect fallback. Redirecting...';
+                    ? ('✅ Wallet connected via WalletConnect. ⚠️ ' + wcFbVerifyData.referral_warning + ' Redirecting...')
+                    : '✅ Wallet connected via WalletConnect. Redirecting...';
                 showWalletStatus('walletConnectStatus', wcFbOkMsg, wcFbVerifyData && wcFbVerifyData.referral_warning ? 'warning' : 'success');
-                setTimeout(() => { window.location.href = '/wallet'; }, wcFbVerifyData && wcFbVerifyData.referral_warning ? 2400 : 900);
+                try {
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                } catch (_idbErr) { /* ignore IDB flush errors */ }
+                window.location.href = '/wallet';
             } catch (err) {
                 const emsg = (err && err.message) ? err.message : 'WalletConnect failed';
+
+                // IDB "database connection is closing" errors are a known WalletConnect
+                // SDK side-effect on desktop that fire AFTER the session is already
+                // approved and stored in localStorage. If we already have a session,
+                // treat it as success and redirect rather than showing a false error.
+                const isIdbError = /IDBDatabase|transaction.*clos|database.*clos/i.test(emsg);
+                if (isIdbError && window._wcSession) {
+                    console.warn('[WC] IDB error after successful session — redirecting anyway:', emsg);
+                    showWalletStatus('walletConnectStatus', '✅ Wallet connected. Redirecting…', 'success');
+                    setTimeout(() => { window.location.href = '/wallet'; }, 900);
+                    return;
+                }
+
                 const rejected = /reject|denied|cancel/i.test(emsg);
                 _logWalletConnectFrontend('walletconnect_error', {
                     stage: (err && err._wcStage) ? err._wcStage : 'unknown',
