@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session, redirect
+from flask import Flask, request, jsonify, render_template, session, redirect, make_response
 from blockchain import has_recent_ubi_claim, is_identity_verified, check_ubi_entitlement
 from analytics_service import analytics
 from routes import routes
@@ -2022,14 +2022,46 @@ def turnkey_auth_session():
 @app.route('/api/turnkey/auth-proxy/<path:subpath>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
 def turnkey_auth_proxy(subpath):
     """Proxy Turnkey Auth Proxy requests to avoid browser CORS issues."""
+    
+    # Handle CORS preflight requests
+    if request.method == 'OPTIONS':
+        resp = make_response('', 204)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Auth-Proxy-Config-ID, X-Stamp, X-Organization-Id, Accept'
+        resp.headers['Access-Control-Max-Age'] = '3600'
+        return resp
+    
     try:
         upstream_url = f"https://authproxy.turnkey.com/{subpath}"
+        
+        # Build headers - forward all relevant headers from the original request
         headers = {
             'Accept': request.headers.get('Accept', 'application/json'),
             'Content-Type': request.headers.get('Content-Type', 'application/json'),
-            'X-Auth-Proxy-Config-ID': request.headers.get('X-Auth-Proxy-Config-ID', os.environ.get('TURNKEY_AUTH_PROXY_CONFIG_ID', '')),
         }
+        
+        # Forward the X-Auth-Proxy-Config-ID header from client or env
+        auth_proxy_config_id = request.headers.get('X-Auth-Proxy-Config-ID') or os.environ.get('TURNKEY_AUTH_PROXY_CONFIG_ID', '')
+        if auth_proxy_config_id:
+            headers['X-Auth-Proxy-Config-ID'] = auth_proxy_config_id
+        
+        # Forward X-Stamp header from Turnkey SDK (required for auth)
+        x_stamp = request.headers.get('X-Stamp')
+        if x_stamp:
+            headers['X-Stamp'] = x_stamp
+        
+        # Forward any other relevant headers
+        for h in ['X-Organization-Id', 'X-Activity-Tag']:
+            h_val = request.headers.get(h)
+            if h_val:
+                headers[h] = h_val
+        
         body = request.get_data() if request.method not in ('GET', 'OPTIONS') else None
+        
+        logger.info(f"Turnkey auth-proxy request: {request.method} {upstream_url}")
+        logger.debug(f"Turnkey auth-proxy headers: {headers}")
+        
         upstream = requests.request(
             method=request.method,
             url=upstream_url,
@@ -2037,13 +2069,29 @@ def turnkey_auth_proxy(subpath):
             data=body,
             timeout=60,
         )
+        
+        logger.info(f"Turnkey auth-proxy response: {upstream.status_code}")
+        
         try:
             payload = upstream.json()
         except Exception:
             payload = {'raw': upstream.text}
+        
         resp = jsonify(payload)
         resp.status_code = upstream.status_code
+        
+        # Add CORS headers
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Auth-Proxy-Config-ID, X-Stamp, X-Organization-Id, Accept'
+        
         return resp
+    except requests.exceptions.Timeout:
+        logger.error(f"⏱️ Turnkey auth proxy timeout: {subpath}")
+        return jsonify({'success': False, 'error': 'Request to email service timed out'}), 504
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"🔌 Turnkey auth proxy connection error: {e}")
+        return jsonify({'success': False, 'error': 'Cannot connect to email service'}), 503
     except Exception as e:
         logger.error(f"❌ Turnkey auth proxy error: {e}")
         return jsonify({'success': False, 'error': 'Auth proxy request failed'}), 500
