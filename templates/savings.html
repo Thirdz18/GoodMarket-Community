@@ -34,7 +34,9 @@
 
         /* ── Navbar ── */
         .navbar { background:rgba(11,15,42,0.92); border-bottom:1px solid rgba(255,255,255,0.07); padding:0 1.5rem; position:sticky; top:0; z-index:100; backdrop-filter:blur(20px); box-shadow:0 1px 24px rgba(0,0,0,0.35); }
-        .nav-container { max-width:1300px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; height:56px; gap:.75rem; }
+        .nav-container { max-width:1300px; margin:0 auto; display:flex; justify-content:flex-start; align-items:center; height:56px; gap:.75rem; }
+        .back-wallet-btn { display:inline-flex; align-items:center; justify-content:center; padding:.4rem .8rem; border-radius:10px; border:1px solid rgba(124,58,237,.24); background:rgba(124,58,237,.12); color:#fff; text-decoration:none; font-weight:700; white-space:nowrap; flex-shrink:0; }
+        .back-wallet-btn:hover { background:rgba(124,58,237,.2); }
         .logo { font-size:1.2rem; font-weight:800; color:#7c3aed; text-decoration:none; letter-spacing:-.5px; white-space:nowrap; flex-shrink:0; }
         .nav-links { display:flex; gap:.1rem; align-items:center; flex-wrap:nowrap; overflow:hidden; }
         .nav-links a { color:rgba(255,255,255,.55); text-decoration:none; font-weight:500; font-size:.875rem; white-space:nowrap; padding:.4rem .65rem; border-radius:8px; transition:color .2s,background .2s; }
@@ -161,23 +163,11 @@
 <body>
 
 <!-- Navbar -->
-<nav class="navbar">
-    <div class="nav-container">
-        <a href="/dashboard" class="logo">💰 GoodMarket</a>
-        <div class="nav-links">
-            <a href="/overview">Overview</a>
-            <a href="/dashboard">Dashboard</a>
-            {% if wallet_visible %}<a href="/wallet">Wallet</a>{% endif %}
-            {% if savings_visible %}<a href="/savings" class="active">Savings</a>{% endif %}
-            <a href="/profile">Profile</a>
-            <div class="nav-sep"></div>
-            {% if wallet and wallet != 'None' %}
-            <div class="wallet-tag">{{ wallet[:6] }}...{{ wallet[-4:] }}</div>
-            {% endif %}
-            <a href="/logout" class="logout-btn">Logout</a>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/wallet" class="back-wallet-btn">← Back to Wallet</a>
         </div>
-    </div>
-</nav>
+    </nav>
 
 <div class="container">
     {% include "_security_banner.html" %}
