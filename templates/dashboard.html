@@ -102,10 +102,27 @@
             max-width: 1300px;
             margin: 0 auto;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             height: 56px;
             gap: 0.75rem;
+        }
+        .back-wallet-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid rgba(124,58,237,0.24);
+            background: rgba(124,58,237,0.12);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .back-wallet-btn:hover {
+            background: rgba(124,58,237,0.2);
         }
         .nav-brand {
             font-size: 1.2rem;
@@ -1225,25 +1242,7 @@
 
     <nav class="navbar">
         <div class="nav-inner">
-            <a href="/dashboard" class="nav-brand">💰 GoodMarket</a>
-            <div class="nav-links">
-                <a href="/dashboard" class="nav-link active">Dashboard</a>
-                <a href="/overview" class="nav-link">Overview</a>
-                {% if wallet_visible %}<a href="/wallet" class="nav-link">Wallet</a>{% endif %}
-                {% if savings_visible %}<a href="/savings" class="nav-link">Savings</a>{% endif %}
-                <a href="/profile" class="nav-link">Profile</a>
-                <a href="/news" class="nav-link">News</a>
-                <div class="inbox-icon" onclick="openInboxModal()" title="Unified Inbox">
-                    📬
-                    <div id="inboxBadge" class="inbox-badge" style="display: none;">0</div>
-                </div>
-                <a href="/admin" class="nav-link" id="adminLink" style="display:none;">Admin</a>
-                <div class="nav-sep"></div>
-                {% if wallet and wallet != 'None' %}
-                <div class="wallet-tag">{{ wallet[:6] }}...{{ wallet[-4:] }}</div>
-                {% endif %}
-                <a href="/logout" class="logout-btn">Logout</a>
-            </div>
+            <a href="/wallet" class="back-wallet-btn">← Back to Wallet</a>
         </div>
     </nav>
 
