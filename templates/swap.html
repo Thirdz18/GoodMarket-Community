@@ -53,11 +53,26 @@
             max-width: 1300px;
             margin: 0 auto;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-start;
             align-items: center;
             height: 56px;
             gap: 0.75rem;
         }
+        .back-wallet-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4rem 0.8rem;
+            border-radius: 10px;
+            border: 1px solid rgba(124,58,237,0.24);
+            background: rgba(124,58,237,0.12);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 700;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .back-wallet-btn:hover { background: rgba(124,58,237,0.2); }
         .logo { font-size: 1.2rem; font-weight: 800; color: #7c3aed; text-decoration: none; letter-spacing: -0.5px; white-space: nowrap; flex-shrink: 0; }
         .nav-links { display: flex; gap: 0.1rem; align-items: center; flex-wrap: nowrap; overflow: hidden; }
         .nav-links a { color: rgba(255,255,255,0.55); text-decoration: none; font-weight: 500; font-size: 0.875rem; white-space: nowrap; padding: 0.4rem 0.65rem; border-radius: 8px; transition: color 0.2s, background 0.2s; }
@@ -814,19 +829,7 @@
     <!-- Navbar -->
     <nav class="navbar">
         <div class="nav-container">
-            <a href="/dashboard" class="logo">💰 GoodMarket</a>
-            <div class="nav-links">
-                <a href="/overview">Overview</a>
-                <a href="/dashboard">Dashboard</a>
-                {% if wallet_visible %}<a href="/wallet">Wallet</a>{% endif %}
-                {% if savings_visible and not is_minipay %}<a href="/savings">Savings</a>{% endif %}
-                <a href="/profile">Profile</a>
-                <div class="nav-sep"></div>
-                {% if wallet and wallet != 'None' %}
-                <div class="wallet-tag">{{ wallet[:6] }}...{{ wallet[-4:] }}</div>
-                {% endif %}
-                <a href="/logout" class="logout-btn">Logout</a>
-            </div>
+            <a href="/wallet" class="back-wallet-btn">← Back to Wallet</a>
         </div>
     </nav>
 
