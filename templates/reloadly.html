@@ -1011,6 +1011,12 @@ function gdToWeiHex(amountGd) {
 // Handles multi-wallet injections: prefer MiniPay in MiniPay dApp browser,
 // then Trust Wallet, then MetaMask (excluding Brave), then first provider.
 function _getEthProvider() {
+    // WalletConnect / manual-address logins must NEVER use an injected wallet
+    // (e.g. a desktop MetaMask extension): its account differs from the logged-in
+    // GoodMarket wallet, so signing fails with "Wrong wallet connected". Block
+    // injected discovery so all flows route through the WalletConnect signer.
+    // LOGIN_METHOD is Jinja-rendered and always reliable here.
+    if (PREFER_WC_SIGNING) return null;
     if (!window.ethereum) return null;
     if (window.ethereum.providers && window.ethereum.providers.length) {
         const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
