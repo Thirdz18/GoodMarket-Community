@@ -3465,9 +3465,13 @@ document.addEventListener('DOMContentLoaded', function() {
             // (e.g. a desktop MetaMask extension): its account differs from the
             // logged-in GoodMarket wallet, so signing fails with "Wrong wallet
             // connected". Block injected discovery so all flows route through the
-            // WalletConnect signer. login_method is Jinja-rendered and reliable.
+            // WalletConnect signer. The robust check also recovers pre-existing
+            // WC sessions mislabeled as "injected".
             var _gmLogin = '{{ login_method }}'.toLowerCase();
-            if (['walletconnect', 'manual', 'manual_address'].indexOf(_gmLogin) !== -1) return null;
+            var _gmPreferWc = (typeof GMWalletConnect !== 'undefined' && typeof GMWalletConnect.prefersWcSigning === 'function')
+                ? GMWalletConnect.prefersWcSigning()
+                : (['walletconnect', 'manual', 'manual_address'].indexOf(_gmLogin) !== -1);
+            if (_gmPreferWc) return null;
             try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch (_) {}
             var candidates = _vCollectInjectedProviders();
             if (!candidates.length) return null;
@@ -5040,7 +5044,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // session flow below, NOT the injected window.ethereum branch — even when
             // a desktop MetaMask extension is present (its account differs from the
             // logged-in GoodMarket wallet and would trigger "Wrong wallet connected").
-            const _buyIsWcLogin = ['walletconnect', 'manual', 'manual_address'].includes((BUY_LOGIN_METHOD || '').toLowerCase());
+            const _buyIsWcLogin = (typeof GMWalletConnect !== 'undefined' && typeof GMWalletConnect.prefersWcSigning === 'function')
+                ? GMWalletConnect.prefersWcSigning()
+                : ['walletconnect', 'manual', 'manual_address'].includes((BUY_LOGIN_METHOD || '').toLowerCase());
 
             // ── DApp browser detected → direct ethereum flow ──────────────────
             if (window.ethereum && !_buyIsWcLogin) {
