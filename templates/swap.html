@@ -2247,12 +2247,15 @@
         // sees the sign / tx prompt that's now sitting in their wallet.
         function _wcWakeWalletApp(session) {
             try {
-                if (!session || !_isWcMobileBrowserContext()) return;
+                if (!session) return;
                 const meta = session.peer && session.peer.metadata;
                 const redirect = meta && meta.redirect;
                 if (!redirect) return;
                 const href = redirect.native || redirect.universal;
                 if (!href) return;
+                // NOTE: Removed mobile-only check - we now try to wake wallet on ALL
+                // platforms to prevent timeout errors when the wallet app is installed
+                // but the browser doesn't auto-focus the wallet's notification/prompt.
                 const link = document.createElement('a');
                 link.href = href;
                 link.style.display = 'none';
