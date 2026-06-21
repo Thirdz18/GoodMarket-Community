@@ -1660,10 +1660,13 @@ def verify_identity():
         session['verified'] = True
         session['ubi_verified'] = True
         session['verification_time'] = datetime.now().isoformat()
-        # verify-identity is only reached via injected wallet (signature-based) flows.
-        # Store the actual login_method from the client if provided; default to
-        # "injected" so the WalletConnect session expiry guard never fires for
-        # MetaMask / MiniPay / TrustWallet / extension wallet users.
+        # verify-identity is reached by BOTH injected-wallet and WalletConnect
+        # signature flows (the homepage posts here after personal_sign in either
+        # case). Persist the client-supplied login_method so feature pages pick
+        # the right signer: "walletconnect" routes signing through the WC session,
+        # while "injected" uses window.ethereum. Defaulting to "injected" keeps the
+        # WalletConnect expiry guard from firing for MetaMask / MiniPay / Trust
+        # Wallet users that omit the field.
         session['login_method'] = data.get('login_method') or 'injected'
 
         # Record unverified visit or log face-verified status for attribution
