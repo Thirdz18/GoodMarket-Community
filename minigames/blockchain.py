@@ -7,13 +7,16 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class MinigamesBlockchainService:
-    """Minigames Blockchain Service for G$ Rewards using Direct Private Key"""
+    """Minigames Blockchain Service for G$ Rewards using GamesRewards Smart Contract"""
 
     def __init__(self):
         # Network configuration
         self.celo_rpc_url = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
         self.chain_id = int(os.getenv('CHAIN_ID', 42220))
         self.gooddollar_contract = os.getenv('GOODDOLLAR_CONTRACT', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
+        
+        # GamesRewards Smart Contract (deployed contract for secure disbursement)
+        self.games_rewards_contract = os.getenv('GAMES_REWARDS_CONTRACT', '0x230770E2a19b33923a046de107e41cA00F55685F')
 
         # MERCHANT_ADDRESS for deposits (users send G$ here)
         merchant_address = os.getenv('MERCHANT_ADDRESS')
@@ -28,24 +31,23 @@ class MinigamesBlockchainService:
             self.merchant_address = None
             logger.warning("⚠️ MERCHANT_ADDRESS not configured")
 
-        # GAMES_KEY for withdrawals (sending winnings to users)
-        games_key = os.getenv('GAMES_KEY')
-        if games_key:
+        # Server wallet for signing transactions (authorized disburser)
+        server_private_key = os.getenv('SERVER_PRIVATE_KEY')
+        if server_private_key:
             try:
-                if not games_key.startswith('0x'):
-                    games_key = '0x' + games_key
-                self.games_account = Account.from_key(games_key)
-                self.games_key_address = self.games_account.address
-                logger.info(f"✅ GAMES_KEY configured: {self.games_key_address}")
+                if not server_private_key.startswith('0x'):
+                    server_private_key = '0x' + server_private_key
+                self.server_account = Account.from_key(server_private_key)
+                self.server_address = self.server_account.address
+                logger.info(f"✅ SERVER wallet configured: {self.server_address}")
             except Exception as e:
-                logger.error(f"❌ Error loading GAMES_KEY: {e}")
-                self.games_account = None
-                self.games_key_address = None
+                logger.error(f"❌ Error loading SERVER_PRIVATE_KEY: {e}")
+                self.server_account = None
+                self.server_address = None
         else:
-            self.games_account = None
-            self.games_key_address = None
-            logger.warning("⚠️ GAMES_KEY not configured")
-
+            self.server_account = None
+            self.server_address = None
+            logger.warning("⚠️ SERVER_PRIVATE_KEY not configured")
 
         # Initialize Web3
         self.w3 = Web3(Web3.HTTPProvider(self.celo_rpc_url))
@@ -57,6 +59,9 @@ class MinigamesBlockchainService:
 
         # GoodDollar token contract
         self.gooddollar_token = Web3.to_checksum_address(self.gooddollar_contract)
+        
+        # GamesRewards contract
+        self.games_rewards_address = Web3.to_checksum_address(self.games_rewards_contract)
 
         # ERC20 ABI for transfers
         self.erc20_abi = [
@@ -78,18 +83,67 @@ class MinigamesBlockchainService:
                 "type": "function"
             }
         ]
+        
+        # GamesRewards contract ABI
+        self.games_rewards_abi = [
+            {
+                "inputs": [
+                    {"name": "recipient", "type": "address"},
+                    {"name": "amount", "type": "uint256"},
+                    {"name": "sessionId", "type": "string"}
+                ],
+                "name": "disburseReward",
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "user", "type": "address"}],
+                "name": "getRemainingDailyLimit",
+                "outputs": [{"name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getContractBalance",
+                "outputs": [{"name": "", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "paused",
+                "outputs": [{"name": "", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "owner",
+                "outputs": [{"name": "", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
 
         self.token_contract = self.w3.eth.contract(
             address=self.gooddollar_token,
             abi=self.erc20_abi
         )
+        
+        self.rewards_contract = self.w3.eth.contract(
+            address=self.games_rewards_address,
+            abi=self.games_rewards_abi
+        )
 
         # Transfer event signature
         self.TRANSFER_EVENT_SIGNATURE = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-        logger.info(f"🎮 Minigames Blockchain Service initialized")
+        logger.info(f"🎮 Minigames Blockchain Service initialized (Smart Contract Mode)")
         logger.info(f"   MERCHANT address (deposits): {self.merchant_address}")
-        logger.info(f"   GAMES_KEY address (withdrawals): {self.games_key_address}")
+        logger.info(f"   SERVER wallet address: {self.server_address}")
+        logger.info(f"   GamesRewards contract: {self.games_rewards_address}")
         logger.info(f"   GoodDollar token: {self.gooddollar_token}")
 
 
@@ -250,33 +304,39 @@ class MinigamesBlockchainService:
 
 
     async def disburse_from_games_key(self, wallet_address: str, amount: float, session_id: str) -> dict:
-        """Disburse winnings from GAMES_KEY to player"""
+        """Disburse winnings via GamesRewards Smart Contract"""
         try:
-            logger.info(f"💸 Disbursing winnings: {amount} G$ to {self.mask_wallet_address(wallet_address)}")
+            logger.info(f"💸 Disbursing winnings via contract: {amount} G$ to {self.mask_wallet_address(wallet_address)}")
 
-            if not self.games_key_address:
-                logger.error("❌ GAMES_KEY not configured")
-                return {"success": False, "error": "Games wallet not configured"}
+            if not self.server_account:
+                logger.error("❌ SERVER_PRIVATE_KEY not configured")
+                return {"success": False, "error": "Server wallet not configured"}
 
             if not self.w3.is_connected():
                 return {"success": False, "error": "Blockchain connection failed"}
 
+            # Check if contract is paused
+            try:
+                is_paused = self.rewards_contract.functions.paused().call()
+                if is_paused:
+                    return {"success": False, "error": "Rewards contract is temporarily paused"}
+            except:
+                pass
+
             recipient_checksum = Web3.to_checksum_address(wallet_address)
             amount_wei = int(amount * (10 ** 18))
 
-            # Build transfer transaction
-            nonce = self.w3.eth.get_transaction_count(self.games_key_address)
+            # Build transaction via contract
+            nonce = self.w3.eth.get_transaction_count(self.server_address)
             gas_price = int(self.w3.eth.gas_price * 1.2)  # Add 20% buffer
 
-            # Estimate gas dynamically instead of hardcoding a fixed limit.
-            # G$ ERC-777 hooks add overhead vs plain ERC-20, so apply a 1.3x
-            # safety buffer on top of the estimate, and fall back to a
-            # conservative ceiling only if estimation fails.
+            # Estimate gas for contract call
             try:
-                estimated_gas = self.token_contract.functions.transfer(
+                estimated_gas = self.rewards_contract.functions.disburseReward(
                     recipient_checksum,
-                    amount_wei
-                ).estimate_gas({'from': self.games_key_address})
+                    amount_wei,
+                    session_id
+                ).estimate_gas({'from': self.server_address})
                 gas_limit = int(estimated_gas * 1.3)
                 logger.info(
                     f"⛽ Withdrawal gas estimate: {estimated_gas} "
@@ -284,15 +344,16 @@ class MinigamesBlockchainService:
                 )
             except Exception as estimate_error:
                 logger.warning(
-                    f"⚠️ Gas estimation failed, falling back to 250000: {estimate_error}"
+                    f"⚠️ Gas estimation failed, falling back to 200000: {estimate_error}"
                 )
-                gas_limit = 250000
+                gas_limit = 200000
 
-            transaction = self.token_contract.functions.transfer(
+            transaction = self.rewards_contract.functions.disburseReward(
                 recipient_checksum,
-                amount_wei
+                amount_wei,
+                session_id
             ).build_transaction({
-                'from': self.games_key_address,
+                'from': self.server_address,
                 'nonce': nonce,
                 'gas': gas_limit,
                 'gasPrice': gas_price,
@@ -302,10 +363,10 @@ class MinigamesBlockchainService:
             # Sign and send
             signed_txn = self.w3.eth.account.sign_transaction(
                 transaction,
-                private_key=self.games_account.key if self.games_account else None
+                private_key=self.server_account.key
             )
 
-            logger.info("📡 Sending withdrawal transaction from GAMES_KEY...")
+            logger.info("📡 Sending withdrawal transaction via contract...")
             tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
             tx_hash_hex = tx_hash.hex()
 
@@ -316,7 +377,7 @@ class MinigamesBlockchainService:
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
 
             if receipt.status == 1:
-                logger.info(f"✅ Withdrawal successful: {amount} G$ - TX: {tx_hash_hex}")
+                logger.info(f"✅ Withdrawal successful via contract: {amount} G$ - TX: {tx_hash_hex}")
 
                 return {
                     "success": True,
@@ -324,7 +385,8 @@ class MinigamesBlockchainService:
                     "amount": amount,
                     "recipient": wallet_address,
                     "message": f"Successfully withdrew {amount} G$!",
-                    "explorer_url": f"https://explorer.celo.org/mainnet/tx/{tx_hash_hex}"
+                    "explorer_url": f"https://explorer.celo.org/mainnet/tx/{tx_hash_hex}",
+                    "contract_address": self.games_rewards_address
                 }
             else:
                 logger.error(f"❌ Withdrawal failed on-chain: {tx_hash_hex}")
@@ -338,7 +400,7 @@ class MinigamesBlockchainService:
             # Check for insufficient funds error
             error_msg = str(e).lower()
             if "insufficient funds" in error_msg:
-                logger.error(f"❌ GAMES_KEY wallet needs CELO for gas fees!")
+                logger.error(f"❌ Server wallet needs CELO for gas fees!")
                 return {
                     "success": False, 
                     "error": "Withdrawal system temporarily unavailable. Please try again later or contact support.",
@@ -350,7 +412,7 @@ class MinigamesBlockchainService:
 
     async def disburse_game_reward(self, wallet_address: str, amount: float, game_type: str, session_id: str) -> dict:
         """
-        Disburse game reward to player via direct private key transfer using GAMES_KEY
+        Disburse game reward to player via GamesRewards Smart Contract
 
         Args:
             wallet_address: Recipient wallet address
@@ -362,63 +424,85 @@ class MinigamesBlockchainService:
             Dict with success status, transaction hash, and details
         """
         try:
-            logger.info(f"🎮 Minigame reward disbursement: {amount} G$ to {self.mask_wallet_address(wallet_address)}")
+            logger.info(f"🎮 Minigame reward disbursement via contract: {amount} G$ to {self.mask_wallet_address(wallet_address)}")
 
-            if not self.games_key_address:
-                logger.error("❌ GAMES_KEY not configured for minigames rewards")
-                return {"success": False, "error": "Minigames wallet not configured"}
+            if not self.server_account:
+                logger.error("❌ SERVER_PRIVATE_KEY not configured for minigames rewards")
+                return {"success": False, "error": "Server wallet not configured"}
 
             if not self.w3.is_connected():
                 logger.error("❌ Not connected to Celo network")
                 return {"success": False, "error": "Blockchain connection failed"}
 
+            # Check if contract is paused
+            try:
+                is_paused = self.rewards_contract.functions.paused().call()
+                if is_paused:
+                    logger.error("❌ GamesRewards contract is paused")
+                    return {"success": False, "error": "Rewards contract is temporarily paused"}
+            except Exception as e:
+                logger.warning(f"⚠️ Could not check contract pause status: {e}")
+
             # Convert amount to Wei (18 decimals for G$)
             amount_wei = int(amount * (10 ** 18))
 
+            # Check remaining daily limit for user
+            try:
+                remaining = self.rewards_contract.functions.getRemainingDailyLimit(
+                    Web3.to_checksum_address(wallet_address)
+                ).call()
+                if amount_wei > remaining:
+                    logger.warning(f"⚠️ Amount {amount} exceeds daily limit. Remaining: {remaining / (10**18)} G$")
+                    return {
+                        "success": False, 
+                        "error": f"Daily limit exceeded. Remaining: {remaining / (10**18):.2f} G$"
+                    }
+            except Exception as e:
+                logger.warning(f"⚠️ Could not check daily limit: {e}")
+
             # Get nonce and gas price for the transaction
-            nonce = self.w3.eth.get_transaction_count(self.games_key_address)
+            nonce = self.w3.eth.get_transaction_count(self.server_address)
             gas_price = int(self.w3.eth.gas_price * 1.2)  # Add 20% buffer for gas price
 
-            # Estimate gas dynamically instead of hardcoding a fixed limit.
-            # G$ ERC-777 hooks add overhead vs plain ERC-20, so apply a 1.3x
-            # safety buffer on top of the estimate, and fall back to a
-            # conservative ceiling only if estimation fails.
+            # Estimate gas for contract call
             try:
-                estimated_gas = self.token_contract.functions.transfer(
+                estimated_gas = self.rewards_contract.functions.disburseReward(
                     Web3.to_checksum_address(wallet_address),
-                    amount_wei
-                ).estimate_gas({'from': self.games_key_address})
+                    amount_wei,
+                    session_id
+                ).estimate_gas({'from': self.server_address})
                 gas_limit = int(estimated_gas * 1.3)
                 logger.info(
-                    f"⛽ Minigame reward gas estimate: {estimated_gas} "
+                    f"⛽ Contract call gas estimate: {estimated_gas} "
                     f"(using limit: {gas_limit})"
                 )
             except Exception as estimate_error:
                 logger.warning(
-                    f"⚠️ Gas estimation failed, falling back to 250000: {estimate_error}"
+                    f"⚠️ Gas estimation failed, falling back to 200000: {estimate_error}"
                 )
-                gas_limit = 250000
+                gas_limit = 200000
 
-            # Build the transaction using the token contract's transfer function
-            transaction = self.token_contract.functions.transfer(
+            # Build the transaction using the GamesRewards contract
+            transaction = self.rewards_contract.functions.disburseReward(
                 Web3.to_checksum_address(wallet_address),
-                amount_wei
+                amount_wei,
+                session_id
             ).build_transaction({
-                'from': self.games_key_address,
+                'from': self.server_address,
                 'gas': gas_limit,
                 'gasPrice': gas_price,
                 'nonce': nonce,
                 'chainId': self.chain_id
             })
 
-            # Sign the transaction with the GAMES_KEY private key
+            # Sign the transaction with the server private key
             signed_txn = self.w3.eth.account.sign_transaction(
                 transaction,
-                private_key=self.games_account.key if self.games_account else None
+                private_key=self.server_account.key
             )
 
             # Send the signed transaction to the network
-            logger.info("📡 Sending minigame reward transaction...")
+            logger.info("📡 Sending reward transaction via contract...")
             tx_hash = self.w3.eth.send_raw_transaction(signed_txn.raw_transaction)
             tx_hash_hex = tx_hash.hex()
 
@@ -433,11 +517,12 @@ class MinigamesBlockchainService:
 
             if receipt.status == 1:
                 # Transaction successful
-                logger.info(f"✅ Minigame reward successfully disbursed: {amount} G$ - TX: {tx_hash_hex}")
+                logger.info(f"✅ Minigame reward successfully disbursed via contract: {amount} G$ - TX: {tx_hash_hex}")
                 explorer_url = f"https://explorer.celo.org/mainnet/tx/{tx_hash_hex}"
                 logger.info(f"🔗 Explorer: {explorer_url}")
                 logger.info(f"⛽ Gas used: {receipt.gasUsed}")
                 logger.info(f"🧾 Block: {receipt.blockNumber}")
+                logger.info(f"📜 Contract: {self.games_rewards_address}")
 
                 return {
                     "success": True,
@@ -449,6 +534,7 @@ class MinigamesBlockchainService:
                     "message": f"Successfully disbursed {amount} G$ minigame reward!",
                     "timestamp": datetime.now().isoformat(),
                     "explorer_url": explorer_url,
+                    "contract_address": self.games_rewards_address,
                     "blockchain_confirmed": True
                 }
             else:
