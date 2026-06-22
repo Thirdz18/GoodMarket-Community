@@ -1647,7 +1647,7 @@
                 btn.innerHTML = '<span class="spinner-inline"></span> Checking allowance...';
                 const allowance = await gd.allowance(toAddr, XDC_CELO_BRIDGE);
                 if (allowance < amountWei) {
-                    btn.innerHTML = '<span class="spinner-inline"></span> Approving G$...';
+                    btn.innerHTML = '<span class="spinner-inline"></span> Waiting for wallet signature...';
                     try {
                         await GMTxPreview.confirm({
                             action: 'approve',
@@ -1681,7 +1681,7 @@
                     );
                 }
 
-                btn.innerHTML = '<span class="spinner-inline"></span> Bridging to Celo...';
+                btn.innerHTML = '<span class="spinner-inline"></span> Waiting for wallet signature...';
                 const bridgeData = bridgeIface.encodeFunctionData('bridgeTo', [
                     toAddr,
                     CELO_CHAIN_ID,
