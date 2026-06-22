@@ -578,20 +578,34 @@
         }
 
         async function loadDailyTaskHistory() {
+            const historyList = document.getElementById('historyList');
+            const totalEarnedEl = document.getElementById('dailyHistoryTotalEarned');
+            const totalClaimsEl = document.getElementById('dailyHistoryTotalClaims');
+            
+            historyList.innerHTML = '<div class="loading-spinner" style="margin: 1rem auto;"></div>';
+            
             try {
-                const response = await fetch('/api/daily-task/history?limit=50');
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch('/api/daily-task/history?limit=50', {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const result = await response.json();
+                console.log('📊 History data received:', result);
 
                 // Update stats
-                const totalEarnedEl = document.getElementById('dailyHistoryTotalEarned');
-                const totalClaimsEl = document.getElementById('dailyHistoryTotalClaims');
-                
                 if (totalEarnedEl) totalEarnedEl.textContent = `${(result.total_earned || 0).toFixed(2)} G$`;
                 if (totalClaimsEl) totalClaimsEl.textContent = result.total_count || 0;
 
-                const historyList = document.getElementById('historyList');
-
-                if (result.transactions && result.transactions.length > 0) {
+                if (result.success && result.transactions && result.transactions.length > 0) {
                     let html = '';
                     let hasPending = false;
                     
@@ -641,7 +655,14 @@
                 }
             } catch (error) {
                 console.error('Error loading history:', error);
-                document.getElementById('historyList').innerHTML = '<p style="text-align: center; color: rgba(241, 245, 249, 0.5); padding: 1rem;">Could not load history</p>';
+                historyList.innerHTML = `
+                    <div style="text-align: center; padding: 1rem;">
+                        <p style="color: rgba(239, 68, 68, 0.8); margin-bottom: 0.5rem;">Failed to load history</p>
+                        <button onclick="loadDailyTaskHistory()" class="btn btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.8rem;">
+                            🔄 Retry
+                        </button>
+                    </div>
+                `;
             }
         }
         
