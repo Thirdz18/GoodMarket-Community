@@ -2449,6 +2449,17 @@ def fv_callback():
         logger.info(f"🔖 FV callback src=goodmarket: {via_goodmarket} for {wallet_address[:10]}...")
         analytics.track_verification_attempt(wallet_address, True, face_verified=True)
         analytics.track_user_session(wallet_address)
+        if via_goodmarket:
+            try:
+                from goodmarket_attribution_backfill import mark_verified_via_goodmarket
+                mark_verified_via_goodmarket(
+                    wallet_address,
+                    source="fv_callback:goodmarket",
+                    require_on_chain_check=False,
+                    background=True,
+                )
+            except Exception as attr_err:
+                logger.warning(f"⚠ GoodMarket attribution backfill skipped in fv-callback: {attr_err}")
 
         # Disburse any pending referral reward now that this user is face-verified.
         # Use atomic claim to prevent double-disbursement if verify-identity fires concurrently.
