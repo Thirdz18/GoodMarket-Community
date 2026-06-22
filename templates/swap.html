@@ -5843,18 +5843,24 @@
                     throw new Error('Could not verify bridge limits on source bridge. Please retry in a moment.');
                 }
 
-                if (!window.useServerSigning) {
-                    const ep = _getEthProvider();
+                let ep = null;
+                let from = null;
+                if (window.useServerSigning) {
+                    // Server signing: use the server-signed wallet address directly
+                    // _sendXdcBridgeTx() will route signing to /api/server/sign-tx
+                    from = _normalizeAddrXdcToCelo(WALLET_ADDRESS);
+                } else {
+                    // Injected wallet path: require Web3 wallet and verify identity
+                    ep = _getEthProvider();
                     if (!ep) throw new Error('No Web3 wallet found.');
                     const switched = await ensureXDCNetwork(ep);
                     if (!switched) throw new Error('Could not switch to XDC network.');
                     const accounts = await ep.request({ method: 'eth_requestAccounts' });
-                    const from = accounts[0] ? _normalizeAddrXdcToCelo(accounts[0]) : null;
+                    from = accounts[0] ? _normalizeAddrXdcToCelo(accounts[0]) : null;
                     if (!from) throw new Error('No wallet account found.');
                     if (WALLET_ADDRESS && from.toLowerCase() !== _normalizeAddrXdcToCelo(WALLET_ADDRESS).toLowerCase()) {
                         throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
                     }
-
                     const preflightAllowance = await gd.allowance(from, XDC_CELO_BRIDGE);
                     const needsApproveTx = preflightAllowance < amountWei;
 
