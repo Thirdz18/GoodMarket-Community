@@ -1494,18 +1494,24 @@
                     throw new Error('Could not verify bridge limits on source bridge. Please retry in a moment.');
                 }
 
-                if (!useServerSigning) {
-                    const ep = await _getEthProvider();
+                let ep = null;
+                let from = null;
+                if (useServerSigning) {
+                    // Server signing: use the server-signed wallet address directly
+                    // _sendXswapTx() will route signing to /api/server/sign-tx
+                    from = normalizeAddr(WALLET);
+                } else {
+                    // Injected wallet path: require Web3 wallet and verify identity
+                    ep = await _getEthProvider();
                     if (!ep) throw new Error('No Web3 wallet found.');
                     const switched = await ensureXDCNetwork(ep);
                     if (!switched) throw new Error('Could not switch to XDC network.');
                     const accounts = await ep.request({ method: 'eth_requestAccounts' });
-                    const from = accounts[0] ? normalizeAddr(accounts[0]) : null;
+                    from = accounts[0] ? normalizeAddr(accounts[0]) : null;
                     if (!from) throw new Error('No wallet account found.');
                     if (WALLET && from.toLowerCase() !== normalizeAddr(WALLET).toLowerCase()) {
                         throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
                     }
-
                     // Read allowance up-front so the gas reserve can include
                     // the approve gas only when an approve will actually be
                     // submitted, mirroring _estimateCeloBridgeGasReserveWei
