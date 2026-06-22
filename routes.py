@@ -1796,6 +1796,9 @@ def dashboard():
     except Exception as e:
         logger.warning(f"⚠️ Could not check FV status for dashboard access: {e}")
 
+    # Check if user is admin
+    is_admin_user = is_admin(wallet)
+
     # Track dashboard visit asynchronously (don't block render)
     import threading
     threading.Thread(target=analytics.track_page_view, args=(wallet, "dashboard"), daemon=True).start()
@@ -1811,7 +1814,7 @@ def dashboard():
             "active_earners_formatted": "—",
             "tasks_last_30_days_formatted": "—",
         }
-    return render_template("dashboard.html", wallet=wallet, homepage_stats=homepage_stats)
+    return render_template("dashboard.html", wallet=wallet, homepage_stats=homepage_stats, is_admin_user=is_admin_user)
 
 
 @routes.route("/api/user/username", methods=["GET"])
@@ -6528,7 +6531,6 @@ def wallet_page():
     if not wallet or not session.get("verified"):
         return redirect(url_for("routes.index"))
     buy_eth_visible = True
-    is_admin_user = False
     try:
         supabase = get_supabase_client()
         if supabase:
@@ -6546,8 +6548,6 @@ def wallet_page():
                         return render_template("feature_unavailable.html", feature_name="Wallet", wallet=wallet)
                     if fn == 'wallet_buy_eth' and row.get('is_maintenance', False):
                         buy_eth_visible = False
-        # Check if user is admin
-        is_admin_user = is_admin(wallet)
     except Exception:
         pass
     return render_template(
@@ -6557,7 +6557,6 @@ def wallet_page():
         walletconnect_project_id=os.environ.get("WALLETCONNECT_PROJECT_ID", ""),
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
         buy_eth_visible=buy_eth_visible,
-        is_admin_user=is_admin_user,
     )
 
 
