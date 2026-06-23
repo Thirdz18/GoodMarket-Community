@@ -6,6 +6,9 @@
     <title>GoodMarket - Learn & Earn with Web3</title>
     <!-- Telegram Mini App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- Magic.link SDK for embedded wallets (Celo support) -->
+    <script src="https://cdn.jsdelivr.net/npm/magic-sdk@10.0.0/dist/magic.js"></script>
 
     <!-- PWA Meta Tags -->a
     <meta name="theme-color" content="#7c3aed">
@@ -1148,6 +1151,90 @@
             gap: 0.6rem;
         }
 
+        /* Privy Create Wallet Form */
+        .privy-form-container {
+            display: none;
+            padding: 1rem 0;
+        }
+        .privy-form-container.visible {
+            display: block;
+        }
+        .privy-form-info {
+            background: linear-gradient(135deg, #7c3aed, #6d28d9);
+            color: white;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .privy-form-info h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        .privy-form-info p {
+            font-size: 0.8rem;
+            opacity: 0.9;
+        }
+        #privy-embed-container {
+            min-height: 300px;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .privy-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            color: #6b7280;
+        }
+        .privy-loading .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e5e7eb;
+            border-top-color: #7c3aed;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .privy-success {
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            margin-top: 1rem;
+        }
+        .privy-success h4 {
+            color: #059669;
+            margin-bottom: 0.5rem;
+        }
+        .privy-success .wallet-address {
+            font-family: monospace;
+            font-size: 0.85rem;
+            background: #f3f4f6;
+            padding: 0.5rem;
+            border-radius: 8px;
+            word-break: break-all;
+            margin: 0.5rem 0;
+        }
+        .privy-success button {
+            background: #7c3aed;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        .privy-success button:hover {
+            background: #6d28d9;
+        }
+
         .wallet-option-card {
             display: flex;
             align-items: center;
@@ -1605,6 +1692,7 @@
     </style>
     <!-- WalletConnect bridge for users without injected wallet -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='js/magic-wallet.js', v=ASSET_VERSION) }}"></script>
     <script>
         if (typeof GMWalletConnect !== "undefined") {
             GMWalletConnect.configure({
@@ -2115,10 +2203,18 @@
 
             <!-- Step 1: Choose login path -->
             <div class="wallet-options" id="walletOptions">
+                <button class="wallet-option-card create-wallet-option" onclick="showPrivyForm()">
+                    <div class="option-icon">✨</div>
+                    <div class="option-text">
+                        <div class="option-title">Create New Wallet</div>
+                        <p class="option-desc">Email, Google, or phone - no setup needed</p>
+                    </div>
+                    <span class="option-arrow">→</span>
+                </button>
                 <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
                     <div class="option-icon">🔗</div>
                     <div class="option-text">
-                        <div class="option-title">Wallet Connect</div>
+                        <div class="option-title">Connect Existing Wallet</div>
                         <p class="option-desc">MetaMask / Trust / MiniPay / WalletConnect</p>
                     </div>
                     <span class="option-arrow">→</span>
@@ -2188,6 +2284,31 @@
                 <div id="walletConnectStatus" class="status-message"></div>
             </div>
 
+            <!-- Step 2B: Privy Create Wallet -->
+            <div class="privy-form-container" id="privyFormContainer">
+                <button class="back-btn" onclick="showWalletOptions()">← Back to login options</button>
+                
+                <div class="privy-form-info">
+                    <h3>✨ Create Your Web3 Wallet</h3>
+                    <p>Sign up with email, Google, or phone number. We'll create a wallet for you automatically - no crypto experience needed!</p>
+                </div>
+                
+                <div id="privy-embed-container">
+                    <div class="privy-loading">
+                        <div class="spinner"></div>
+                        <p>Loading wallet creation...</p>
+                    </div>
+                </div>
+                
+                <div id="privySuccessContainer" class="privy-success" style="display:none;">
+                    <h4>🎉 Wallet Created Successfully!</h4>
+                    <p>Your new wallet address:</p>
+                    <div class="wallet-address" id="magicWalletAddress"></div>
+                    <p style="font-size:0.8rem;color:#6b7280;margin-top:0.5rem;">Save this address for reference. You can now claim G$ tokens!</p>
+                    <button onclick="continueToClaim()">Continue to GoodMarket →</button>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -2247,7 +2368,7 @@
 
         function showWalletOptions() {
             document.getElementById('walletOptions').style.display = 'flex';
-            ['walletConnectOptions', 'googleLoginOptions'].forEach(id => {
+            ['walletConnectOptions', 'googleLoginOptions', 'privyFormContainer'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.remove('visible');
             });
@@ -2255,13 +2376,11 @@
         }
 
         function showCreateWalletOptions() {
-            document.getElementById('walletOptions').style.display = 'none';
-            const f = document.getElementById('googleLoginOptions');
-            if (f) f.classList.add('visible');
+            showPrivyForm();
         }
 
         function showGoogleLoginOptions() {
-            showCreateWalletOptions();
+            showPrivyForm();
         }
 
         function showWalletConnectOptions() {
@@ -2277,6 +2396,13 @@
             detectInjectedWallet();
         }
 
+        // ── Magic.link Embedded Wallet ──
+        // Magic API Key passed from Flask backend
+        window.MAGIC_API_KEY_VAR = '{{ privy_app_id }}';
+        // Load Magic wallet module
+        if (typeof showPrivyForm !== 'function') {
+            console.warn('Magic wallet module not loaded');
+        }
 
         function showWalletStatus(targetId, message, type = 'info') {
             const el = document.getElementById(targetId);
