@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify, render_template, session, redirect, make_response
 from blockchain import has_recent_ubi_claim, is_identity_verified, check_ubi_entitlement
 from analytics_service import analytics
