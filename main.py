@@ -2048,9 +2048,17 @@ def turnkey_email_otp_init():
         if 'SUPABASE_KEY' in msg or 'not configured' in msg:
             msg = 'Email login is not yet configured on this server. Please use Google sign-in.'
         return jsonify({'success': False, 'error': msg}), 503
+    except requests.exceptions.Timeout:
+        logger.error("❌ email-otp-init: Supabase OTP request timed out")
+        return jsonify({'success': False, 'error': 'Email service timed out. Please try again.'}), 504
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"❌ email-otp-init: Cannot reach Supabase: {e}")
+        return jsonify({'success': False, 'error': 'Cannot reach email service. Please try again in a moment.'}), 503
     except Exception as e:
-        logger.error(f"❌ email-otp-init error: {e}")
-        return jsonify({'success': False, 'error': 'Could not send code. Please try again.'}), 500
+        import traceback
+        logger.error(f"❌ email-otp-init error: {e}\n{traceback.format_exc()}")
+        msg = str(e) if str(e) else 'Could not send code'
+        return jsonify({'success': False, 'error': f'Could not send code: {msg}'}), 500
 
 
 @app.route('/api/turnkey/email-otp-verify', methods=['POST'])
