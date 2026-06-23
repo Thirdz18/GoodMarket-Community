@@ -4361,7 +4361,7 @@
             }
 
             function isServerSigningLoginMethod() {
-                return ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
+                return false;((LOGIN_METHOD || '').toLowerCase());
             }
 
             async function voucherInitDapp() {
