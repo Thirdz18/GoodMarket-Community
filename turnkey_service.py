@@ -276,12 +276,11 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 
 
-def send_supabase_otp(email: str, _retries: int = 2) -> None:
+def send_supabase_otp(email: str) -> None:
     """Ask Supabase Auth to send a 6-digit OTP to *email*.
 
     Requires the ``SUPABASE_KEY`` (anon/public key) env var.
     Raises ``RuntimeError`` when the key is absent or the call fails.
-    Retries once on transient network errors.
     """
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError(
@@ -292,43 +291,16 @@ def send_supabase_otp(email: str, _retries: int = 2) -> None:
         "apikey": SUPABASE_ANON_KEY,
         "Content-Type": "application/json",
     }
-    last_exc = None
-    for attempt in range(_retries):
-        try:
-            resp = _requests.post(
-                f"{SUPABASE_URL}/auth/v1/otp",
-                json={"email": email, "create_user": True},
-                headers=headers,
-                timeout=15,
-            )
-            if resp.status_code == 429:
-                body = resp.text[:200]
-                raise RuntimeError(
-                    f"Too many email requests. Please wait a minute before trying again."
-                )
-            if resp.status_code not in (200, 201, 204):
-                body = resp.text[:200]
-                raise RuntimeError(f"Supabase OTP send failed ({resp.status_code}): {body}")
-            logger.info("Supabase OTP sent to %s", email)
-            return
-        except RuntimeError:
-            raise
-        except _requests.exceptions.ConnectionError as e:
-            last_exc = e
-            logger.warning("Supabase OTP connection error (attempt %d/%d): %s", attempt + 1, _retries, e)
-            if attempt < _retries - 1:
-                time.sleep(1)
-                continue
-            raise
-        except _requests.exceptions.Timeout as e:
-            last_exc = e
-            logger.warning("Supabase OTP timeout (attempt %d/%d): %s", attempt + 1, _retries, e)
-            if attempt < _retries - 1:
-                time.sleep(1)
-                continue
-            raise
-    if last_exc:
-        raise last_exc
+    resp = _requests.post(
+        f"{SUPABASE_URL}/auth/v1/otp",
+        json={"email": email, "create_user": True},
+        headers=headers,
+        timeout=15,
+    )
+    if resp.status_code not in (200, 204):
+        body = resp.text[:200]
+        raise RuntimeError(f"Supabase OTP send failed ({resp.status_code}): {body}")
+    logger.info("Supabase OTP sent to %s", email)
 
 
 def verify_supabase_otp(email: str, token: str) -> dict:
