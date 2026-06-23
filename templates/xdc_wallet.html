@@ -697,7 +697,8 @@
         const XDC_CHAIN_ID = 50;
         const XDC_CHAIN_ID_HEX = "0x32";
         const LOGIN_METHOD = "{{ login_method }}";
-        const useServerSigning = ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
+        // Server signing is disabled - Turnkey was removed
+        const useServerSigning = false;
         const XSWAP_V2_ROUTER = "0xf9c5E4f6E627201aB2d6FB6391239738Cf4bDcf9";
         const WXDC_ADDRESS = "0x951857744785E80e2De051c32EE7b25f9c458C42";
         const XDC_GD_TOKEN = "{{ xdc_gd_token_contract }}";
