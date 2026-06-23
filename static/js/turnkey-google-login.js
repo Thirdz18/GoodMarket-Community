@@ -148,16 +148,11 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: email }),
     }).then(function (resp) {
-      var contentType = resp.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Server error (' + resp.status + '). Please try again.');
-      }
       return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
     }).then(function (result) {
       if (!result.ok || !result.data.success) {
         throw new Error(result.data.error || 'Could not send code');
       }
-      _emailOtpId = result.data.otp_id || 'supabase';
       _emailContact = email;
       showOtpWrap(true);
       showVerifySection(true);
@@ -208,10 +203,6 @@
         referral_code: getReferralCode(),
       }),
     }).then(function (resp) {
-      var contentType = resp.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        throw new Error('Server error (' + resp.status + '). Please try again.');
-      }
       return resp.json().then(function (data) { return { ok: resp.ok, data: data }; });
     }).then(function (result) {
       if (!result.ok || !result.data.success) {
