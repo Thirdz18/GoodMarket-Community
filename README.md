@@ -5,11 +5,11 @@ A Web3 earning platform built on the GoodDollar ecosystem. Users earn G$ tokens 
 
 ## Source Availability Notice
 
-This repository is maintained as a community initiative by the project author and is not open for public source reuse.
+This repository is open source under the MIT License.
 
-- **License status:** All rights reserved.
-- **Contributions:** By invitation/maintainer approval only.
-- **Reuse/redistribution:** Not permitted without prior written permission from the author.
+- **License status:** MIT
+- **Contributions:** Welcome via pull request
+- **Reuse/redistribution:** Permitted under the MIT License terms
 
 ## Tech Stack
 
