@@ -811,6 +811,11 @@ class P2PEscrowService:
                 .limit(limit)
                 .execute()
             )
+            # Normalize status: if pending_user_signature but has ad_open_tx, treat as open
+            for ad in (res.data or []):
+                if ad.get("onchain_status") == "pending_user_signature" and ad.get("ad_open_tx"):
+                    ad["onchain_status"] = "open"
+                    logger.info(f"Normalized ad {ad.get('order_id')} from pending_user_signature to open")
             return res.data or []
         except Exception as exc:  # noqa: BLE001
             logger.warning("get_my_ads failed: %s", exc)
@@ -841,6 +846,10 @@ class P2PEscrowService:
                 key = t.get("trade_id")
                 if key and key not in seen:
                     seen.add(key)
+                    # Normalize status: if pending_user_signature but has tx, treat as payment_pending
+                    if t.get("onchain_status") == "pending_user_signature" and t.get("place_order_tx"):
+                        t["onchain_status"] = "payment_pending"
+                        logger.info(f"Normalized trade {key} from pending_user_signature to payment_pending")
                     combined.append(t)
             combined.sort(
                 key=lambda r: r.get("created_at") or "", reverse=True
