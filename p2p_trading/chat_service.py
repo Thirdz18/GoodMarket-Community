@@ -210,8 +210,10 @@ class P2PChatService:
             "attachment_size": attachment_size,
             "created_at": _utcnow_iso(),
         }
+        # Use admin client to bypass RLS for INSERT operations
+        db = self.admin or self.db
         try:
-            res = self.db.table("p2p_trade_chat").insert(row).execute()
+            res = db.table("p2p_trade_chat").insert(row).execute()
             inserted = (res.data or [None])[0] or row
         except Exception as exc:  # noqa: BLE001
             # Best-effort orphan cleanup so a DB hiccup doesn't leak Storage.
