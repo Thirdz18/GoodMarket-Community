@@ -273,6 +273,23 @@ def confirm_goodmarket_claim():
         except Exception as e_attr:
             logger.warning(f"[gm-claim-confirm] attribution backfill skipped: {e_attr}")
 
+    # PHASE 2 FIX: Trigger referral disbursement after successful claim
+    # This ensures INSTANT referral reward when user successfully claims UBI G$
+    if status == "confirmed":
+        try:
+            from referral_program.referral_service import referral_service
+            referral_result = referral_service.verify_and_disburse_referral(wallet)
+            if referral_result.get('success'):
+                logger.info(f"🎉 Referral disbursed after claim: wallet={wallet[:8]}... code={referral_result.get('referral_code')}")
+            elif referral_result.get('already_disbursed'):
+                logger.info(f"ℹ️ Referral already disbursed for: wallet={wallet[:8]}...")
+            elif referral_result.get('reason') == 'no_pending_referral':
+                logger.debug(f"No pending referral for claiming wallet: {wallet[:8]}...")
+            else:
+                logger.info(f"Referral not disbursed yet: wallet={wallet[:8]}... reason={referral_result.get('reason')}")
+        except Exception as e_ref:
+            logger.warning(f"[gm-claim-confirm] referral trigger skipped: {e_ref}")
+
     return jsonify({
         "success": True,
         "tx_hash": tx_hash,
@@ -2371,7 +2388,11 @@ def get_admin_referral_stats():
 @routes.route("/api/admin/referral/disburse-by-code", methods=["POST"])
 @admin_required
 def admin_disburse_referral_by_code():
-    """Admin: trigger disbursement for a specific referral code."""
+    """Admin: trigger disbursement for a specific referral code.
+    
+    Can process referrals with status: pending_face_verification, pending_disbursed, disbursing, or completed.
+    If already completed, will check and skip if both rewards were actually sent on-chain.
+    """
     try:
         from referral_program.referral_service import referral_service
 
@@ -2384,17 +2405,20 @@ def admin_disburse_referral_by_code():
         if not supabase:
             return jsonify({"success": False, "error": "Database unavailable"}), 500
 
+        # Include 'completed' status to allow re-processing of referrals that may have
+        # failed on-chain but were marked completed in the database
         referrals_result = supabase.table("referrals") \
             .select("*") \
             .eq("referral_code", referral_code) \
-            .in_("status", ["pending_face_verification", "pending_disbursed", "disbursing"]) \
+            .in_("status", ["pending_face_verification", "pending_disbursed", "disbursing", "completed"]) \
             .order("created_at", desc=False) \
+            .limit(1) \
             .execute()
         referrals = referrals_result.data if referrals_result and referrals_result.data else []
         if not referrals:
             return jsonify({
                 "success": False,
-                "error": f"No pending referral found for code {referral_code}"
+                "error": f"No referral found for code {referral_code}"
             }), 404
 
         row = referrals[0]
@@ -2404,6 +2428,8 @@ def admin_disburse_referral_by_code():
             return jsonify({"success": False, "error": "Referral row missing wallet data"}), 400
 
         current_status = row.get("status")
+        
+        # Only claim if pending face verification
         if current_status == "pending_face_verification":
             claim = referral_service.claim_pending_referral_for_disbursement(referee_wallet)
             if not claim.get("claimed"):
@@ -2412,11 +2438,24 @@ def admin_disburse_referral_by_code():
                     "error": "Referral is already being processed. Please refresh and retry."
                 }), 409
 
+        # Process disbursement - now has duplicate protection built-in
         disbursement = referral_service.process_referral_disbursement(
             referrer_wallet=referrer_wallet,
             referee_wallet=referee_wallet,
             referral_code=referral_code
         )
+        
+        # Return appropriate response
+        if disbursement.get("already_disbursed"):
+            return jsonify({
+                "success": True,
+                "already_disbursed": True,
+                "referral_code": referral_code,
+                "previous_status": current_status,
+                "message": "Referral was already fully disbursed. No new transactions sent.",
+                "result": disbursement
+            }), 200
+        
         return jsonify({
             "success": bool(disbursement.get("success")),
             "referral_code": referral_code,
@@ -3805,6 +3844,27 @@ def process_pending_referral_rewards():
         return jsonify(result)
     except Exception as e:
         logger.error(f"Error processing pending referral rewards: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@routes.route("/api/admin/referral/reconcile-stuck", methods=["POST"])
+@admin_required
+def reconcile_stuck_referrals():
+    """PHASE 1 FIX: Admin: reconcile stuck pending_face_verification referrals.
+    
+    This endpoint fixes referrals that are stuck despite the user being verified.
+    Call this periodically or manually after deployment.
+    """
+    try:
+        from referral_program.referral_service import referral_service
+        
+        # Get hours parameter (default 1 hour - catch referrals stuck > 1 hour)
+        hours = request.args.get('hours', 1, type=int)
+        
+        result = referral_service.reconcile_stuck_referrals(older_than_hours=hours)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error reconciling stuck referrals: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
