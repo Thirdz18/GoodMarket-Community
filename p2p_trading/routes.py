@@ -1045,7 +1045,7 @@ def api_indexer_backfill():
     try:
         from .escrow_service import escrow_service
         
-        updated_count = escrow_service.backfill_stuck_ads()
+        updated_count = escrow_service.backfill_stuck_records()
         return jsonify({
             "success": True,
             "message": f"Backfilled {updated_count} stuck ads",
@@ -1094,7 +1094,7 @@ def init_p2p_trading(app) -> None:
     # Always try to backfill stuck ads on startup (no env var needed)
     try:
         from .escrow_service import escrow_service
-        updated = escrow_service.backfill_stuck_ads()
+        updated = escrow_service.backfill_stuck_records()
         if updated > 0:
             logger.info(f"✅ Backfill complete: {updated} stuck ads updated to 'open'")
         else:
