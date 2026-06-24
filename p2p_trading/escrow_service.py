@@ -34,7 +34,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from .contract import (
     P2PEscrowContract,
@@ -46,6 +46,79 @@ from .contract import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Custom error classes for better error categorization
+# ---------------------------------------------------------------------------
+
+class EscrowServiceError(Exception):
+    """Base exception for escrow service errors."""
+    def __init__(self, message: str, error_code: str = "UNKNOWN_ERROR", details: Optional[Dict] = None):
+        super().__init__(message)
+        self.message = message
+        self.error_code = error_code
+        self.details = details or {}
+
+
+class BlockchainError(EscrowServiceError):
+    """Raised when blockchain RPC or contract calls fail."""
+    def __init__(self, message: str, details: Optional[Dict] = None):
+        super().__init__(message, "BLOCKCHAIN_ERROR", details)
+
+
+class DatabaseError(EscrowServiceError):
+    """Raised when Supabase database operations fail."""
+    def __init__(self, message: str, details: Optional[Dict] = None):
+        super().__init__(message, "DATABASE_ERROR", details)
+
+
+class ValidationError(EscrowServiceError):
+    """Raised when input validation fails."""
+    def __init__(self, message: str, details: Optional[Dict] = None):
+        super().__init__(message, "VALIDATION_ERROR", details)
+
+
+class StateError(EscrowServiceError):
+    """Raised when an operation is invalid for the current trade/ad state."""
+    def __init__(self, message: str, details: Optional[Dict] = None):
+        super().__init__(message, "STATE_ERROR", details)
+
+
+# Helper to categorize and format errors for API responses
+def _format_error_response(exc: Exception) -> Dict[str, Any]:
+    """Format an exception into a standardized API error response."""
+    if isinstance(exc, EscrowServiceError):
+        return {
+            "success": False,
+            "error": exc.message,
+            "error_code": exc.error_code,
+            "details": exc.details,
+        }
+    
+    # Categorize unknown exceptions
+    error_str = str(exc).lower()
+    if any(keyword in error_str for keyword in ["rpc", "connection", "timeout", "network", "web3"]):
+        return {
+            "success": False,
+            "error": "Blockchain network temporarily unavailable. Please try again.",
+            "error_code": "BLOCKCHAIN_ERROR",
+            "suggestion": "Wait a moment and retry, or check your network connection.",
+        }
+    elif any(keyword in error_str for keyword in ["supabase", "database", "db", "connection pool"]):
+        return {
+            "success": False,
+            "error": "Database temporarily unavailable. Please try again.",
+            "error_code": "DATABASE_ERROR",
+            "suggestion": "If the problem persists, contact support.",
+        }
+    else:
+        logger.exception("Unexpected error in escrow_service")
+        return {
+            "success": False,
+            "error": "An unexpected error occurred. Please try again.",
+            "error_code": "UNKNOWN_ERROR",
+        }
 
 
 # Supported off-chain context. The contract doesn't care about these — they
@@ -769,13 +842,29 @@ class P2PEscrowService:
         return result
 
     def contract_status(self) -> Dict[str, Any]:
-        return {
+        """Get the contract status with graceful error handling.
+        
+        If the blockchain RPC is unavailable, returns cached/degraded status
+        instead of failing entirely, so users can still see basic info.
+        """
+        status = {
             "address": self.contract.address,
             "chain_id": self.contract.chain_id,
-            "paused": self.contract.is_paused(),
             "g_dollar_token": self.contract.g_dollar_address,
             "deployed_block": self.contract.deployed_block,
+            "blockchain_available": True,
+            "error": None,
         }
+        
+        try:
+            status["paused"] = self.contract.is_paused()
+        except Exception as exc:
+            logger.warning("contract_status: is_paused() failed: %s", exc)
+            status["paused"] = None  # Unknown state
+            status["blockchain_available"] = False
+            status["blockchain_error"] = "Unable to verify contract state. Blockchain may be experiencing issues."
+        
+        return status
 
     # ---- internals -------------------------------------------------------
 
