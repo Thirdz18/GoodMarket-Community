@@ -156,9 +156,11 @@ class P2PEscrowService:
         self,
         contract: Optional[P2PEscrowContract] = None,
         supabase: Any = None,
+        supabase_admin: Any = None,
     ) -> None:
         self._contract = contract
         self._supabase = supabase
+        self._supabase_admin = supabase_admin
 
     # ---- lazy deps -------------------------------------------------------
 
@@ -170,11 +172,32 @@ class P2PEscrowService:
 
     @property
     def supabase(self) -> Any:
+        """Regular client for read operations (respects RLS)."""
         if self._supabase is None:
             from supabase_client import get_supabase_client
 
             self._supabase = get_supabase_client()
         return self._supabase
+
+    @property
+    def admin(self) -> Any:
+        """Admin client (service-role) for write operations that bypass RLS.
+        
+        This is required because the p2p_orders and p2p_trades tables have
+        Row Level Security enabled. Regular authenticated users cannot INSERT
+        into these tables directly.
+        """
+        if self._supabase_admin is None:
+            from supabase_client import get_supabase_admin_client
+
+            self._supabase_admin = get_supabase_admin_client()
+        if self._supabase_admin is None:
+            logger.error(
+                "Supabase admin client not configured. "
+                "Set SUPABASE_SERVICE_ROLE_KEY environment variable. "
+                "P2P write operations will fail with RLS errors."
+            )
+        return self._supabase_admin
 
     # ---- ad lifecycle ----------------------------------------------------
 
@@ -270,8 +293,10 @@ class P2PEscrowService:
             "created_at": _utcnow_iso(),
         }
 
+        # Use admin client to bypass RLS for INSERT operations
+        db = self.admin or self.supabase
         try:
-            insert = self.supabase.table("p2p_orders").insert(row).execute()
+            insert = db.table("p2p_orders").insert(row).execute()
         except Exception as exc:  # noqa: BLE001
             logger.exception("p2p_orders insert failed")
             return {"success": False, "error": f"DB insert failed: {exc}"}
@@ -436,8 +461,10 @@ class P2PEscrowService:
                 + timedelta(seconds=payment_window_seconds or self.DEFAULT_PAYMENT_WINDOW_SECONDS)
             ).isoformat(),
         }
+        # Use admin client to bypass RLS for INSERT operations
+        db = self.admin or self.supabase
         try:
-            insert = self.supabase.table("p2p_trades").insert(row).execute()
+            insert = db.table("p2p_trades").insert(row).execute()
         except Exception as exc:  # noqa: BLE001
             logger.exception("p2p_trades insert failed")
             return {"success": False, "error": f"DB insert failed: {exc}"}
@@ -496,8 +523,10 @@ class P2PEscrowService:
             }
         if len(proof_url) > 1000:
             return {"success": False, "error": "Proof URL too long"}
+        # Use admin client to bypass RLS for UPDATE operations
+        db = self.admin or self.supabase
         try:
-            self.supabase.table("p2p_trades").update(
+            db.table("p2p_trades").update(
                 {
                     "payment_proof_url": proof_url,
                     "payment_proof_uploaded_at": _utcnow_iso(),
@@ -663,8 +692,10 @@ class P2PEscrowService:
             if (order.get("onchain_status") or "") != "pending_user_signature":
                 # Already advanced by indexer or another actor; ignore.
                 return {"success": True, "skipped": True}
+            # Use admin client to bypass RLS for UPDATE operations
+            db = self.admin or self.supabase
             try:
-                self.supabase.table("p2p_orders").update(
+                db.table("p2p_orders").update(
                     {
                         "ad_open_tx": tx_hash,
                         "onchain_status": "submitted",
@@ -686,8 +717,10 @@ class P2PEscrowService:
                 return {"success": False, "error": "Not your trade"}
             if (trade.get("onchain_status") or "") != "pending_user_signature":
                 return {"success": True, "skipped": True}
+            # Use admin client to bypass RLS for UPDATE operations
+            db = self.admin or self.supabase
             try:
-                self.supabase.table("p2p_trades").update(
+                db.table("p2p_trades").update(
                     {
                         "place_order_tx": tx_hash,
                         "onchain_status": "submitted",
@@ -906,8 +939,10 @@ class P2PEscrowService:
         notes: Optional[str] = None,
         amount_gd: Optional[float] = None,
     ) -> None:
+        # Use admin client to bypass RLS for INSERT operations
+        db = self.admin or self.supabase
         try:
-            self.supabase.table("p2p_escrow_logs").insert(
+            db.table("p2p_escrow_logs").insert(
                 {
                     "action": action,
                     "actor": (actor or "").lower() or None,
