@@ -102,8 +102,12 @@ AUTO_RUN_BOOT_DELAY_SECONDS = int(
 # was almost certainly verified through a different dApp and just round-tripped
 # back through GoodMarket's FV button afterwards. Tunable via env var so we
 # can loosen it without a redeploy if RPC indexing latency ever spikes.
+#
+# PHASE 3 FIX: Extended to 7 days (604800 seconds) to allow for users who
+# verified earlier but didn't trigger the referral properly. This ensures
+# legitimate referrals are not rejected due to timing issues.
 STRICT_ATTRIBUTION_WINDOW_SECONDS = int(
-    os.getenv("GOODMARKET_ATTRIBUTION_STRICT_WINDOW_SECONDS", str(30 * 60))
+    os.getenv("GOODMARKET_ATTRIBUTION_STRICT_WINDOW_SECONDS", str(7 * 24 * 60 * 60))  # 7 days default
 )
 
 # Master switch for the strict attribution rule. Default ON. Flip to "0" to
