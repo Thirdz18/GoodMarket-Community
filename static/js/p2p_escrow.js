@@ -229,7 +229,11 @@
     }
     if (txs.open_ad) {
       txHashes.open_ad = await sendPreparedTx(txs.open_ad);
-      await reportSubmitted("ad", order.order_id, txHashes.open_ad);
+      // Report submitted - NON-BLOCKING (best effort)
+      // Even if this fails, the ad should still appear
+      reportSubmitted("ad", order.order_id, txHashes.open_ad).catch(err => {
+        console.warn("reportSubmitted (ad) failed (non-critical):", err);
+      });
     }
     return { order, txHashes };
   }
@@ -245,7 +249,13 @@
     const trade = prep.trade;
     const tx = (prep.transactions || {}).place_order;
     const txHash = await sendPreparedTx(tx);
-    await reportSubmitted("trade", trade.trade_id, txHash);
+    
+    // Report submitted - NON-BLOCKING (best effort)
+    // Even if this fails, the trade should still appear
+    reportSubmitted("trade", trade.trade_id, txHash).catch(err => {
+      console.warn("reportSubmitted failed (non-critical):", err);
+    });
+    
     return { trade, txHash };
   }
 
