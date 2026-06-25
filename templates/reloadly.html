@@ -577,7 +577,7 @@
                 <div style="margin-top:14px;background:rgba(255,255,255,0.06);border-radius:8px;height:6px;overflow:hidden">
                     <div id="detectProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#5c6bc0,#7986cb);transition:width 0.5s ease;border-radius:8px"></div>
                 </div>
-                <div style="font-size:11px;color:#555;margin-top:6px" id="detectPollCount">Poll 0 / 360 • expires in 30:00</div>
+                <div style="font-size:11px;color:#555;margin-top:6px" id="detectPollCount">Poll 0 / 60 • expires in 5:00</div>
             </div>
         </div>
 
@@ -624,6 +624,7 @@ const PREFER_WC_SIGNING = (typeof GMWalletConnect !== 'undefined' && typeof GMWa
     ? GMWalletConnect.prefersWcSigning()
     : ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
 // Pure self-custody mode: never use server-side signing.
+window.useServerSigning = ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
 
 // ─── Live G$ price refresh (every 5 min from CoinGecko via backend) ──────────
 async function refreshGdPrice() {
@@ -1577,9 +1578,8 @@ async function openPayModal(order) {
 }
 
 // ─── Auto-detect payment polling ─────────────────────────────────────────────
-const POLL_INTERVAL_MS = 5000;   // 5 seconds between polls
-const POLL_WINDOW_MINUTES = 30;
-const POLL_MAX = (POLL_WINDOW_MINUTES * 60 * 1000) / POLL_INTERVAL_MS;
+const POLL_INTERVAL_MS = 5000;  // 5 seconds between polls
+const POLL_MAX = 60;             // 5 minutes total (60 × 5s)
 let _lastKnownTxHash = null;     // passed to detect-payment for receipt checks
 
 async function markOrderStatus(orderId, status) {
@@ -1599,7 +1599,7 @@ async function startAutoDetect() {
     document.getElementById('processingMsg').textContent = 'Watching the blockchain for your payment...';
     document.getElementById('processingDetail').textContent = 'Scanning Celo network • Auto-detecting G$ transfer';
     document.getElementById('detectProgressBar').style.width = '0%';
-    document.getElementById('detectPollCount').textContent = 'Poll 0 / ' + POLL_MAX + ' • expires in 30:00';
+    document.getElementById('detectPollCount').textContent = 'Poll 0 / ' + POLL_MAX;
 
     let poll = 0;
     while (poll < POLL_MAX) {
@@ -1688,7 +1688,7 @@ async function startAutoDetect() {
     _scanningActive = false;
     if (currentOrderId) await markOrderStatus(currentOrderId, 'expired');
     showStep('stepResult');
-    setResult('error', `⏳ Scanning expired after ${POLL_WINDOW_MINUTES} minutes — no payment detected.<br><br>Order ID: <strong>${currentOrderId}</strong><br><br>If you already sent the G$, check your <strong>Order History</strong> — it may still appear shortly. Otherwise, contact support with your order ID.`);
+    setResult('error', `⏳ Scanning expired after 5 minutes — no payment detected.<br><br>Order ID: <strong>${currentOrderId}</strong><br><br>If you already sent the G$, check your <strong>Order History</strong> — it may still appear shortly. Otherwise, contact support with your order ID.`);
     showToast('Detection timed out', 'error');
 }
 
