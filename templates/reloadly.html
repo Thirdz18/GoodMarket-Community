@@ -624,7 +624,6 @@ const PREFER_WC_SIGNING = (typeof GMWalletConnect !== 'undefined' && typeof GMWa
     ? GMWalletConnect.prefersWcSigning()
     : ['walletconnect', 'manual', 'manual_address'].includes((LOGIN_METHOD || '').toLowerCase());
 // Pure self-custody mode: never use server-side signing.
-window.useServerSigning = ['turnkey_google', 'turnkey_email'].includes((LOGIN_METHOD || '').toLowerCase());
 
 // ─── Live G$ price refresh (every 5 min from CoinGecko via backend) ──────────
 async function refreshGdPrice() {
