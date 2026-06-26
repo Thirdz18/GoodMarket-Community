@@ -6778,7 +6778,9 @@ async function loadMinigamesMaintenance() {
                     loadReferralStats();
                     loadReferralKeyBalance();
                 } else {
-                    alert(`❌ Failed: ${data.error || 'Unknown error'}\n\nStatus: ${data.status || 'N/A'}`);
+                    const referrerStatus = data.referrer_status || 'unknown';
+                    const refereeStatus = data.referee_status || 'unknown';
+                    alert(`❌ Failed: ${data.error || 'Unknown error'}\n\nReferrer Status: ${referrerStatus}\nReferee Status: ${refereeStatus}\n\nCheck server logs for details.`);
                     if (btn) {
                         btn.disabled = false;
                         btn.innerHTML = '🟢 ✅ Approve & Disburse Rewards';
