@@ -828,7 +828,7 @@
 
                 if (faucetResult && faucetResult.status === 'cusd_sent') {
                     _showAutoHideToast(
-                        "✅ GoodMarket gas received. Don\'t transfer this cUSD to another wallet to avoid next-claim errors.",
+                        "✅ cUSD received from GoodMarket! Don't transfer this to another wallet — it's needed for MiniPay gas.",
                         5000
                     );
                 }
@@ -893,25 +893,27 @@
             _modalBody = opts.body;
         } else if (cooldownActive) {
             const human = _humanizeCooldownSeconds(cooldownSeconds) || 'some time';
-            _modalBody = 'The cUSD gas faucet is on cooldown for another ~' + human + '. '
-                + 'You have CELO — convert the amount above the 0.09 CELO reserve to cUSD '
-                + 'so you can pay gas and continue. '
-                + '<br><br>⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
+            _modalBody = 'The GoodMarket cUSD faucet is on cooldown for another ~' + human + '. '
+                + '<br><br>'
+                + '✅ You\'ve received CELO from GoodDollar\'s faucet.<br>'
+                + 'Next, confirm the CELO → cUSD swap to pay for MiniPay gas. '
+                + '<br><br>'
+                + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
                 + 'it\'s needed as gas for your next claims.';
         } else if (startedWithoutStableGas) {
-            _modalBody = '✅ We sent a small cUSD gas budget to your MiniPay wallet — '
-                + '<em>Program by Betz Team.</em>'
-                + '<br><br>'
-                + 'Next, convert your CELO to cUSD. <strong>MiniPay does not use CELO for gas</strong> — '
-                + 'stablecoin (cUSD/USDT/USDC) is needed for your next claims. '
-                + 'You\'ll sign the swap inside MiniPay; we\'ll keep ~0.09 CELO as your MiniPay reserve. '
-                + '<br><br>⚠️ <strong>Do not transfer the cUSD to another wallet.</strong>';
+            _modalBody = '✅ CELO received from GoodDollar!<br><br>'
+                + 'We\'ve sent CELO to your wallet from GoodDollar\'s gas faucet.<br><br>'
+                + '✅ cUSD received from GoodMarket!<br><br>'
+                + 'We\'ve also sent cUSD from GoodMarket\'s faucet to help with gas.<br><br>'
+                + 'Now, <strong>confirm the CELO → cUSD swap</strong> to complete the gas top-up.<br>'
+                + 'MiniPay pays transaction fees in stablecoins (cUSD/USDT/USDC), not CELO.<br><br>'
+                + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet.</strong>';
         } else {
-            _modalBody = 'You\'re doing an action that needs gas. MiniPay pays gas in '
-                + '<strong>stablecoin (cUSD/USDT/USDC), not in CELO</strong> — '
-                + 'you need to convert your CELO to cUSD first to pay for gas.'
-                + '<br><br>'
-                + 'You\'ll sign the swap inside MiniPay. We\'ll keep ~0.09 CELO untouched as your MiniPay reserve. '
+            _modalBody = '✅ CELO received from GoodDollar!<br><br>'
+                + 'You\'ve received CELO from GoodDollar\'s gas faucet.<br><br>'
+                + '<strong>Confirm the CELO → cUSD swap</strong> to pay for MiniPay gas.<br>'
+                + 'MiniPay pays transaction fees in stablecoins (cUSD/USDT/USDC), not CELO.<br>'
+                + 'We\'ll keep ~0.09 CELO as your MiniPay reserve.<br><br>'
                 + '⚠️ <strong>Do not transfer the resulting cUSD to another wallet</strong> — '
                 + 'it\'s needed as gas for your next claims.';
         }
@@ -924,10 +926,12 @@
         });
         if (!confirmed) return { proceed: false, cancelled: true };
 
-        const progress = _showProgressModal('Preparing swap…');
+        // Step 5: Show swap progress message
+        const progress = _showProgressModal('Swapping CELO to cUSD…');
         try {
             const txHash = await _swapCeloForCusd(walletAddr, amountWei, progress);
-            progress.update('Swap confirmed ✓ — waiting a moment for balances to settle…');
+            // Step 6: Swap complete - show success
+            progress.update('✅ Swap confirmed! Waiting for balances to update…');
             await new Promise((r) => setTimeout(r, 3000));
             progress.close();
             return { proceed: true, swapped: true, txHash: txHash };
@@ -941,10 +945,8 @@
             try {
                 if (typeof global.alert === 'function') {
                     global.alert(
-                        'Gas top-up swap failed: ' + msg + '\n\n'
-                        + 'You can still retry the original action — if the network '
-                        + 'has any way to pay gas it will go through, otherwise it '
-                        + 'will surface a wallet-side error.'
+                        '⚠️ CELO → cUSD swap failed: ' + msg + '\n\n'
+                        + 'Please try again or add cUSD to your wallet manually for MiniPay gas.'
                     );
                 }
             } catch (_) { /* ignore */ }
