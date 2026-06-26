@@ -900,7 +900,7 @@
                 + 'it\'s needed as gas for your next claims.';
         } else if (startedWithoutStableGas) {
             _modalBody = '✅ We sent a small cUSD gas budget to your MiniPay wallet — '
-                + '<em>Program by Betz Team.</em>'
+                + '<em>Program by Betz & Omar Team.</em>'
                 + '<br><br>'
                 + 'Next, convert your CELO to cUSD. <strong>MiniPay does not use CELO for gas</strong> — '
                 + 'stablecoin (cUSD/USDT/USDC) is needed for your next claims. '
