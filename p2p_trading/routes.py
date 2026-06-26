@@ -386,7 +386,8 @@ def api_config():
             "success": True,
             "payment_methods": escrow_service.payment_methods,
             "fiat_currencies": escrow_service.fiat_currencies,
-            "min_ad_amount_gd": 20_000,
+            "min_ad_amount_gd": 1_000,
+            "order_amount_gd": 1_000,
             "default_payment_window_seconds": (
                 escrow_service.DEFAULT_PAYMENT_WINDOW_SECONDS
             ),
@@ -491,12 +492,12 @@ def api_prepare_open_ad():
     return jsonify(result), (200 if result.get("success") else 400)
 
 
-@p2p_bp.route("/api/ads/<order_id>/prepare-close", methods=["POST"])
+@p2p_bp.route("/api/ads/<order_id>/prepare-refund", methods=["POST"])
 @p2p_terms_required
-@trade_action_rate_limit("close_ad")
-def api_prepare_close_ad(order_id: str):
+@trade_action_rate_limit("refund_ad")
+def api_prepare_refund_ad(order_id: str):
     wallet = _wallet_from_session()
-    result = escrow_service.prepare_close_ad(wallet, order_id)
+    result = escrow_service.prepare_refund_ad(wallet, order_id)
     return jsonify(result), (200 if result.get("success") else 400)
 
 
@@ -504,6 +505,10 @@ def api_prepare_close_ad(order_id: str):
 @p2p_terms_required
 @trade_action_rate_limit("place_order")
 def api_prepare_place_order(order_id: str):
+    """Prepare a place order transaction.
+    
+    Amount must be between minOrder and maxOrder of the ad.
+    """
     wallet = _wallet_from_session()
     body = _json_body()
     try:
