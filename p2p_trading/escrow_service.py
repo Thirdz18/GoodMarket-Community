@@ -215,19 +215,20 @@ class P2PEscrowService:
     ) -> Dict[str, Any]:
         """Create a draft ad row and return the unsigned txs the seller
         must submit (approve G$ then call ``openAd``).
+        
+        minOrder and maxOrder define the flexible order size range.
         """
-        if total_g_dollar < 20_000:
+        MIN_ORDER = 1_000.0
+        
+        if total_g_dollar < MIN_ORDER:
             return {
                 "success": False,
-                "error": "Minimum ad size is 20,000 G$",
+                "error": f"Minimum ad size is {MIN_ORDER:,.0f} G$",
             }
-        if min_order_g_dollar < 20_000:
+        if min_order_g_dollar < MIN_ORDER:
             return {
                 "success": False,
-                "error": (
-                    "Per-trade minimum must be \u2265 20,000 G$ "
-                    "(contract MIN_AD_AMOUNT)"
-                ),
+                "error": f"Minimum order size is {MIN_ORDER:,.0f} G$",
             }
         if max_order_g_dollar < min_order_g_dollar:
             return {
@@ -261,14 +262,14 @@ class P2PEscrowService:
             return {
                 "success": False,
                 "error": (
-                    f"Insufficient G$ balance: have {balance_gd:.2f}, "
-                    f"need {total_g_dollar}"
+                    f"Insufficient G$ balance: have {balance_gd:,.2f}, "
+                    f"need {total_g_dollar:,.2f}"
                 ),
             }
 
         ad_id = make_random_bytes32("ad")
         order_id = f"P2P-{uuid.uuid4().hex[:8].upper()}"
-        rate = float(fiat_amount) / float(total_g_dollar)
+        rate = float(fiat_amount) / float(total_g_dollar) if total_g_dollar > 0 else 0
 
         row = {
             "order_id": order_id,
@@ -334,9 +335,13 @@ class P2PEscrowService:
             },
         }
 
-    def prepare_close_ad(
+    def prepare_refund_ad(
         self, seller_wallet: str, order_id: str
     ) -> Dict[str, Any]:
+        """Prepare a refund transaction for an ad.
+        
+        Refunds remaining G$ from ad. Only works if no active trades.
+        """
         order = self._fetch_order(order_id)
         if not order:
             return {"success": False, "error": "Order not found"}
@@ -348,30 +353,26 @@ class P2PEscrowService:
                 "success": False,
                 "error": "Ad has not been opened on-chain yet",
             }
-        if (order.get("active_trade_count") or 0) > 0:
-            return {
-                "success": False,
-                "error": (
-                    "Cannot close ad with active trades; resolve or cancel "
-                    "all open trades first"
-                ),
-            }
-        # Mirror the state guards on the other prepare_* methods: refuse to
-        # build a closeAd tx for an ad that isn't open on-chain (would just
-        # revert and burn the seller's gas).
-        if (order.get("onchain_status") or "") != "open":
-            return {
-                "success": False,
-                "error": (
-                    "Ad is not open on-chain; current state="
-                    f"{order.get('onchain_status')}"
-                ),
-            }
-        tx = self.contract.build_close_ad_tx(seller_wallet, ad_id_hex)
+        
+        # Check on-chain state for active trades
+        try:
+            ad = self.contract.get_ad(ad_id_hex)
+            if ad and ad.active_trade_count > 0:
+                return {
+                    "success": False,
+                    "error": f"Cannot refund: {ad.active_trade_count} active trade(s) still pending",
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to check ad state: %s", exc)
+        
+        refund_tx = self.contract.build_refund_ad_tx(seller_wallet, ad_id_hex)
+        
         return {
             "success": True,
-            "order": order,
-            "transactions": {"close_ad": tx},
+            "ad_id_onchain": ad_id_hex,
+            "transactions": {
+                "refund": refund_tx,
+            },
         }
 
     # ---- order placement ------------------------------------------------
@@ -383,6 +384,12 @@ class P2PEscrowService:
         amount_g_dollar: float,
         payment_window_seconds: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """Prepare a place order transaction for a buyer.
+        
+        Amount must be between minOrder and maxOrder of the ad.
+        """
+        MIN_ORDER = 1_000.0
+        
         order = self._fetch_order(order_id)
         if not order:
             return {"success": False, "error": "Order not found"}
@@ -399,83 +406,83 @@ class P2PEscrowService:
         if not ad_id_hex:
             return {
                 "success": False,
-                "error": "Ad has no on-chain ID",
+                "error": "Ad not opened on-chain yet",
             }
-        if amount_g_dollar < float(order.get("min_order_gd") or 0):
+        
+        min_order = float(order.get("min_order_gd") or MIN_ORDER)
+        max_order = float(order.get("max_order_gd") or 999999999)
+        
+        if amount_g_dollar < min_order:
             return {
                 "success": False,
-                "error": (
-                    f"Amount below ad min ({order.get('min_order_gd')} G$)"
-                ),
+                "error": f"Amount below minimum order of {min_order:,.0f} G$",
             }
-        if amount_g_dollar > float(order.get("max_order_gd") or 0):
+        if amount_g_dollar > max_order:
             return {
                 "success": False,
-                "error": (
-                    f"Amount above ad max ({order.get('max_order_gd')} G$)"
-                ),
+                "error": f"Amount exceeds maximum order of {max_order:,.0f} G$",
             }
-        if amount_g_dollar > float(order.get("remaining_amount_gd") or 0):
-            return {
-                "success": False,
-                "error": "Amount exceeds remaining inventory",
-            }
-
+        
+        # Check remaining amount on-chain
+        try:
+            ad = self.contract.get_ad(ad_id_hex)
+            if not ad or not ad.is_open:
+                return {"success": False, "error": "Ad is no longer open"}
+            if ad.remaining_amount < _to_wei(amount_g_dollar):
+                return {"success": False, "error": "Insufficient remaining amount in ad"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to check ad: %s", exc)
+        
         trade_id = make_random_bytes32("trade")
         trade_id_hex = _hex(trade_id)
+        
+        place_order_tx = self.contract.build_place_order_tx(
+            buyer_wallet,
+            ad_id_hex,
+            trade_id,
+            amount_g_dollar,
+            payment_window_seconds,
+        )
+        
+        # Calculate fiat amount at the ad's rate
         rate = float(order.get("rate") or 0)
-        fiat_amount = round(amount_g_dollar * rate, 6) if rate else None
-
-        # Build the unsigned tx FIRST so a payment-window validation error
-        # doesn't leave behind an orphan p2p_trades row.
-        try:
-            place_order_tx = self.contract.build_place_order_tx(
-                buyer_wallet,
-                ad_id_hex,
-                trade_id_hex,
-                amount_g_dollar,
-                payment_window_seconds,
-            )
-        except ValueError as exc:
-            return {"success": False, "error": str(exc)}
-
+        fiat_amount = round(amount_g_dollar * rate, 6)
+        
         row = {
-            "trade_id": f"TRADE-{uuid.uuid4().hex[:8].upper()}",
+            "trade_id": trade_id_hex,
             "order_id": order_id,
             "buyer_wallet": buyer_wallet.lower(),
             "seller_wallet": seller,
-            "g_dollar_amount": float(amount_g_dollar),
+            "g_dollar_amount": amount_g_dollar,
             "fiat_amount": fiat_amount,
             "fiat_currency": order.get("fiat_currency"),
             "payment_method": order.get("payment_method"),
-            "rate": rate,
+            "payment_details": order.get("payment_details"),
+            "rate": order.get("rate"),
             "status": "draft",
             "trade_id_onchain": trade_id_hex,
-            "ad_id_onchain": ad_id_hex,
-            "contract_address": self.contract.address.lower(),
             "chain_id": self.contract.chain_id,
             "onchain_status": "pending_user_signature",
             "created_at": _utcnow_iso(),
-            "timeout_at": (
-                datetime.now(timezone.utc)
-                + timedelta(seconds=payment_window_seconds or self.DEFAULT_PAYMENT_WINDOW_SECONDS)
-            ).isoformat(),
         }
-        # Use admin client to bypass RLS for INSERT operations
+        
         db = self.admin or self.supabase
         try:
             insert = db.table("p2p_trades").insert(row).execute()
         except Exception as exc:  # noqa: BLE001
             logger.exception("p2p_trades insert failed")
             return {"success": False, "error": f"DB insert failed: {exc}"}
-        if not insert.data:
-            return {"success": False, "error": "Failed to create trade row"}
-
+        
         return {
             "success": True,
-            "trade": insert.data[0],
+            "trade": insert.data[0] if insert.data else None,
             "trade_id_onchain": trade_id_hex,
-            "transactions": {"place_order": place_order_tx},
+            "transactions": {
+                "place_order": place_order_tx,
+            },
+            "order_amount_gd": amount_g_dollar,
+            "fiat_amount": fiat_amount,
+            "payment_deadline": place_order_tx.get("payment_deadline"),
         }
 
     # ---- proof + state transitions --------------------------------------
