@@ -14,7 +14,6 @@ class NotificationService:
     - Hour Bonus notifications
     - Forum reward notifications  
     - Learn & Earn notifications
-    - P2P Trading notifications
     - Withdrawal notifications
     """
 
@@ -52,12 +51,7 @@ class NotificationService:
             learn_earn_notifications = self._get_learn_earn_notifications(wallet_address, limit)
             all_notifications.extend(learn_earn_notifications)
 
-            # 2. P2P Trading Notifications
-            # P2P trading has been removed. This section is now a placeholder.
-            # p2p_notifications = self._get_p2p_notifications(wallet_address, limit)
-            # all_notifications.extend(p2p_notifications)
-
-            # 3. Daily Task Notifications (Twitter & Telegram)
+            # 2. Daily Task Notifications (Twitter & Telegram)
             daily_task_notifications = self._get_daily_task_notifications(wallet_address, limit)
             all_notifications.extend(daily_task_notifications)
 
@@ -155,10 +149,6 @@ class NotificationService:
         except Exception as e:
             logger.error(f"❌ Error getting Learn & Earn notifications: {e}")
             return []
-
-    def _get_p2p_notifications(self, wallet_address: str, limit: int) -> List[Dict]:
-        """P2P trading has been removed - return empty notifications"""
-        return []
 
     def _get_daily_task_notifications(self, wallet_address: str, limit: int) -> List[Dict]:
         """Get Daily Task (Twitter & Telegram) notifications"""
