@@ -6559,7 +6559,7 @@ async function loadMinigamesMaintenance() {
                         </td>
                         <td style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-size:0.8rem">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
                         <td style="padding:0.75rem 0.5rem">
-                            <button class="admin-btn" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;" onclick="viewReferralDetail('${(r.referral_code || '').replace(/'/g, '')}')">
+                            <button class="admin-btn" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;" onclick="viewReferralDetail('${(r.referral_code || '').replace(/'/g, '')}', '${r.id || ''}')">
                                 👁️ View
                             </button>
                         </td>
@@ -6647,11 +6647,12 @@ async function loadMinigamesMaintenance() {
             }
         }
 
-        async function viewReferralDetail(referralCode) {
+        async function viewReferralDetail(referralCode, referralId = '') {
             if (!referralCode) return;
             
             try {
-                const res = await fetch(`/api/admin/referral/${referralCode}`);
+                const detailUrl = `/api/admin/referral/${encodeURIComponent(referralCode)}${referralId ? `?id=${encodeURIComponent(referralId)}` : ''}`;
+                const res = await fetch(detailUrl);
                 const data = await res.json();
                 
                 if (!data.success) {
@@ -6727,7 +6728,7 @@ async function loadMinigamesMaintenance() {
                                 ${r.admin_verified_at ? `<p style="margin:0.5rem 0 0 0;color:rgba(241,245,249,0.6);font-size:0.85rem">Approved on: ${new Date(r.admin_verified_at).toLocaleString()}</p>` : ''}
                             </div>
                             ` : `
-                            <button onclick="approveReferral('${r.referral_code}')" id="approve-btn-${r.referral_code}" style="width:100%;padding:1rem;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer">
+                            <button onclick="approveReferral('${r.referral_code}', '${r.id || ''}')" id="approve-btn-${r.referral_code}-${r.id || ''}" style="width:100%;padding:1rem;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer">
                                 🟢 ✅ Approve & Disburse Rewards
                             </button>
                             <p style="margin:0.75rem 0 0 0;text-align:center;color:rgba(241,245,249,0.5);font-size:0.8rem">
@@ -6749,10 +6750,10 @@ async function loadMinigamesMaintenance() {
             if (modal) modal.remove();
         }
 
-        async function approveReferral(referralCode) {
+        async function approveReferral(referralCode, referralId = '') {
             if (!referralCode) return;
             
-            const btn = document.getElementById(`approve-btn-${referralCode}`);
+            const btn = document.getElementById(`approve-btn-${referralCode}-${referralId || ''}`);
             if (!confirm(`Are you sure you want to approve and disburse rewards for referral ${referralCode}?\n\nYou must have verified the on-chain claim on CeloScan first!`)) {
                 return;
             }
@@ -6766,7 +6767,7 @@ async function loadMinigamesMaintenance() {
                 const res = await fetch('/api/admin/referral/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ referral_code: referralCode })
+                    body: JSON.stringify({ referral_code: referralCode, referral_id: referralId || undefined })
                 });
                 const data = await res.json();
                 
