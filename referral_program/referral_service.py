@@ -423,14 +423,32 @@ class ReferralService:
             op="claim pending referral — atomic update to disbursing"
         )
 
-        # BUG FIX: Supabase UPDATE returns data=[] even on success
-        # Use update_result.count to check if rows were actually updated
-        # Note: getattr returns the actual value, not default, if attribute exists
+        # Supabase clients/deployments differ in what UPDATE returns:
+        # some return count, some return updated rows in data, and some return
+        # neither unless a count/returning option is enabled.  Do not treat a
+        # missing count as a failed claim because that leaves admin approval
+        # stuck with "already being processed" even though the row was moved
+        # to disbursing successfully.
         update_count = getattr(update_result, 'count', None)
-        if update_count is None:
-            update_count = 0
-        if update_count > 0:
+        update_data = getattr(update_result, 'data', None) or []
+        if (update_count is not None and update_count > 0) or update_data:
             logger.info(f"✅ Claimed pending referral id={row_id} for disbursement (referee={referee_wallet[:8]}...)")
+            return {"claimed": True, "referral": row}
+
+        # Fallback verification for Supabase responses without count/data.
+        # If this request's conditional update succeeded, the row status is now
+        # disbursing; allow the disbursement flow to continue instead of
+        # returning a false 409 to the admin dashboard.
+        verify = _safe(
+            lambda: supabase.table('referrals')
+                .select('id,status')
+                .eq('id', row_id)
+                .limit(1)
+                .execute(),
+            op="claim pending referral — verify disbursing status"
+        )
+        if verify and verify.data and verify.data[0].get('status') == 'disbursing':
+            logger.info(f"✅ Verified pending referral id={row_id} is disbursing (referee={referee_wallet[:8]}...)")
             return {"claimed": True, "referral": row}
 
         logger.info(f"ℹ️ Referral id={row_id} already claimed by another process for {referee_wallet[:8]}...")
