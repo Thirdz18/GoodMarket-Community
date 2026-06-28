@@ -2338,10 +2338,11 @@ def get_admin_referral_stats():
 @routes.route("/api/admin/referral/pending", methods=["GET"])
 @admin_required
 def get_pending_referrals():
-    """Get all pending referrals awaiting admin approval.
-    
-    Returns referrals with status 'pending_face_verification' that need
-    manual CeloScan verification and admin approval.
+    """Get all actionable referrals awaiting admin management.
+
+    Includes rows from the referrals table that need either manual CeloScan
+    verification (pending_face_verification) or reward retry after funding the
+    REFERRAL_KEY wallet (pending_disbursed).
     """
     try:
         supabase = get_supabase_client()
@@ -2351,10 +2352,14 @@ def get_pending_referrals():
         limit = int(request.args.get('limit', 100))
         offset = int(request.args.get('offset', 0))
 
-        # Get pending referrals
+        actionable_statuses = ['pending_face_verification', 'pending_disbursed']
+
+        # Get pending/actionable referrals directly from the referrals table.
+        # pending_face_verification = admin must verify the referee on CeloScan.
+        # pending_disbursed = already verified but rewards need a disbursement retry.
         result = supabase.table('referrals') \
             .select('*') \
-            .eq('status', 'pending_face_verification') \
+            .in_('status', actionable_statuses) \
             .order('created_at', desc=True) \
             .range(offset, offset + limit - 1) \
             .execute()
@@ -2362,7 +2367,7 @@ def get_pending_referrals():
         # Get total count
         count_result = supabase.table('referrals') \
             .select('id', count='exact') \
-            .eq('status', 'pending_face_verification') \
+            .in_('status', actionable_statuses) \
             .execute()
         
         total_count = count_result.count if count_result else 0
@@ -2378,6 +2383,8 @@ def get_pending_referrals():
                 "referee_wallet": r.get("referee_wallet"),
                 "referrer_wallet": r.get("referrer_wallet"),
                 "status": r.get("status"),
+                "status_label": "Awaiting reward retry" if r.get("status") == "pending_disbursed" else "Awaiting verification",
+                "action_label": "Retry Disbursement" if r.get("status") == "pending_disbursed" else "View / Approve",
                 "onchain_verified": r.get("onchain_verified"),
                 "created_at": r.get("created_at"),
                 "celoscan_url": f"https://celoscan.io/address/{r.get('referee_wallet')}" if r.get("referee_wallet") else None
@@ -2571,11 +2578,14 @@ def admin_approve_referral():
         if not supabase:
             return jsonify({"success": False, "error": "Database unavailable"}), 500
 
-        # Get referral record
+        actionable_statuses = ["pending_face_verification", "pending_disbursed"]
+
+        # Get referral record. pending_disbursed rows were already approved, but
+        # still need admin-managed retry after the REFERRAL_KEY wallet is funded.
         referrals_result = supabase.table("referrals") \
             .select("*") \
             .eq("referral_code", referral_code) \
-            .eq("status", "pending_face_verification") \
+            .in_("status", actionable_statuses) \
             .limit(1) \
             .execute()
         
@@ -2597,7 +2607,7 @@ def admin_approve_referral():
                     }), 400
                 return jsonify({
                     "success": False,
-                    "error": f"Referral has status '{row.get('status')}' - only pending_face_verification can be approved",
+                    "error": f"Referral has status '{row.get('status')}' - only pending_face_verification or pending_disbursed can be managed",
                     "status": row.get("status")
                 }), 400
             return jsonify({
@@ -2611,27 +2621,32 @@ def admin_approve_referral():
         if not referee_wallet or not referrer_wallet:
             return jsonify({"success": False, "error": "Referral row missing wallet data"}), 400
 
-        # Step 1: Mark as onchain_verified with admin info
-        now = datetime.now(timezone.utc).isoformat()
-        supabase.table("referrals").update({
-            "onchain_verified": True,
-            "admin_verified_at": now,
-            "approved_by_wallet": admin_wallet,
-            "approved_by_ip": admin_ip
-        }).eq("id", row.get("id")).execute()
+        # Step 1: Mark as onchain_verified with admin info when this is a new
+        # manual approval. For pending_disbursed, preserve prior approval data
+        # and retry the reward payout directly.
+        if row.get("status") == "pending_face_verification":
+            now = datetime.now(timezone.utc).isoformat()
+            supabase.table("referrals").update({
+                "onchain_verified": True,
+                "admin_verified_at": now,
+                "approved_by_wallet": admin_wallet,
+                "approved_by_ip": admin_ip
+            }).eq("id", row.get("id")).execute()
 
-        logger.info(f"✅ Admin {admin_wallet[:8]}... approved referral {referral_code} | referee={referee_wallet[:8]}...")
+            logger.info(f"✅ Admin {admin_wallet[:8]}... approved referral {referral_code} | referee={referee_wallet[:8]}...")
 
-        # Step 2: Claim for disbursement
-        claim = referral_service.claim_pending_referral_for_disbursement(referee_wallet)
-        if not claim.get("claimed"):
-            return jsonify({
-                "success": False,
-                "error": "Referral is already being processed. Please refresh and retry.",
-                "debug": claim
-            }), 409
+            # Step 2: Claim for disbursement
+            claim = referral_service.claim_pending_referral_for_disbursement(referee_wallet)
+            if not claim.get("claimed"):
+                return jsonify({
+                    "success": False,
+                    "error": "Referral is already being processed. Please refresh and retry.",
+                    "debug": claim
+                }), 409
+        else:
+            logger.info(f"🔁 Admin {admin_wallet[:8]}... retrying pending referral disbursement {referral_code}")
 
-        # Step 3: Process disbursement (referrer: 1000 G$, referee: 500 G$)
+        # Step 3: Process/retry disbursement (referrer: 1000 G$, referee: 500 G$)
         logger.info(f"Processing disbursement for {referral_code}: referrer={referrer_wallet[:8]}..., referee={referee_wallet[:8]}...")
         disbursement = referral_service.process_referral_disbursement(
             referrer_wallet=referrer_wallet,
