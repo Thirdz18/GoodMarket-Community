@@ -2379,10 +2379,10 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                     <h2 style="margin:0 0 0.5rem;color:#fbbf24;">📋 Manual Verification Instructions</h2>
                     <p style="margin:0;font-size:0.9rem;color:rgba(241,245,249,0.7);line-height:1.6;">
                         <strong>Workflow:</strong><br>
-                        1. Look at <strong>PENDING REFERRALS</strong> below<br>
+                        1. Look at <strong>PENDING REFERRALS</strong> below (loaded from the <code>referrals</code> table)<br>
                         2. Click <strong>👁️ View</strong> to see referral details<br>
-                        3. Check referee's wallet on <strong>CeloScan</strong> to verify G$ claim<br>
-                        4. If verified, click <strong>✅ Approve & Disburse</strong><br>
+                        3. For <strong>Pending Verification</strong>, check referee's wallet on <strong>CeloScan</strong><br>
+                        4. For <strong>Pending Disbursement</strong>, ensure REFERRAL_KEY is funded, then retry approval/disbursement<br>
                         5. Rewards sent: Referrer <strong>1,000 G$</strong> | Referee <strong>500 G$</strong>
                     </p>
                 </div>
@@ -2392,7 +2392,7 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem;margin-bottom:1rem;">
                         <div>
                             <h2 style="margin:0 0 0.25rem;color:#fbbf24;">⏳ Pending Referrals (Requires Admin Action)</h2>
-                            <p style="margin:0;font-size:0.85rem;color:rgba(241,245,249,0.6);">These referrals need manual CeloScan verification and approval</p>
+                            <p style="margin:0;font-size:0.85rem;color:rgba(241,245,249,0.6);">Rows from the referrals table needing verification or reward disbursement retry</p>
                         </div>
                         <button onclick="loadPendingReferrals()" class="admin-btn" style="background:rgba(251,191,36,0.2);border:1px solid rgba(251,191,36,0.5);color:#fbbf24;white-space:nowrap;">
                             🔄 Refresh List
@@ -6543,7 +6543,7 @@ async function loadMinigamesMaintenance() {
                     listEl.innerHTML = `
                         <div style="text-align:center;padding:2rem;background:rgba(34,197,94,0.1);border-radius:12px;border:1px solid rgba(34,197,94,0.2)">
                             <p style="font-size:2rem;margin-bottom:0.5rem">🎉</p>
-                            <p style="color:#34d399;font-weight:600">No pending referrals!</p>
+                            <p style="color:#34d399;font-weight:600">No actionable referrals!</p>
                             <p style="color:rgba(241,245,249,0.6);font-size:0.85rem">All referrals have been verified and disbursed.</p>
                         </div>`;
                     return;
@@ -6555,12 +6555,12 @@ async function loadMinigamesMaintenance() {
                         <td style="padding:0.75rem 0.5rem;font-family:monospace;font-size:0.82rem">${shortWallet(r.referee_wallet)}</td>
                         <td style="padding:0.75rem 0.5rem;font-family:monospace;font-size:0.82rem">${shortWallet(r.referrer_wallet)}</td>
                         <td style="padding:0.75rem 0.5rem">
-                            <span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.8rem">⏳ Pending</span>
+                            <span style="background:${r.status === 'pending_disbursed' ? 'rgba(59,130,246,0.15)' : 'rgba(251,191,36,0.15)'};color:${r.status === 'pending_disbursed' ? '#93c5fd' : '#fbbf24'};padding:0.2rem 0.5rem;border-radius:4px;font-size:0.8rem">${r.status === 'pending_disbursed' ? '🔁 Pending Disbursement' : '⏳ Pending Verification'}</span>
                         </td>
                         <td style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-size:0.8rem">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
                         <td style="padding:0.75rem 0.5rem">
                             <button class="admin-btn" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;" onclick="viewReferralDetail('${(r.referral_code || '').replace(/'/g, '')}')">
-                                👁️ View
+                                ${r.status === 'pending_disbursed' ? '🔁 Retry' : '👁️ View'}
                             </button>
                         </td>
                     </tr>
