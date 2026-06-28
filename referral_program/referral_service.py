@@ -782,9 +782,51 @@ class ReferralService:
         logger.info(f"   referrer_already_done={referrer_already_done}, referee_already_done={referee_already_done}")
 
         try:
-            # IMPORTANT: Process referee FIRST (500 G$), then referrer (1000 G$)
-            # This ensures nonce ordering doesn't cause referrer TX to fail.
-            # Nonce must be sequential: referee=nonce N, referrer=nonce N+1
+            # Preflight the combined amount before sending either leg.  Without
+            # this guard a REFERRAL_KEY wallet with only 500-999 G$ can pay the
+            # referee first and then leave the referrer unpaid.  The two rewards
+            # are intentionally handled as an all-or-queue unit unless one side
+            # was already completed by an earlier retry.
+            remaining_required = 0.0
+            if not referrer_already_done:
+                remaining_required += REFERRER_REWARD
+            if not referee_already_done:
+                remaining_required += REFEREE_REWARD
+
+            if remaining_required > 0:
+                balance_check = referral_blockchain_service.get_referral_wallet_balance()
+                available_balance = float(balance_check.get('balance') or 0)
+                if not balance_check.get('success') or available_balance < remaining_required:
+                    logger.warning(
+                        f"⚠️ REFERRAL_KEY preflight failed for {referral_code}: "
+                        f"available={available_balance:.2f} G$, required={remaining_required:.2f} G$. "
+                        "Queueing both remaining rewards instead of making a partial payout."
+                    )
+                    if not referrer_already_done:
+                        self.log_reward(referrer_wallet, REFERRER_REWARD, 'referrer',
+                                        referral_code, None, 'pending_disbursed', referral_id)
+                    if not referee_already_done:
+                        self.log_reward(referee_wallet, REFEREE_REWARD, 'referee',
+                                        referral_code, None, 'pending_disbursed', referral_id)
+                    self.update_referral_status(
+                        referee_wallet, 'pending_disbursed',
+                        f"Insufficient REFERRAL_KEY balance: {available_balance:.2f} G$ < {remaining_required:.2f} G$"
+                    )
+                    return {
+                        "success": False,
+                        "referrer_status": "completed" if referrer_already_done else "pending_disbursed",
+                        "referee_status": "completed" if referee_already_done else "pending_disbursed",
+                        "referrer_tx": existing.get("referrer_tx"),
+                        "referee_tx": existing.get("referee_tx"),
+                        "pending": True,
+                        "error": "insufficient_balance",
+                        "balance_available": available_balance,
+                        "balance_required": remaining_required,
+                    }
+
+            # IMPORTANT: Process referee FIRST (500 G$), then referrer (1000 G$).
+            # Each call waits for its receipt before the next transaction is built,
+            # so a fixed 10-15 second UI delay is not required for nonce ordering.
 
             if referee_already_done:
                 logger.info(f"Referee reward for {referral_code} already completed - skipping blockchain call")
