@@ -610,6 +610,17 @@ if init_savings(app):
 else:
     logger.error("❌ G$ Savings initialization failed")
 
+# Initialize P2P G$ Trading
+logger.info("🤝 Initializing P2P G$ Trading system...")
+try:
+    from p2p import init_p2p
+    if init_p2p(app):
+        logger.info("✅ P2P G$ Trading initialized")
+    else:
+        logger.error("❌ P2P G$ Trading initialization failed")
+except Exception as e:
+    logger.error(f"❌ P2P G$ Trading initialization failed: {e}")
+
 # Initialize Reloadly Store
 logger.info("🛒 Initializing Reloadly Store...")
 if init_reloadly(app):
