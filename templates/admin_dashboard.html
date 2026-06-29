@@ -7004,6 +7004,20 @@ async function loadMinigamesMaintenance() {
 
         // ── Unified Treasury Functions ──────────────────────────────────────
 
+        async function parseApiJsonOrThrow(response) {
+            const raw = await response.text();
+            try {
+                return raw ? JSON.parse(raw) : {};
+            } catch (err) {
+                const snippet = (raw || '').trim().slice(0, 180);
+                throw new Error(
+                    snippet
+                        ? `Invalid API response (${response.status}): ${snippet}`
+                        : `Invalid API response (${response.status}): empty response body`
+                );
+            }
+        }
+
         async function loadTreasuryStatus() {
             const content = document.getElementById('treasuryStatusContent');
             const table   = document.getElementById('treasuryRecipientsTable');
@@ -7011,7 +7025,7 @@ async function loadMinigamesMaintenance() {
             if (table)   table.innerHTML   = '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>';
             try {
                 const res  = await fetch('/api/admin/treasury/status');
-                const data = await res.json();
+                const data = await parseApiJsonOrThrow(res);
                 if (!data.configured) {
                     const msg = `<div style="padding:1rem; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#f87171;">
                         ⚠️ ${data.error || 'Unified Treasury contract is not deployed yet.'}<br>
@@ -7163,7 +7177,7 @@ async function loadMinigamesMaintenance() {
                     headers: { 'Content-Type': 'application/json' },
                     body:    JSON.stringify({ recipient_key: recipientKey, amount: amount })
                 });
-                const data = await res.json();
+                const data = await parseApiJsonOrThrow(res);
                 if (data.success) {
                     statusEl.innerHTML = `
                         <div style="padding:1rem; background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.3); border-radius:10px; color:#34d399;">
