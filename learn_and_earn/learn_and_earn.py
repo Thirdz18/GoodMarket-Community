@@ -208,11 +208,28 @@ class LearnEarnStreamingService:
             loop.close()
 
         if result.get('success'):
+            tx_hash = result.get('tx_hash')
             supabase.table('learn_earn_streams').update({
                 'status': 'active',
-                'create_tx_hash': result.get('tx_hash'),
+                'create_tx_hash': tx_hash,
                 'last_error': None,
             }).eq('id', row_id).execute()
+
+            # IMPORTANT: Also update the linked quiz log with real tx_hash
+            reward_id = row.get('reward_id', '')
+            if reward_id and reward_id.startswith('quiz:'):
+                quiz_id = reward_id[5:]  # Remove 'quiz:' prefix
+                try:
+                    supabase.table('learnearn_log').update({
+                        'transaction_hash': tx_hash,
+                        'stream_status': 'active',
+                        'reward_status': 'streaming',
+                        'stream_started_at': datetime.utcnow().isoformat() + 'Z'
+                    }).eq('quiz_id', quiz_id).execute()
+                    logger.info(f"✅ Updated quiz log {quiz_id} with stream tx_hash: {tx_hash}")
+                except Exception as e:
+                    logger.error(f"❌ Error updating quiz log {quiz_id}: {e}")
+
             return True
         supabase.table('learn_earn_streams').update({
             'status': 'start_failed',
@@ -235,11 +252,27 @@ class LearnEarnStreamingService:
             loop.close()
 
         if result.get('success'):
+            tx_hash = result.get('tx_hash')
             supabase.table('learn_earn_streams').update({
                 'status': 'stopped',
-                'stop_tx_hash': result.get('tx_hash'),
+                'stop_tx_hash': tx_hash,
                 'last_error': None,
             }).eq('id', row_id).execute()
+
+            # IMPORTANT: Also update the linked quiz log when stream stops
+            reward_id = row.get('reward_id', '')
+            if reward_id and reward_id.startswith('quiz:'):
+                quiz_id = reward_id[5:]  # Remove 'quiz:' prefix
+                try:
+                    supabase.table('learnearn_log').update({
+                        'stream_status': 'stopped',
+                        'reward_status': 'completed',
+                        'stream_ended_at': datetime.utcnow().isoformat() + 'Z'
+                    }).eq('quiz_id', quiz_id).execute()
+                    logger.info(f"✅ Updated quiz log {quiz_id} with stream stopped status")
+                except Exception as e:
+                    logger.error(f"❌ Error updating quiz log {quiz_id}: {e}")
+
             return True
         supabase.table('learn_earn_streams').update({
             'status': 'stop_failed',
@@ -997,8 +1030,37 @@ class LearnEarnQuizManager:
                     seen_quiz_ids.add(quiz_id)
                     # Add explorer_url for each quiz
                     quiz_with_url = quiz.copy()
+
+                    # Add explorer_url if transaction_hash exists
                     if quiz.get('transaction_hash'):
                         quiz_with_url['explorer_url'] = f"https://celoscan.io/tx/{quiz['transaction_hash']}"
+
+                    # Add stream status info if this is a streaming reward
+                    if quiz.get('payout_mode') == 'stream':
+                        stream_id = quiz.get('stream_id')
+                        stream_status = quiz.get('stream_status', 'unknown')
+
+                        # Add helpful messages based on stream status
+                        if stream_status == 'pending_start':
+                            quiz_with_url['stream_message'] = 'Stream is being prepared...'
+                        elif stream_status == 'active':
+                            quiz_with_url['stream_message'] = 'Stream is active - G$ is being received!'
+                        elif stream_status == 'stopped':
+                            quiz_with_url['stream_message'] = 'Stream completed'
+                        elif stream_status == 'start_failed':
+                            quiz_with_url['stream_message'] = 'Stream failed to start'
+                        elif stream_status == 'stop_failed':
+                            quiz_with_url['stream_message'] = 'Stream failed to stop properly'
+
+                        # Add stream details
+                        quiz_with_url['stream_details'] = {
+                            'stream_id': stream_id,
+                            'status': stream_status,
+                            'started_at': quiz.get('stream_started_at'),
+                            'ended_at': quiz.get('stream_ended_at'),
+                            'queued_at': quiz.get('queued_at')
+                        }
+
                     unique_history.append(quiz_with_url)
 
             logger.info(f"✅ Found {len(unique_history)} unique quiz history records")
@@ -1231,6 +1293,45 @@ class LearnEarnQuizManager:
             return True
         except Exception as e:
             logger.error(f"❌ Error updating quiz log {log_id} with transaction: {e}")
+            return False
+
+    def update_quiz_log_with_stream_info(self, log_id, stream_id, stream_status, payout_mode='stream'):
+        """Updates the quiz log with stream info for streaming rewards."""
+        try:
+            supabase = get_supabase_client()
+            update_result = supabase.table('learnearn_log')\
+                .update({
+                    'stream_id': stream_id,
+                    'stream_status': stream_status,
+                    'payout_mode': payout_mode,
+                    'reward_status': 'pending',  # Will be updated when stream completes
+                    'queued_at': datetime.utcnow().isoformat() + 'Z'
+                })\
+                .eq('quiz_id', log_id)\
+                .execute()
+            logger.info(f"✅ Updated quiz log {log_id} with stream info: stream_id={stream_id}, status={stream_status}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error updating quiz log {log_id} with stream info: {e}")
+            return False
+
+    def update_quiz_log_with_stream_completion(self, log_id, tx_hash, explorer_url=''):
+        """Updates the quiz log when stream is started with real tx_hash."""
+        try:
+            supabase = get_supabase_client()
+            update_result = supabase.table('learnearn_log')\
+                .update({
+                    'transaction_hash': tx_hash,
+                    'stream_status': 'active',
+                    'reward_status': 'streaming',
+                    'stream_started_at': datetime.utcnow().isoformat() + 'Z'
+                })\
+                .eq('quiz_id', log_id)\
+                .execute()
+            logger.info(f"✅ Updated quiz log {log_id} with stream tx_hash: {tx_hash}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Error updating quiz log {log_id} with stream completion: {e}")
             return False
 
     def get_module_links(self):
@@ -1541,10 +1642,24 @@ def start_quiz(current_user):
             }), 400
 
         # Check Learn wallet balance before allowing quiz
+        # Different balance check based on payout mode:
+        # - Streaming mode: Check LEARN_WALLET_PRIVATE_KEY balance (stream comes from this wallet)
+        # - Instant mode: Check LEARN_EARN_CONTRACT_ADDRESS balance (rewards come from contract)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            learn_balance = loop.run_until_complete(learn_blockchain_service.get_learn_wallet_balance())
+            if _is_streaming_mode(STREAMING_PAYOUT_MODE):
+                # Streaming mode: Check the wallet that will send the stream
+                learn_balance = loop.run_until_complete(
+                    learn_blockchain_service.get_learn_wallet_balance()
+                )
+                balance_source = 'wallet (for streaming)'
+            else:
+                # Instant mode: Check the contract that will send rewards
+                learn_balance = loop.run_until_complete(
+                    learn_blockchain_service.get_contract_balance()
+                )
+                balance_source = 'contract (for instant rewards)'
         finally:
             loop.close()
 
@@ -1553,7 +1668,7 @@ def start_quiz(current_user):
         # Use tolerance to avoid floating point precision issues (e.g., 1000.0 vs 1000.0000000000001)
         balance_tolerance = 0.01  # Allow 0.01 G$ tolerance
         if learn_balance < (min_required_balance - balance_tolerance):
-            logger.warning(f"⚠️ Learn wallet balance too low: {learn_balance} < {min_required_balance}")
+            logger.warning(f"⚠️ Learn {balance_source} balance too low: {learn_balance} < {min_required_balance}")
 
             # Get custom message from database
             from supabase_client import get_supabase_client, safe_supabase_operation
@@ -1795,6 +1910,25 @@ def submit_quiz(current_user):
         stream_job = None
         effective_mode = 'instant'
         payout_mode = STREAMING_PAYOUT_MODE
+        stream_id = None
+
+        # IMPORTANT: Save quiz attempt FIRST before any disbursement
+        # This ensures we have a record even if disbursement fails
+        quiz_log = None
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            quiz_log = loop.run_until_complete(quiz_manager.save_quiz_attempt(
+                current_user,
+                questions_for_log,
+                user_answers,
+                reward_amount,
+                feature_info_for_log
+            ))
+        finally:
+            loop.close()
+
+        saved_quiz_id = quiz_log.get('quiz_id', '') if quiz_log else ''
 
         if reward_amount > 0 and _is_streaming_mode(payout_mode):
             ready, reason = streaming_service.is_runtime_ready()
@@ -1807,11 +1941,21 @@ def submit_quiz(current_user):
                 stream_job = streaming_service.create_stream_job(
                     current_user,
                     reward_amount,
-                    reward_id=f"quiz:{quiz_session_id}"
+                    reward_id=f"quiz:{saved_quiz_id}"  # Use saved quiz_id as reward_id
                 )
                 if stream_job.get('success'):
                     effective_mode = 'stream'
-                    tx_hash = f"queued:{stream_job['stream'].get('id', '')}"
+                    stream_id = stream_job['stream'].get('id', '')
+                    # Don't set tx_hash yet - will be updated when stream actually starts
+                    tx_hash = None  # Will be updated by stream scheduler
+
+                    # Update quiz log with stream info
+                    if quiz_log:
+                        quiz_manager.update_quiz_log_with_stream_info(
+                            saved_quiz_id,
+                            stream_id,
+                            'pending_start'
+                        )
                 else:
                     err = stream_job.get('error', 'Failed to queue streaming reward')
                     logger.error(
@@ -1848,29 +1992,16 @@ def submit_quiz(current_user):
                 }), 500
 
             tx_hash = disbursement_result.get('tx_hash')
+
+            # Update quiz log with transaction hash for instant mode
+            if quiz_log and tx_hash:
+                quiz_manager.update_quiz_log_with_transaction(quiz_log.get('quiz_id'), tx_hash)
+
         elif reward_amount <= 0:
             logger.info(
                 f"ℹ️ Quiz completed with 0 reward for {current_user[:8]}...; "
                 "skipping blockchain disbursement."
             )
-
-        # Save quiz attempt to database
-        quiz_log = None
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            quiz_log = loop.run_until_complete(quiz_manager.save_quiz_attempt(
-                current_user,
-                questions_for_log,
-                user_answers,
-                reward_amount,
-                feature_info_for_log
-            ))
-        finally:
-            loop.close()
-
-        if quiz_log and tx_hash:
-            quiz_manager.update_quiz_log_with_transaction(quiz_log.get('quiz_id'), tx_hash)
 
         # Clear quiz session
         session.pop('quiz_questions', None)
@@ -1894,40 +2025,52 @@ def submit_quiz(current_user):
 
         saved_quiz_id = quiz_log.get('quiz_id', '') if quiz_log else ''
 
-        return jsonify({
-            'success': True,
-            'score': score,
-            'total_questions': total_questions,
-            'rewards': reward_amount,
-            'quiz_id': saved_quiz_id,
-            'message': (
-                (
-                    f'Quiz completed! You earned {reward_amount} G$ via 1-day stream payout.'
-                    if effective_mode == 'stream'
-                    else f'Quiz completed! You earned {reward_amount} G$ instantly.'
-                )
-                if reward_amount > 0
-                else f'Quiz completed! You earned {reward_amount} G$ this round.'
-            ),
-            'transaction_hash': tx_hash,
-            'explorer_url': f'https://celoscan.io/tx/{tx_hash}' if tx_hash and not str(tx_hash).startswith('queued:') else '',
-            'payout_mode': effective_mode,
-            'requested_payout_mode': payout_mode,
-            'feature_status': 'completed_successfully',
-            'blocked_for_24h': True,
-            'can_retry_immediately': False,
-            'show_notification': True,
-            'notification_type': 'success',
-            'notification_message': (
-                (
-                    f'Quiz completed! {score}/{total_questions} correct. Stream payout queued: {reward_amount} G$ over 1 day.'
-                    if effective_mode == 'stream'
-                    else f'Quiz completed! {score}/{total_questions} correct. Reward sent instantly: {reward_amount} G$.'
-                )
-                if reward_amount > 0
-                else f'Quiz completed! {score}/{total_questions} correct. No reward was sent for this attempt.'
-            )
-        }), 200
+        # Build response based on mode
+        if effective_mode == 'stream' and stream_id:
+            # Streaming mode - no immediate tx_hash, user will see stream status
+            response_data = {
+                'success': True,
+                'score': score,
+                'total_questions': total_questions,
+                'rewards': reward_amount,
+                'quiz_id': saved_quiz_id,
+                'stream_id': stream_id,
+                'message': f'Quiz completed! You earned {reward_amount} G$ via 1-day stream payout.',
+                'transaction_hash': None,  # Will be updated when stream starts
+                'explorer_url': '',  # Will be updated when stream starts
+                'payout_mode': 'stream',
+                'requested_payout_mode': payout_mode,
+                'feature_status': 'completed_successfully',
+                'stream_status': 'pending_start',
+                'blocked_for_24h': True,
+                'can_retry_immediately': False,
+                'show_notification': True,
+                'notification_type': 'success',
+                'notification_message': f'Quiz completed! {score}/{total_questions} correct. Stream payout queued: {reward_amount} G$ over 1 day. Stream will start shortly.',
+                'note': 'Your reward is being streamed over 24 hours. Check /learn-earn/stream-status for updates.'
+            }
+        else:
+            # Instant mode - have real tx_hash
+            response_data = {
+                'success': True,
+                'score': score,
+                'total_questions': total_questions,
+                'rewards': reward_amount,
+                'quiz_id': saved_quiz_id,
+                'message': f'Quiz completed! You earned {reward_amount} G$ instantly.' if reward_amount > 0 else f'Quiz completed! You earned {reward_amount} G$ this round.',
+                'transaction_hash': tx_hash,
+                'explorer_url': f'https://celoscan.io/tx/{tx_hash}' if tx_hash else '',
+                'payout_mode': effective_mode,
+                'requested_payout_mode': payout_mode,
+                'feature_status': 'completed_successfully',
+                'blocked_for_24h': True,
+                'can_retry_immediately': False,
+                'show_notification': True,
+                'notification_type': 'success',
+                'notification_message': f'Quiz completed! {score}/{total_questions} correct. Reward sent instantly: {reward_amount} G$.' if reward_amount > 0 else f'Quiz completed! {score}/{total_questions} correct. No reward was sent for this attempt.'
+            }
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         logger.error(f"❌ Error submitting quiz for {current_user}: {e}")
@@ -2281,6 +2424,106 @@ def get_quiz_history_endpoint(current_user):
             'quiz_history': [],
             'total_earned': 0,
             'quiz_count': 0
+        }), 500
+
+@learn_earn_bp.route('/stream-status', methods=['GET'])
+@learn_earn_token_required
+def get_stream_status(current_user):
+    """Get detailed stream status for user's streaming rewards"""
+    try:
+        supabase = get_supabase_client()
+        if not supabase:
+            return jsonify({'success': False, 'error': 'Database not available'}), 500
+
+        # Get user's active streams from learn_earn_streams
+        streams_result = supabase.table('learn_earn_streams')\
+            .select('*')\
+            .eq('user_wallet', current_user.lower())\
+            .in_('status', ['pending_start', 'active', 'pending_stop'])\
+            .order('created_at', desc=True)\
+            .execute()
+
+        streams = streams_result.data or []
+
+        # Get user's quiz attempts with stream info
+        quiz_result = supabase.table('learnearn_log')\
+            .select('quiz_id, score, total_questions, amount_g$, stream_id, stream_status, payout_mode, transaction_hash, created_at, stream_started_at, stream_ended_at, queued_at')\
+            .eq('wallet_address', current_user.lower())\
+            .eq('payout_mode', 'stream')\
+            .not_.is_('stream_id', 'null')\
+            .order('timestamp', desc=True)\
+            .limit(50)\
+            .execute()
+
+        quizzes = quiz_result.data or []
+
+        # Build response with detailed stream info
+        active_streams = []
+        for stream in streams:
+            stream_info = {
+                'stream_id': stream.get('id'),
+                'user_wallet': stream.get('user_wallet'),
+                'amount_gd': float(stream.get('amount_gd', 0)),
+                'duration_seconds': stream.get('duration_seconds'),
+                'flow_rate_wei': stream.get('flow_rate_wei'),
+                'status': stream.get('status'),
+                'start_at': stream.get('start_at'),
+                'end_at': stream.get('end_at'),
+                'create_tx_hash': stream.get('create_tx_hash'),
+                'stop_tx_hash': stream.get('stop_tx_hash'),
+                'last_error': stream.get('last_error'),
+                'explorer_url_create': f"https://celoscan.io/tx/{stream.get('create_tx_hash')}" if stream.get('create_tx_hash') else None,
+                'explorer_url_stop': f"https://celoscan.io/tx/{stream.get('stop_tx_hash')}" if stream.get('stop_tx_hash') else None
+            }
+            active_streams.append(stream_info)
+
+        # Build quiz history with stream details
+        quiz_with_streams = []
+        for quiz in quizzes:
+            quiz_info = {
+                'quiz_id': quiz.get('quiz_id'),
+                'score': quiz.get('score'),
+                'total_questions': quiz.get('total_questions'),
+                'reward_amount': quiz.get('amount_g$'),
+                'stream_id': quiz.get('stream_id'),
+                'stream_status': quiz.get('stream_status'),
+                'transaction_hash': quiz.get('transaction_hash'),
+                'queued_at': quiz.get('queued_at'),
+                'stream_started_at': quiz.get('stream_started_at'),
+                'stream_ended_at': quiz.get('stream_ended_at'),
+                'explorer_url': f"https://celoscan.io/tx/{quiz.get('transaction_hash')}" if quiz.get('transaction_hash') else None
+            }
+            quiz_with_streams.append(quiz_info)
+
+        # Count by status
+        status_counts = {
+            'pending_start': 0,
+            'active': 0,
+            'stopped': 0,
+            'start_failed': 0,
+            'stop_failed': 0
+        }
+        for quiz in quizzes:
+            status = quiz.get('stream_status', 'unknown')
+            if status in status_counts:
+                status_counts[status] += 1
+
+        return jsonify({
+            'success': True,
+            'active_streams': active_streams,
+            'quizzes_with_streams': quiz_with_streams,
+            'status_counts': status_counts,
+            'total_active_streams': len([s for s in streams if s.get('status') == 'active']),
+            'total_pending_streams': len([s for s in streams if s.get('status') == 'pending_start'])
+        })
+
+    except Exception as e:
+        logger.error(f"❌ Error getting stream status: {e}")
+        import traceback
+        logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
         }), 500
 
 @learn_earn_bp.route('/check-card-sold', methods=['POST'])
