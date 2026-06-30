@@ -6361,13 +6361,21 @@ async function loadMinigamesMaintenance() {
                     headers: { 'Content-Type': 'application/json' },
                     body: '{}'
                 });
-                const data = await response.json();
+                const rawText = await response.text();
+                let data;
+                try {
+                    data = rawText ? JSON.parse(rawText) : {};
+                } catch (parseError) {
+                    throw new Error(rawText ? rawText.slice(0, 240) : `HTTP ${response.status}`);
+                }
                 if (!data.success) {
-                    _p2pReviewSetStatus(`❌ ${_adminEscapeHtml(data.error || 'P2P review action failed')}${data.tx_hash ? ` · TX: ${_adminEscapeHtml(data.tx_hash)}` : ''}`, 'error');
+                    const explanation = data.explanation ? ` — ${data.explanation}` : '';
+                    _p2pReviewSetStatus(`❌ ${_adminEscapeHtml(data.error || 'P2P review action failed')}${_adminEscapeHtml(explanation)}${data.tx_hash ? ` · TX: ${_adminEscapeHtml(data.tx_hash)}` : ''}`, 'error');
                     return;
                 }
                 const txLink = data.tx_hash ? ` <a href="https://celoscan.io/tx/${_adminEscapeHtml(data.tx_hash)}" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:underline;">View TX</a>` : '';
-                _p2pReviewSetStatus(`✅ Order #${orderId} ${action} completed.${txLink}`, 'success');
+                const successMessage = data.message || `Order #${orderId} ${action} completed.`;
+                _p2pReviewSetStatus(`✅ ${_adminEscapeHtml(successMessage)}${txLink}`, 'success');
                 await loadP2PReviewQueue();
             } catch (error) {
                 console.error('Error processing P2P review action:', error);
