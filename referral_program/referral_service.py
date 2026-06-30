@@ -389,21 +389,31 @@ class ReferralService:
             "errors": errors,
         }
 
-    def claim_pending_referral_for_disbursement(self, referee_wallet: str, referral_id: int = None) -> dict:
+    def claim_pending_referral_for_disbursement(self, referee_wallet: str, referral_id: int = None,
+                                                 allowed_statuses=None) -> dict:
         """
-        Atomically transition a pending_face_verification referral to 'disbursing'.
+        Atomically transition a claimable referral to 'disbursing'.
         Returns {"claimed": True, "referral": row} if the record was successfully
         claimed by this call, {"claimed": False} otherwise (already claimed or not found).
         This prevents double-disbursement when fv-callback and verify-ubi fire concurrently.
+
+        ``allowed_statuses`` controls which current statuses may be claimed. It
+        defaults to ['pending_face_verification'] so automatic flows (fv-callback,
+        verify-identity) only ever pick up brand-new referrals. The admin
+        approval endpoint passes a wider set so it can also RETRY referrals that
+        previously got stuck in 'disbursing' or ended in 'failed'/'pending_disbursed';
+        the disbursement step is duplicate-protected so retries never double-pay.
         """
         supabase = _get_supabase()
         if not supabase:
             return {"claimed": False}
 
+        allowed = list(allowed_statuses) if allowed_statuses else ['pending_face_verification']
+
         def _fetch_pending_referral():
             query = supabase.table('referrals') \
                 .select('*') \
-                .eq('status', 'pending_face_verification')
+                .in_('status', allowed)
             if referral_id is not None:
                 query = query.eq('id', referral_id)
             else:
@@ -422,7 +432,7 @@ class ReferralService:
             lambda: supabase.table('referrals')
                 .update({'status': 'disbursing'})
                 .eq('id', row_id)
-                .eq('status', 'pending_face_verification')
+                .in_('status', allowed)
                 .execute(),
             op="claim pending referral — atomic update to disbursing"
         )
@@ -514,12 +524,15 @@ class ReferralService:
         if not supabase:
             return {"success": False, "error": "no_db"}
 
-        # Check if a referee reward already exists and was completed successfully.
-        # Do not apply this shortcut to referrer rewards: the same referral_code
-        # is reused by every person an inviter refers, so code+referrer wallet is
-        # not a unique referral identity and skipping here can hide real payouts.
+        # Skip writing a second 'completed' row when this exact reward was
+        # already disbursed. The referee wallet is unique per referral, so it is
+        # always safe to dedupe. For the referrer leg the same referral_code is
+        # reused across every invite, so code+referrer wallet is NOT a unique
+        # identity — only dedupe it when scoped by referral_id (the exact row).
+        # Without this guard, an admin retry that skips an already-paid leg would
+        # insert a duplicate completed row and double-count "total G$ distributed".
         existing = None
-        if reward_type == 'referee':
+        if reward_type == 'referee' or (reward_type == 'referrer' and referral_id is not None):
             def _existing_completed_query():
                 query = supabase.table('referral_rewards_log') \
                     .select('*') \
@@ -709,13 +722,20 @@ class ReferralService:
         for r in rewards.data:
             reward_wallet = (r.get('wallet_address') or '').lower()
             if r.get('reward_type') == 'referrer':
-                # A referral code belongs to the inviter and is reused for every
-                # invite.  Therefore a completed referrer reward for the same
-                # code+wallet may belong to an older referee.  Only treat it as
-                # duplicate evidence when the caller did not provide the current
-                # referee context (legacy callers); otherwise never skip the
-                # referrer leg solely from referral_rewards_log.
-                if not referee_wallet_l and (not referrer_wallet_l or reward_wallet == referrer_wallet_l):
+                if referral_id is not None:
+                    # The query above is scoped to this exact referral row, so a
+                    # completed referrer reward here unambiguously belongs to
+                    # this referral. Treat it as done to avoid RE-PAYING the
+                    # referrer when an admin retries a partially-failed referral.
+                    if not referrer_wallet_l or reward_wallet == referrer_wallet_l:
+                        referrer_completed = True
+                        referrer_tx = r.get('tx_hash')
+                elif not referee_wallet_l and (not referrer_wallet_l or reward_wallet == referrer_wallet_l):
+                    # Legacy/unscoped callers: a referral code is reused for every
+                    # invite, so a completed referrer reward for the same
+                    # code+wallet may belong to an older referee. Only treat it as
+                    # duplicate evidence when no current referee context is given;
+                    # otherwise never skip the referrer leg from the log alone.
                     referrer_completed = True
                     referrer_tx = r.get('tx_hash')
             elif r.get('reward_type') == 'referee':
@@ -776,6 +796,11 @@ class ReferralService:
 
         if existing.get("fully_disbursed"):
             logger.info(f"Referral {referral_code} already fully disbursed - returning existing results")
+            # The referrals row may have been locked to 'disbursing' by an admin
+            # claim. Both reward legs are already paid, so finalize the row to
+            # 'completed' instead of leaving it orphaned in the intermediate
+            # 'disbursing' state (which is invisible to the admin dashboard).
+            self.update_referral_status(referee_wallet, 'completed', referral_id=referral_id)
             return {
                 "success": True,
                 "already_disbursed": True,
