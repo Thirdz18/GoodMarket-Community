@@ -6520,7 +6520,8 @@ async function loadMinigamesMaintenance() {
                 'completed': { label: '✅ Completed', color: '#10b981', bg: 'rgba(16,185,129,0.15)' },
                 'pending_face_verification': { label: '⏳ Pending Face Verify', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
                 'pending_disbursed': { label: '💸 Pending Disbursement', color: '#6366f1', bg: 'rgba(99,102,241,0.15)' },
-                'failed': { label: '❌ Failed', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' }
+                'disbursing': { label: '⏳ Disbursing (stuck?)', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' },
+                'failed': { label: '❌ Failed (retry)', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' }
             };
             const s = map[status] || { label: status, color: '#94a3b8', bg: 'rgba(148,163,184,0.15)' };
             return `<span style="padding:0.25rem 0.6rem;border-radius:6px;font-size:0.8rem;font-weight:600;color:${s.color};background:${s.bg}">${s.label}</span>`;
@@ -6739,9 +6740,7 @@ async function loadMinigamesMaintenance() {
                         <td style="padding:0.75rem 0.5rem"><code style="background:rgba(251,191,36,0.15);padding:0.25rem 0.5rem;border-radius:4px;font-size:0.85rem;color:#fbbf24">${r.referral_code || '—'}</code></td>
                         <td style="padding:0.75rem 0.5rem;font-family:monospace;font-size:0.82rem">${shortWallet(r.referee_wallet)}</td>
                         <td style="padding:0.75rem 0.5rem;font-family:monospace;font-size:0.82rem">${shortWallet(r.referrer_wallet)}</td>
-                        <td style="padding:0.75rem 0.5rem">
-                            <span style="background:rgba(251,191,36,0.15);color:#fbbf24;padding:0.2rem 0.5rem;border-radius:4px;font-size:0.8rem">⏳ Pending</span>
-                        </td>
+                        <td style="padding:0.75rem 0.5rem">${statusBadge(r.status)}</td>
                         <td style="padding:0.75rem 0.5rem;color:rgba(241,245,249,0.6);font-size:0.8rem">${r.created_at ? new Date(r.created_at).toLocaleDateString() : '—'}</td>
                         <td style="padding:0.75rem 0.5rem">
                             <button class="admin-btn" style="padding:0.4rem 0.75rem;font-size:0.82rem;background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.5);color:#a5b4fc;" onclick="viewReferralDetail('${(r.referral_code || '').replace(/'/g, '')}', '${r.id || ''}')">
