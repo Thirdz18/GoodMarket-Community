@@ -63,7 +63,11 @@ class NotificationService:
             community_stories_notifications = self._get_community_stories_notifications(wallet_address, limit)
             all_notifications.extend(community_stories_notifications)
 
-            # 6. Admin Broadcast Messages
+            # 6. P2P order review notifications
+            p2p_notifications = self._get_p2p_notifications(wallet_address, limit)
+            all_notifications.extend(p2p_notifications)
+
+            # 7. Admin Broadcast Messages
             admin_broadcasts = self._get_admin_broadcast_notifications(wallet_address, limit)
             all_notifications.extend(admin_broadcasts)
 
@@ -272,6 +276,54 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"❌ Error getting Community Stories notifications: {e}")
+            return []
+
+
+    def clear_user_cache(self, wallet_address: str) -> None:
+        """Clear the short-lived notification cache for one wallet."""
+        if not wallet_address or not hasattr(self, '_cache'):
+            return
+        self._cache.pop(f'notif_{wallet_address}', None)
+
+    def _get_p2p_notifications(self, wallet_address: str, limit: int) -> List[Dict]:
+        """Get P2P seller review notifications for orders marked paid."""
+        try:
+            orders = self.client.table('p2p_orders')\
+                .select('*')\
+                .eq('seller_wallet', wallet_address.lower())\
+                .eq('status', 'paid')\
+                .order('updated_at', desc=True)\
+                .limit(limit)\
+                .execute()
+
+            notifications = []
+            for order in orders.data or []:
+                amount_gd = order.get('amount_gd') or order.get('g_dollar_amount') or 0
+                pay_amount = order.get('pay_amount') or order.get('fiat_amount') or 0
+                pay_currency = order.get('pay_currency') or order.get('fiat_currency') or ''
+                notifications.append({
+                    'id': f"p2p_order_paid_{order.get('id', '')}",
+                    'type': 'p2p_order_paid',
+                    'title': '🤝 P2P payment marked paid',
+                    'message': (
+                        f"Buyer marked Order #{order.get('id')} as paid. "
+                        f"Review the receipt for {amount_gd} G$ / {pay_amount} {pay_currency}."
+                    ),
+                    'amount': amount_gd,
+                    'timestamp': order.get('updated_at') or order.get('created_at'),
+                    'transaction_hash': order.get('paid_tx_hash'),
+                    'order_id': order.get('id'),
+                    'buyer_wallet': order.get('buyer_wallet'),
+                    'icon': '🤝',
+                    'color': '#22c55e',
+                    'module': 'P2P',
+                    'read': False
+                })
+
+            return notifications
+
+        except Exception as e:
+            logger.error(f"❌ Error getting P2P notifications: {e}")
             return []
 
     def _get_admin_broadcast_notifications(self, wallet_address: str, limit: int) -> List[Dict]:
