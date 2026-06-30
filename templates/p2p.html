@@ -428,6 +428,7 @@ async function loadListings(){
 async function openBuyModal(l){
     const pms = await api('/p2p/api/payment-methods?seller='+l.seller_wallet);
     const paymentMethods = (pms.success&&pms.payment_methods.length) ? pms.payment_methods : [];
+    const available = Number(l.available_gd!==undefined ? l.available_gd : l.total_gd);
     const pmHtml = paymentMethods.length
         ? `<div class="muted" style="margin-bottom:.35rem">Choose where you will pay the seller:</div>${paymentMethods.map((p,i)=>{
             const detail=paymentMethodDetail(p);
@@ -437,9 +438,9 @@ async function openBuyModal(l){
         : '<span class="muted">No payment methods listed</span>';
     const body=document.getElementById('buyModalBody');
     body.innerHTML=`<h3 style="margin-bottom:.6rem">Buy G$ from ${shortAddr(l.seller_wallet)}</h3>
-        <div class="muted" style="margin-bottom:.6rem">Price: ${Number(l.price_usdt)} USDT/G$ · Min: ${Number(l.min_order_gd).toLocaleString()} G$</div>
+        <div class="muted" style="margin-bottom:.6rem">Price: ${Number(l.price_usdt)} USDT/G$ · Min: ${Number(l.min_order_gd).toLocaleString()} G$ · Available: <span id="buyAvailable">${available.toLocaleString()}</span> G$</div>
         <div style="margin-bottom:.6rem">${pmHtml}</div>
-        <div class="form-group"><label>Amount of G$ to buy</label><input id="buyAmt" type="number" placeholder="${Number(l.min_order_gd)}"></div>
+        <div class="form-group"><label>Amount of G$ to buy</label><input id="buyAmt" type="number" min="${Number(l.min_order_gd)}" max="${available}" placeholder="${Number(l.min_order_gd)}"></div>
         <div class="card" id="quoteBox" style="display:none"></div>
         <div id="buyAlert" class="alert"></div>
         <div class="row" style="justify-content:flex-end">
@@ -449,13 +450,29 @@ async function openBuyModal(l){
     document.getElementById('buyModal').classList.add('open');
     const amtEl=document.getElementById('buyAmt');
     amtEl.oninput=async()=>{
-        const v=parseFloat(amtEl.value); const qb=document.getElementById('quoteBox');
+        const v=parseFloat(amtEl.value); const qb=document.getElementById('quoteBox'); const al=document.getElementById('buyAlert');
+        al.style.display='none';
         if(!v){qb.style.display='none';return;}
         const q=await api(`/p2p/api/quote?listing_id=${l.id}&amount_gd=${v}`);
         if(q.success){ const qq=q.quote;
+            if(qq.available_gd!==undefined){
+                l.available_gd=Number(qq.available_gd);
+                const avEl=document.getElementById('buyAvailable');
+                if(avEl) avEl.textContent=Number(qq.available_gd).toLocaleString();
+                amtEl.max=String(qq.available_gd);
+            }
             qb.style.display='block';
             qb.innerHTML=`You pay: <strong>${(qq.pay_amount_fiat||qq.pay_amount_usdt).toLocaleString(undefined,{maximumFractionDigits:4})} ${qq.pay_currency}</strong>
             <div class="muted">${qq.reference&&qq.reference.usd?('CoinGecko ref: $'+qq.reference.usd+'/G$'):''}</div>`;
+        } else {
+            qb.style.display='none';
+            if(q.available_gd!==undefined){
+                l.available_gd=Number(q.available_gd);
+                const avEl=document.getElementById('buyAvailable');
+                if(avEl) avEl.textContent=Number(q.available_gd).toLocaleString();
+                amtEl.max=String(q.available_gd);
+            }
+            al.className='alert alert-error'; al.style.display='block'; al.textContent='❌ '+(q.error||'Could not quote this order.');
         }
     };
     document.getElementById('confirmBuyBtn').onclick=()=>doOpenOrder(l);
@@ -465,8 +482,16 @@ async function doOpenOrder(l){
     const amt=parseFloat(document.getElementById('buyAmt').value);
     const btn=document.getElementById('confirmBuyBtn'); const al=document.getElementById('buyAlert');
     if(!amt||amt<Number(l.min_order_gd)){ al.className='alert alert-error'; al.style.display='block'; al.textContent='Enter at least the minimum order.'; return; }
-    btn.disabled=true; al.className='alert alert-info'; al.style.display='block'; al.innerHTML='<span class="spinner"></span> Confirm in your wallet…';
+    btn.disabled=true; al.className='alert alert-info'; al.style.display='block'; al.innerHTML='<span class="spinner"></span> Checking live availability…';
     try{
+        const liveQuote=await api(`/p2p/api/quote?listing_id=${l.id}&amount_gd=${amt}`);
+        if(!liveQuote.success) {
+            if(liveQuote.available_gd!==undefined) l.available_gd=Number(liveQuote.available_gd);
+            throw new Error(liveQuote.error||'This ad is no longer available. Refresh and try again.');
+        }
+        if(liveQuote.quote && liveQuote.quote.available_gd!==undefined) l.available_gd=Number(liveQuote.quote.available_gd);
+        if(amt>Number(l.available_gd||0)) throw new Error(`Only ${Number(l.available_gd||0).toLocaleString()} G$ is still available. Refresh the listings and try a lower amount.`);
+        al.innerHTML='<span class="spinner"></span> Confirm in your wallet…';
         const tx=await P2PWallet.sendTx(P2P_CONTRACT, ABI_OPEN, [l.onchain_id, gd(amt)]);
         al.innerHTML='<span class="spinner"></span> Order reserved on-chain. Recording… '+scan(tx);
         const ev=await P2PWallet.decodeEvent(tx, EVENT_ABI, 'OrderOpened');
