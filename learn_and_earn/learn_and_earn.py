@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 import os
 import json
 import logging
@@ -45,10 +46,10 @@ _quiz_history_cache:   dict = {}   # {wallet: (data, expires)}
 _card_sales_cache:     dict = {}   # {wallet: (data, expires)}
 # ─────────────────────────────────────────────────────────────────────────────
 
-COLLABORATION_MIN_GD = int(os.getenv('COLLABORATION_MIN_GD', '100000'))
+COLLABORATION_MIN_GD = get_env_int('COLLABORATION_MIN_GD', 100000)
 
 
-STREAMING_DURATION_SECONDS = int(os.getenv('LEARN_EARN_STREAM_DURATION_SECONDS', '86400'))
+STREAMING_DURATION_SECONDS = get_env_int('LEARN_EARN_STREAM_DURATION_SECONDS', 86400)
 STREAMING_PAYOUT_MODE = (os.getenv('LEARN_EARN_PAYOUT_MODE', 'instant') or 'instant').strip().lower()
 STREAMING_MODE_ALIASES = {'stream_1day', 'stream', 'streaming', 'stream_payout'}
 

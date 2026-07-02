@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, make_response
 from blockchain import has_recent_ubi_claim, GOODDOLLAR_CONTRACTS
 from analytics_service import analytics
@@ -6715,7 +6716,7 @@ def claim_availability():
             "success": True,
             "can_claim": False,
             "claimable": 0,
-            "chain_id": int(os.getenv("FUSE_CHAIN_ID", "122")),
+            "chain_id": get_env_int("FUSE_CHAIN_ID", 122),
             "error": "Fuse claim is temporarily not available.",
             "is_available": False,
         }
@@ -6944,10 +6945,10 @@ def swap_page():
     xdc_gd_token_contract = os.getenv("XDC_GD_TOKEN_CONTRACT", "0xEC2136843a983885AebF2feB3931F73A8eBEe50c")
     xdc_chain_id = int(os.getenv("XDC_MAINNET_CHAIN_ID", "50"))
     celo_chain_id = int(os.getenv("CELO_MAINNET_CHAIN_ID", "42220"))
-    fuse_chain_id = int(os.getenv("FUSE_CHAIN_ID", "122"))
+    fuse_chain_id = get_env_int("FUSE_CHAIN_ID", 122)
     fuse_rpc_url = os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io")
     fuse_gd_token_contract = os.getenv("FUSE_GD_TOKEN", "0x495d133B938596C9984d462F007B676bDc57eCEC")
-    fuse_gd_decimals = int(os.getenv("FUSE_GD_DECIMALS", "2"))
+    fuse_gd_decimals = get_env_int("FUSE_GD_DECIMALS", 2)
     fuse_wfuse_contract = os.getenv("FUSE_WFUSE_TOKEN", "0x0BE9e53fd7EDaC9F859882AfdDa116645287C629")
     voltage_router_contract = os.getenv("VOLTAGE_ROUTER", "0xE3F85aAd0c8DD7337427B9dF5d0fB741d65EEEB5")
 
@@ -8389,15 +8390,15 @@ _faucet_lock = threading.Lock()
 # 300,000 gwei instead of ~10 gwei), resulting in actual tx cost ~0.127 CELO.
 # With 0.1 floor, users with 0.109 CELO pass the check but fail the tx.
 # With 0.15 floor, users with <0.15 CELO always trigger faucet top-up.
-FAUCET_MIN_CELO = float(os.getenv("FAUCET_MIN_CELO", "0.15"))
-FAUCET_MIN_XDC = float(os.getenv("FAUCET_MIN_XDC", "0.005"))
-FAUCET_MIN_FUSE = float(os.getenv("FAUCET_MIN_FUSE", "0.003"))
-FAUCET_BUFFER_MULTIPLIER = float(os.getenv("FAUCET_BUFFER_MULTIPLIER", "1.35"))
-FAUCET_DUPLICATE_WINDOW_MIN = int(os.getenv("FAUCET_DUPLICATE_WINDOW_MIN", "30"))
-FAUCET_API_GRACE_SECONDS = int(os.getenv("FAUCET_API_GRACE_SECONDS", "30"))
-FAUCET_PENDING_TTL_SECONDS = int(os.getenv("FAUCET_PENDING_TTL_SECONDS", "180"))
-FAUCET_ONCHAIN_MAX_ATTEMPTS = max(1, int(os.getenv("FAUCET_ONCHAIN_MAX_ATTEMPTS", "3")))
-FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR = int(os.getenv("FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR", "2"))
+FAUCET_MIN_CELO = get_env_float("FAUCET_MIN_CELO", 0.15)
+FAUCET_MIN_XDC = get_env_float("FAUCET_MIN_XDC", 0.005)
+FAUCET_MIN_FUSE = get_env_float("FAUCET_MIN_FUSE", 0.003)
+FAUCET_BUFFER_MULTIPLIER = get_env_float("FAUCET_BUFFER_MULTIPLIER", 1.35)
+FAUCET_DUPLICATE_WINDOW_MIN = get_env_int("FAUCET_DUPLICATE_WINDOW_MIN", 30)
+FAUCET_API_GRACE_SECONDS = get_env_int("FAUCET_API_GRACE_SECONDS", 30)
+FAUCET_PENDING_TTL_SECONDS = get_env_int("FAUCET_PENDING_TTL_SECONDS", 180)
+FAUCET_ONCHAIN_MAX_ATTEMPTS = max(1, get_env_int("FAUCET_ONCHAIN_MAX_ATTEMPTS", 3))
+FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR = get_env_int("FAUCET_FORCE_ONCHAIN_MAX_PER_HOUR", 2)
 FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
 # Faucet amount tuned to MiniPay's stablecoin fee-currency flow. MiniPay
 # does not accept native CELO as gas, so a CELO-only wallet needs cUSD before
@@ -8417,8 +8418,8 @@ MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.
 # Per-wallet cooldown between successful refills. 48h matches our retention
 # expectation: a fresh MiniPay user who claims today should not be eligible
 # again until they actually return tomorrow + buffer.
-MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS = int(os.getenv("MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS", "172800"))
-MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT = int(os.getenv("MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT", "120"))
+MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS = get_env_int("MINIPAY_CUSD_FAUCET_COOLDOWN_SECONDS", 172800)
+MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT = get_env_int("MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT", 120)
 # Global defense-in-depth cap on total cUSD the MiniPay faucet may disburse per
 # UTC day, across ALL wallets. Even with the per-wallet 48h cooldown and the
 # GoodDollar face-verification gate, this bounds the worst-case drain (e.g. a

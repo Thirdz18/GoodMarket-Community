@@ -1,4 +1,5 @@
 
+from env_utils import get_env_float, get_env_int
 import requests
 from datetime import datetime, timedelta, timezone
 import logging
@@ -7,7 +8,7 @@ import threading
 
 logger = logging.getLogger("blockchain")
 
-CELO_CHAIN_ID = int(os.getenv("CHAIN_ID", "42220"))
+CELO_CHAIN_ID = get_env_int("CHAIN_ID", 42220)
 CELO_RPC = os.getenv("CELO_RPC_URL", "https://forno.celo.org")
 
 GOODDOLLAR_CONTRACTS = {
@@ -84,7 +85,7 @@ def _get_gd_usd_price() -> float:
     and shorten the cache to retry on the next request.
     """
     import time
-    env_price = float(os.getenv("GD_USD_PRICE", "0"))
+    env_price = get_env_float("GD_USD_PRICE", 0.0)
     if env_price > 0:
         return env_price
     with _gd_price_lock:
@@ -1522,7 +1523,7 @@ def check_ubi_entitlement(wallet_address: str) -> dict:
 # XDC Network Integration
 # ============================
 
-XDC_CHAIN_ID = int(os.getenv("XDC_CHAIN_ID", "50"))
+XDC_CHAIN_ID = get_env_int("XDC_CHAIN_ID", 50)
 
 
 def _build_xdc_rpc_urls() -> list:
@@ -1567,7 +1568,7 @@ _xdc_rpc_healthy: str = XDC_RPC
 _xdc_rpc_healthy_checked_at: float = 0.0
 _xdc_rpc_healthy_lock = threading.Lock()
 # Re-probe at most this often once an endpoint is confirmed healthy.
-XDC_RPC_HEALTH_TTL = int(os.getenv("XDC_RPC_HEALTH_TTL", "120"))
+XDC_RPC_HEALTH_TTL = get_env_int("XDC_RPC_HEALTH_TTL", 120)
 
 # Common XDC-ecosystem tokens (mainnet)
 XUSDT_CONTRACT = os.getenv("XUSDT_CONTRACT", "0xD4B5f10D61916Bd6E0860144a91Ac658dE8a1437")
@@ -1581,10 +1582,10 @@ XDC_GD_DECIMALS = 18  # G$ on XDC uses 18 decimal places.
 
 # GoodDollar on Fuse mainnet. Defaults come from GoodDollar docs; the decimals
 # value is still read from-chain when possible so deployments can override safely.
-FUSE_CHAIN_ID = int(os.getenv("FUSE_CHAIN_ID", "122"))
+FUSE_CHAIN_ID = get_env_int("FUSE_CHAIN_ID", 122)
 FUSE_RPC = os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io")
 FUSE_GD_TOKEN = os.getenv("FUSE_GD_TOKEN", "0x495d133B938596C9984d462F007B676bDc57eCEC")
-FUSE_GD_DECIMALS = int(os.getenv("FUSE_GD_DECIMALS", "2"))
+FUSE_GD_DECIMALS = get_env_int("FUSE_GD_DECIMALS", 2)
 FUSE_UBI_SCHEME = os.getenv("FUSE_UBI_SCHEME", "0xd253A5203817225e9768C05E5996d642fb96bA86")
 
 _xdc_w3_singleton = None

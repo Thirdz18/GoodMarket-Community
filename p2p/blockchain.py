@@ -8,6 +8,7 @@ via the contract ABI + GMWalletConnect (see static/js/p2p/*).
 
 Also exposes a CoinGecko price reference for G$ (coin id `gooddollar`).
 """
+from env_utils import get_env_float, get_env_int
 import os
 import logging
 import threading
@@ -33,7 +34,7 @@ CELO_RPC_URLS = tuple(
     ).split(",")
     if url.strip()
 )
-CHAIN_ID = int(os.getenv("CHAIN_ID", 42220))
+CHAIN_ID = get_env_int("CHAIN_ID", 42220)
 P2P_ESCROW_CONTRACT_ADDRESS = os.getenv("P2P_ESCROW_CONTRACT_ADDRESS", "")
 GD_TOKEN_ADDRESS = os.getenv(
     "GOODDOLLAR_CONTRACT_ADDRESS", "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"

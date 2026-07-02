@@ -24,6 +24,7 @@ address are configured, OFF otherwise).
 """
 
 from __future__ import annotations
+from env_utils import get_env_float, get_env_int
 
 import logging
 import os
@@ -33,10 +34,10 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_INTERVAL_SECONDS = int(os.getenv("P2P_EXPIRY_WORKER_INTERVAL_SECONDS", "120"))
-DEFAULT_EXPIRE_BATCH = int(os.getenv("P2P_EXPIRY_WORKER_BATCH", "50"))
-DEFAULT_RECONCILE_BATCH = int(os.getenv("P2P_RECONCILE_WORKER_BATCH", "100"))
-BOOT_DELAY_SECONDS = int(os.getenv("P2P_EXPIRY_WORKER_BOOT_DELAY_SECONDS", "25"))
+DEFAULT_INTERVAL_SECONDS = get_env_int("P2P_EXPIRY_WORKER_INTERVAL_SECONDS", 120)
+DEFAULT_EXPIRE_BATCH = get_env_int("P2P_EXPIRY_WORKER_BATCH", 50)
+DEFAULT_RECONCILE_BATCH = get_env_int("P2P_RECONCILE_WORKER_BATCH", 100)
+BOOT_DELAY_SECONDS = get_env_int("P2P_EXPIRY_WORKER_BOOT_DELAY_SECONDS", 25)
 
 # On-chain terminal/active statuses we map back into Supabase during reconcile.
 _ONCHAIN_TO_DB = {

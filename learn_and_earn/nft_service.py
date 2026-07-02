@@ -5,6 +5,7 @@ Handles minting, transferring, and marketplace operations for Achievement NFTs.
 The app wallet (LEARN_WALLET_PRIVATE_KEY) pays all gas fees — users never
 need CELO for gas. Marketplace balances are tracked in Supabase.
 """
+from env_utils import get_env_float, get_env_int
 
 import os
 import json
@@ -171,13 +172,13 @@ class AchievementNFTService:
 
     def __init__(self):
         self.celo_rpc_url = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
-        self.chain_id = int(os.getenv('CHAIN_ID', 42220))
+        self.chain_id = get_env_int('CHAIN_ID', 42220)
         self.contract_address = _CONFIG_NFT_ADDRESS or None
         self._wallet_key = os.getenv('LEARN_WALLET_PRIVATE_KEY')
         self._wallet_key_normalized = None
         self._escrow_address = _CONFIG_ESCROW_ADDRESS
         self._g_dollar_address = _CONFIG_GD_ADDRESS
-        self.tx_receipt_timeout = int(os.getenv('TX_RECEIPT_TIMEOUT', '300'))
+        self.tx_receipt_timeout = get_env_int('TX_RECEIPT_TIMEOUT', 300)
 
         self.w3 = Web3(Web3.HTTPProvider(self.celo_rpc_url, request_kwargs={'timeout': 30}))
         self.contract = None

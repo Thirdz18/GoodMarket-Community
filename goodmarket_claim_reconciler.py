@@ -46,6 +46,7 @@ Public surface
 """
 
 from __future__ import annotations
+from env_utils import get_env_float, get_env_int
 
 import logging
 import os
@@ -63,22 +64,22 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # How often the background worker wakes up.
-DEFAULT_POLL_INTERVAL_SECONDS = int(os.getenv("GOODMARKET_RECONCILER_INTERVAL", "30"))
+DEFAULT_POLL_INTERVAL_SECONDS = get_env_int("GOODMARKET_RECONCILER_INTERVAL", 30)
 
 # Max rows reconciled per cycle. Each row is a single eth_getTransactionReceipt
 # RPC call, so this also bounds outbound RPC traffic.
-DEFAULT_BATCH_SIZE = int(os.getenv("GOODMARKET_RECONCILER_BATCH_SIZE", "50"))
+DEFAULT_BATCH_SIZE = get_env_int("GOODMARKET_RECONCILER_BATCH_SIZE", 50)
 
 # Bounded backoff: don't keep polling a tx hash forever — give up and mark
 # 'unknown' after this many hours. The user's claim won't count toward
 # unique_claimers but it also won't remain a perpetually open work item.
-RETRY_WINDOW_HOURS = int(os.getenv("GOODMARKET_RECONCILER_RETRY_HOURS", "24"))
+RETRY_WINDOW_HOURS = get_env_int("GOODMARKET_RECONCILER_RETRY_HOURS", 24)
 
 # Throttle: a row must not have been touched within this many seconds
 # before we re-check its receipt. Each touch (even "still pending") bumps
 # updated_at, so this acts as a per-row cooldown without us needing a
 # dedicated ``next_check_at`` column.
-MIN_RECHECK_SECONDS = int(os.getenv("GOODMARKET_RECONCILER_MIN_RECHECK_SECONDS", "20"))
+MIN_RECHECK_SECONDS = get_env_int("GOODMARKET_RECONCILER_MIN_RECHECK_SECONDS", 20)
 
 # RPC URLs — fall back to the same defaults blockchain.py uses.
 _CELO_RPC = os.getenv("CELO_RPC_URL", "https://forno.celo.org")
@@ -89,7 +90,7 @@ _XDC_RPC = os.getenv("XDC_RPC_URL", "https://earpc.xinfin.network")
 
 # RPC request timeout (seconds). receipts on Celo are usually <1s; XDC's
 # public RPC occasionally returns HTML errors and we want to fail fast.
-_RPC_TIMEOUT = int(os.getenv("GOODMARKET_RECONCILER_RPC_TIMEOUT", "12"))
+_RPC_TIMEOUT = get_env_int("GOODMARKET_RECONCILER_RPC_TIMEOUT", 12)
 
 
 # ---------------------------------------------------------------------------

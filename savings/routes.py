@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 import os
 import logging
 from flask import Blueprint, render_template, session, redirect, jsonify, request
@@ -13,7 +14,7 @@ GD_TOKEN_ADDRESS = os.getenv('GOODDOLLAR_CONTRACT_ADDRESS', '0x62B8B11039FcfE5aB
 CELO_TOKEN_ADDRESS = os.getenv('CELO_TOKEN_ADDRESS', '0x471EcE3750Da237f93B8E339c536989b8978a438')
 CUSD_TOKEN_ADDRESS = os.getenv('CUSD_TOKEN_ADDRESS', '0x765DE816845861e75A25fCA122bb6898B8B1282a')
 USDT_TOKEN_ADDRESS = svc.USDT_TOKEN_ADDRESS
-CHAIN_ID = int(os.getenv('CHAIN_ID', 42220))
+CHAIN_ID = get_env_int('CHAIN_ID', 42220)
 
 
 def _require_auth():

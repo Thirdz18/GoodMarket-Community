@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 import os
 import logging
 from web3 import Web3
@@ -12,7 +13,7 @@ class MinigamesBlockchainService:
     def __init__(self):
         # Network configuration
         self.celo_rpc_url = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
-        self.chain_id = int(os.getenv('CHAIN_ID', 42220))
+        self.chain_id = get_env_int('CHAIN_ID', 42220)
         self.gooddollar_contract = os.getenv('GOODDOLLAR_CONTRACT', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
         
         # GamesRewards Smart Contract (deployed contract for secure disbursement)

@@ -46,6 +46,7 @@ Public surface
 """
 
 from __future__ import annotations
+from env_utils import get_env_float, get_env_int
 
 import logging
 import os
@@ -55,10 +56,10 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_INTERVAL_SECONDS = int(os.getenv('LEARN_EARN_STREAM_WORKER_INTERVAL_SECONDS', '120'))
-DEFAULT_START_BATCH = int(os.getenv('LEARN_EARN_STREAM_WORKER_START_BATCH', '50'))
-DEFAULT_STOP_BATCH = int(os.getenv('LEARN_EARN_STREAM_WORKER_STOP_BATCH', '100'))
-BOOT_DELAY_SECONDS = int(os.getenv('LEARN_EARN_STREAM_WORKER_BOOT_DELAY_SECONDS', '20'))
+DEFAULT_INTERVAL_SECONDS = get_env_int('LEARN_EARN_STREAM_WORKER_INTERVAL_SECONDS', 120)
+DEFAULT_START_BATCH = get_env_int('LEARN_EARN_STREAM_WORKER_START_BATCH', 50)
+DEFAULT_STOP_BATCH = get_env_int('LEARN_EARN_STREAM_WORKER_STOP_BATCH', 100)
+BOOT_DELAY_SECONDS = get_env_int('LEARN_EARN_STREAM_WORKER_BOOT_DELAY_SECONDS', 20)
 
 
 def _streaming_mode_enabled() -> bool:

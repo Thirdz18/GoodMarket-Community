@@ -28,6 +28,7 @@ Contract mechanics (v5 — multi-token, slot-based, custom-duration bonuses):
   - No owner, no pause, no early withdrawal.
 
 """
+from env_utils import get_env_float, get_env_int
 import os
 import logging
 import threading
@@ -49,11 +50,11 @@ CELO_RPC_URLS = tuple(
     ).split(',')
     if url.strip()
 )
-CHAIN_ID = int(os.getenv('CHAIN_ID', 42220))
+CHAIN_ID = get_env_int('CHAIN_ID', 42220)
 SAVINGS_CONTRACT_ADDRESS = os.getenv('SAVINGS_CONTRACT_ADDRESS', '')
 LEGACY_V5_CONTRACT_ADDRESS = os.getenv('LEGACY_V5_CONTRACT_ADDRESS', '')
-V5_DEPLOYMENT_BLOCK = int(os.getenv('V5_DEPLOYMENT_BLOCK', '1'))  # Start from block 1 if not set
-SAVINGS_DEPLOYMENT_BLOCK = int(os.getenv('SAVINGS_DEPLOYMENT_BLOCK', '1'))
+V5_DEPLOYMENT_BLOCK = get_env_int('V5_DEPLOYMENT_BLOCK', 1)  # Start from block 1 if not set
+SAVINGS_DEPLOYMENT_BLOCK = get_env_int('SAVINGS_DEPLOYMENT_BLOCK', 1)
 GD_TOKEN_ADDRESS = os.getenv('GOODDOLLAR_CONTRACT_ADDRESS', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
 CELO_TOKEN_ADDRESS = os.getenv('CELO_TOKEN_ADDRESS', '0x471EcE3750Da237f93B8E339c536989b8978a438')
 CUSD_TOKEN_ADDRESS = os.getenv('CUSD_TOKEN_ADDRESS', '0x765DE816845861e75A25fCA122bb6898B8B1282a')

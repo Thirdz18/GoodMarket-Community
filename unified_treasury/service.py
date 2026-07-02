@@ -11,6 +11,7 @@ Key Celo/G$ quirks discovered during development:
     when called through a contract layer).
   - Direct wallet transfers need ~250k gas for simulation.
 """
+from env_utils import get_env_float, get_env_int
 
 import os
 import json
@@ -22,7 +23,7 @@ from eth_account import Account
 logger = logging.getLogger(__name__)
 
 CELO_RPC_URL = os.getenv("CELO_RPC_URL", "https://forno.celo.org")
-CHAIN_ID = int(os.getenv("CHAIN_ID", 42220))
+CHAIN_ID = get_env_int("CHAIN_ID", 42220)
 GD_TOKEN_ADDRESS = os.getenv(
     "GD_TOKEN_ADDRESS", "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A"
 )

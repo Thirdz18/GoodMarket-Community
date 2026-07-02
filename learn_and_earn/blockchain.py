@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 import os
 import asyncio
 import logging
@@ -25,11 +26,11 @@ class LearnBlockchainService:
 
     def __init__(self):
         self.celo_rpc_url = os.getenv('CELO_RPC_URL', 'https://forno.celo.org')
-        self.chain_id = int(os.getenv('CHAIN_ID', 42220))
+        self.chain_id = get_env_int('CHAIN_ID', 42220)
         self.gooddollar_address = os.getenv('GOODDOLLAR_CONTRACT', '0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A')
         self.contract_address = _CONFIG_LEARN_EARN_ADDRESS or None
         self._wallet_key = os.getenv('LEARN_WALLET_PRIVATE_KEY')
-        self.tx_receipt_timeout = int(os.getenv('TX_RECEIPT_TIMEOUT', '300'))
+        self.tx_receipt_timeout = get_env_int('TX_RECEIPT_TIMEOUT', 300)
 
         self.w3 = Web3(Web3.HTTPProvider(self.celo_rpc_url, request_kwargs={'timeout': 30}))
         self.contract = None

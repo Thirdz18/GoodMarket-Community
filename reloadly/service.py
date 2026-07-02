@@ -1,3 +1,4 @@
+from env_utils import get_env_float, get_env_int
 import os
 import logging
 import requests
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 GD_DECIMALS = 18
 GD_TOKEN_CONTRACT = os.getenv("GOODDOLLAR_CONTRACT", "0x62B8B11039FcfE5aB0C56E502b1C372A3d2a9c7A")
 CELO_RPC_URL = os.getenv("CELO_RPC_URL", "https://forno.celo.org")
-CHAIN_ID = int(os.getenv("CHAIN_ID", 42220))
+CHAIN_ID = get_env_int("CHAIN_ID", 42220)
 
 ERC20_ABI = [
     {

@@ -3,6 +3,7 @@
 """
 Application Configuration
 """
+from env_utils import get_env_float, get_env_int
 import os
 
 # Production domain configuration
@@ -28,7 +29,7 @@ SUPERFLUID_CONFIG = {
     ),
     
     # Celo network configuration
-    'CHAIN_ID': int(os.getenv('CHAIN_ID', '42220')),
+    'CHAIN_ID': get_env_int('CHAIN_ID', 42220),
     'CHAIN_NAME': 'Celo',
     'RPC_URL': os.getenv('CELO_RPC_URL', 'https://forno.celo.org'),
     
