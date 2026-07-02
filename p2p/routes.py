@@ -19,6 +19,8 @@ from functools import wraps
 
 from flask import Blueprint, render_template, session, redirect, jsonify, request
 
+from env_utils import get_env_int
+
 from . import blockchain as chain
 from . import db
 
@@ -395,7 +397,7 @@ def api_create_order():
         pay_amount = pay_amount * float(listing["fiat_rate"])
         pay_currency = listing["fiat_currency"]
 
-    window = int(os.getenv("P2P_PAYMENT_WINDOW_SECONDS", 1800))
+    window = get_env_int("P2P_PAYMENT_WINDOW_SECONDS", 1800)
     try:
         order = db.create_order(
             listing_row=listing,

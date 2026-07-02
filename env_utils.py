@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -44,3 +45,21 @@ def get_env_float(name: str, default: float) -> float:
     except (TypeError, ValueError):
         logger.warning("Invalid float env var %s=%r; using default %s", name, value, default)
         return default
+
+
+def get_env_decimal(name: str, default: Decimal | str | int | float) -> Decimal:
+    """Return a Decimal env var, falling back safely on missing/invalid values."""
+    default_decimal = Decimal(str(default))
+    value = _clean_env_value(name)
+    if value is None:
+        return default_decimal
+    try:
+        return Decimal(value)
+    except (InvalidOperation, ValueError):
+        logger.warning(
+            "Invalid decimal env var %s=%r; using default %s",
+            name,
+            value,
+            default_decimal,
+        )
+        return default_decimal

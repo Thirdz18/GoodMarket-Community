@@ -1,4 +1,4 @@
-from env_utils import get_env_float, get_env_int
+from env_utils import get_env_decimal, get_env_float, get_env_int
 from flask import Blueprint, render_template, request, jsonify, session, redirect, url_for, make_response
 from blockchain import has_recent_ubi_claim, GOODDOLLAR_CONTRACTS
 from analytics_service import analytics
@@ -6943,8 +6943,8 @@ def swap_page():
     # sub-tab can read the user's G$-on-XDC balance + allowance directly,
     # without bouncing the user to /xdc-wallet first.
     xdc_gd_token_contract = os.getenv("XDC_GD_TOKEN_CONTRACT", "0xEC2136843a983885AebF2feB3931F73A8eBEe50c")
-    xdc_chain_id = int(os.getenv("XDC_MAINNET_CHAIN_ID", "50"))
-    celo_chain_id = int(os.getenv("CELO_MAINNET_CHAIN_ID", "42220"))
+    xdc_chain_id = get_env_int("XDC_MAINNET_CHAIN_ID", 50)
+    celo_chain_id = get_env_int("CELO_MAINNET_CHAIN_ID", 42220)
     fuse_chain_id = get_env_int("FUSE_CHAIN_ID", 122)
     fuse_rpc_url = os.getenv("FUSE_RPC_URL", "https://rpc.fuse.io")
     fuse_gd_token_contract = os.getenv("FUSE_GD_TOKEN", "0x495d133B938596C9984d462F007B676bDc57eCEC")
@@ -6968,8 +6968,8 @@ def swap_page():
     # NOT required for the widget to work.
     squid_integrator_id = os.getenv("SQUID_INTEGRATOR_ID", "squid-swap-widget")
     squid_api_url = os.getenv("SQUID_API_URL", "https://v2.api.squidrouter.com").rstrip("/")
-    squid_from_chain_id = int(os.getenv("SQUID_FROM_CHAIN_ID", str(celo_chain_id)))
-    squid_to_chain_id = int(os.getenv("SQUID_TO_CHAIN_ID", "8453"))
+    squid_from_chain_id = get_env_int("SQUID_FROM_CHAIN_ID", celo_chain_id)
+    squid_to_chain_id = get_env_int("SQUID_TO_CHAIN_ID", 8453)
     squid_to_token = os.getenv("SQUID_TO_TOKEN", "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")
     squid_source_tokens = [
         {
@@ -7515,7 +7515,7 @@ def xdc_wallet_page():
     use_server_signing = False
     xdc_bridge_contract = os.getenv("XDC_CELO_BRIDGE_CONTRACT", "0xa3247276DbCC76Dd7705273f766eB3E8a5ecF4a5")
     xdc_gd_token_contract = os.getenv("XDC_GD_TOKEN_CONTRACT", "0xEC2136843a983885AebF2feB3931F73A8eBEe50c")
-    celo_chain_id = int(os.getenv("CELO_MAINNET_CHAIN_ID", "42220"))
+    celo_chain_id = get_env_int("CELO_MAINNET_CHAIN_ID", 42220)
     return render_template("xdc_wallet.html", wallet=wallet,
                            login_method=login_method, use_server_signing=use_server_signing,
                            xdc_bridge_contract=xdc_bridge_contract,
@@ -8406,7 +8406,7 @@ FAUCET_FORCE_ONCHAIN_HOUR_WINDOW = 3600  # 1 hour in seconds
 # (approve + swap), not just one claim(), so the default must cover a small
 # two-transaction gas budget while keeping faucet spend bounded. Operators can
 # override via env if Celo gas conditions change.
-MINIPAY_CUSD_FAUCET_AMOUNT = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_AMOUNT", "0.016"))
+MINIPAY_CUSD_FAUCET_AMOUNT = get_env_decimal("MINIPAY_CUSD_FAUCET_AMOUNT", "0.016")
 MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # Threshold below which we treat the user as needing a stablecoin gas top-up.
 # Must be <= MINIPAY_CUSD_FAUCET_AMOUNT so the user graduates to "stable_ready"
@@ -8414,7 +8414,7 @@ MINIPAY_CUSD_FAUCET_PROGRAM_LABEL = "Program by Betz & Omar Team"
 # only the cooldown gates further refills).
 # Keep in sync with static/js/minipay-gas-topup.js STABLECOIN_GAS_MIN_USD.
 # 0.01 can pass pre-check but still fail approve+claim due to fee volatility.
-MINIPAY_STABLECOIN_MIN_USD = Decimal(os.getenv("MINIPAY_STABLECOIN_MIN_USD", "0.015"))
+MINIPAY_STABLECOIN_MIN_USD = get_env_decimal("MINIPAY_STABLECOIN_MIN_USD", "0.015")
 # Per-wallet cooldown between successful refills. 48h matches our retention
 # expectation: a fresh MiniPay user who claims today should not be eligible
 # again until they actually return tomorrow + buffer.
@@ -8426,7 +8426,7 @@ MINIPAY_CUSD_FAUCET_RECEIPT_TIMEOUT = get_env_int("MINIPAY_CUSD_FAUCET_RECEIPT_T
 # verified-wallet farm) so the pool cannot be emptied in a single day. Sized as
 # (expected daily unique claimers) * MINIPAY_CUSD_FAUCET_AMOUNT with headroom;
 # operators can tune via env. Set to 0 to disable the cap.
-MINIPAY_CUSD_FAUCET_DAILY_CAP = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_DAILY_CAP", "25"))
+MINIPAY_CUSD_FAUCET_DAILY_CAP = get_env_decimal("MINIPAY_CUSD_FAUCET_DAILY_CAP", "25")
 # Per-wallet GoodDollar Celo gas faucet cooldown. The GoodDollar topWallet
 # API (and the TOPWALLET_KEY on-chain fallback that calls the same faucet
 # contract) hand out ~0.3 CELO per refill, which covers ~3 days of normal
@@ -8437,8 +8437,9 @@ MINIPAY_CUSD_FAUCET_DAILY_CAP = Decimal(os.getenv("MINIPAY_CUSD_FAUCET_DAILY_CAP
 # tune via env; the default is 48h, slightly under the 3-day coverage so
 # users who actually claim daily aren't bricked but spending the gas on
 # unrelated transfers will still cost them 48h before another refill.
-CELO_GAS_FAUCET_GOODDOLLAR_COOLDOWN_SECONDS = int(
-    os.getenv("CELO_GAS_FAUCET_GOODDOLLAR_COOLDOWN_SECONDS", "172800")
+CELO_GAS_FAUCET_GOODDOLLAR_COOLDOWN_SECONDS = get_env_int(
+    "CELO_GAS_FAUCET_GOODDOLLAR_COOLDOWN_SECONDS",
+    172800,
 )
 CELO_GAS_FAUCET_COVERAGE_MESSAGE = (
     "You just received ~0.3 CELO of gas from the GoodDollar faucet. This is "
