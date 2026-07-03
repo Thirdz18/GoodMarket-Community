@@ -2115,6 +2115,7 @@
 
             <!-- Step 1: Choose login path -->
             <div class="wallet-options" id="walletOptions">
+                <div id="homepagePrivyRoot"></div>
                 <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
                     <div class="option-icon">🔗</div>
                     <div class="option-text">
@@ -2233,17 +2234,111 @@
             submenu.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
+
+        const HOMEPAGE_PRIVY_APP_ID = "{{ privy_app_id|default('', true) }}";
+        function getHomepageReferralCode() {
+            const fromUrl = new URLSearchParams(window.location.search).get('ref');
+            const fromInput = document.getElementById('wcReferralCode')?.value;
+            return (fromInput || fromUrl || '').trim() || null;
+        }
+
+        function getPrivyWalletAddress(user) {
+            if (user?.wallet?.address) return user.wallet.address;
+            const linkedAccounts = user?.linkedAccounts || user?.linked_accounts || [];
+            const walletAccount = linkedAccounts.find((account) => account.type === 'wallet');
+            return walletAccount?.address || walletAccount?.wallet?.address || null;
+        }
+
+        async function authenticateHomepagePrivy(user, accessToken) {
+            const response = await fetch('/api/auth/privy', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    id_token: accessToken,
+                    wallet_address: getPrivyWalletAddress(user),
+                    referral_code: getHomepageReferralCode(),
+                }),
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error || 'Privy login failed');
+            window.location.href = data.redirect_to || '/overview';
+        }
+
+        function initHomepagePrivy() {
+            const rootEl = document.getElementById('homepagePrivyRoot');
+            if (!rootEl || rootEl.dataset.ready === '1') return;
+
+            if (!HOMEPAGE_PRIVY_APP_ID) {
+                rootEl.innerHTML = '<p style="font-size:0.8rem;color:#b91c1c;margin:0.35rem 0;">Privy is not configured yet.</p>';
+                return;
+            }
+
+            rootEl.innerHTML = '<button class="wallet-option-card wc-option" type="button" disabled><div class="option-icon">🔐</div><div class="option-text"><div class="option-title">Loading Privy...</div><p class="option-desc">Preparing secure sign in</p></div></button>';
+
+            Promise.all([
+                import('https://esm.sh/react@18.2.0'),
+                import('https://esm.sh/react-dom@18.2.0/client'),
+                import('https://esm.sh/@privy-io/react-auth@1.78.1?deps=react@18.2.0,react-dom@18.2.0'),
+            ]).then(([{ default: React, useEffect, useRef }, { createRoot }, { PrivyProvider, usePrivy }]) => {
+                function HomepagePrivyButton() {
+                    const { ready, authenticated, user, login, getAccessToken } = usePrivy();
+                    const authStartedRef = useRef(false);
+
+                    useEffect(() => {
+                        if (!ready || !authenticated || !user || authStartedRef.current) return;
+                        authStartedRef.current = true;
+                        getAccessToken()
+                            .then((accessToken) => authenticateHomepagePrivy(user, accessToken))
+                            .catch((error) => {
+                                authStartedRef.current = false;
+                                alert(error.message || 'Privy login failed. Please try again.');
+                            });
+                    }, [ready, authenticated, user, getAccessToken]);
+
+                    return React.createElement(
+                        'button',
+                        {
+                            type: 'button',
+                            className: 'wallet-option-card wc-option',
+                            disabled: !ready,
+                            onClick: login,
+                        },
+                        React.createElement('div', { className: 'option-icon' }, '🔐'),
+                        React.createElement(
+                            'div',
+                            { className: 'option-text' },
+                            React.createElement('div', { className: 'option-title' }, ready ? 'Continue with Privy' : 'Loading Privy...'),
+                            React.createElement('p', { className: 'option-desc' }, 'Email / Google / Wallet in the official Privy modal')
+                        ),
+                        React.createElement('span', { className: 'option-arrow' }, '→')
+                    );
+                }
+
+                createRoot(rootEl).render(
+                    React.createElement(
+                        PrivyProvider,
+                        {
+                            appId: HOMEPAGE_PRIVY_APP_ID,
+                            config: {
+                                loginMethods: ['email', 'google', 'wallet'],
+                                appearance: { theme: 'dark', accentColor: '#8b5cf6', showWalletLoginFirst: false },
+                                embeddedWallets: { createOnLogin: 'users-without-wallets' },
+                            },
+                        },
+                        React.createElement(HomepagePrivyButton)
+                    )
+                );
+                rootEl.dataset.ready = '1';
+            }).catch((error) => {
+                console.error('Failed to load Privy:', error);
+                rootEl.innerHTML = '<p style="font-size:0.8rem;color:#b91c1c;margin:0.35rem 0;">Failed to load Privy. Please refresh and try again.</p>';
+            });
+        }
         function openWalletModal() {
-            // NEW: Redirect to Privy login page
-            const urlParams = new URLSearchParams(window.location.search);
-            const refCode = urlParams.get('ref');
-            const redirectUrl = refCode ? `/login-privy?ref=${refCode}` : '/login-privy';
-            window.location.href = redirectUrl;
-            
-            // OLD FLOW COMMENTED OUT - Using Privy now
-            // showWalletOptions();
-            // document.getElementById('walletModal').classList.add('active');
-            // try { initReferralFromUrl(); } catch (e) {}
+            showWalletOptions();
+            document.getElementById('walletModal').classList.add('active');
+            try { initReferralFromUrl(); } catch (e) {}
+            try { initHomepagePrivy(); } catch (e) { console.error('Privy modal init failed:', e); }
         }
 
         function closeWalletModal() {
