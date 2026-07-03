@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GoodMarket - Sign In</title>
+
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#3b82f6">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GoodMarket">
+    <link rel="manifest" href="/static/manifest.json?v={{ ASSET_VERSION }}">
+    <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}">
+
+    <!-- Privy SDK -->
+    <script src="https://unpkg.com/@privy-io/react-auth@1.65.0" defer></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1a0b2e 0%, #2d1b3d 50%, #1a0b2e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+            overflow-x: hidden;
+            position: relative;
+            padding: 20px 0;
+            zoom: 0.85;
+        }
+
+        /* Animated background elements */
+        .bg-animation {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .floating-shapes {
+            display: none;
+        }
+
+        /* Main login container */
+        .login-container {
+            position: relative;
+            z-index: 10;
+            background: rgba(255, 165, 0, 0.1);
+            backdrop-filter: blur(20px);
+            border: 2px solid rgba(100, 116, 139, 0.5);
+            border-radius: 20px;
+            padding: 2rem;
+            width: 480px;
+            max-width: 90vw;
+            margin: 15px auto;
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            animation: slideIn 0.8s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo::before {
+            content: '💰';
+        }
+
+        .title {
+            color: #f1f5f9;
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 6px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: rgba(241, 245, 249, 0.7);
+            font-size: 0.9rem;
+            font-weight: 400;
+            margin-bottom: 8px;
+        }
+
+        .features {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .feature-badge {
+            background: rgba(99, 102, 241, 0.2);
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            color: #a5b4fc;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        /* Privy Modal Styles */
+        #privy-login-container {
+            width: 100%;
+        }
+
+        #privy-login-container .PrivyLoginButton_content {
+            width: 100% !important;
+        }
+
+        /* Status Messages */
+        .status-message {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 12px;
+            font-weight: 500;
+            text-align: center;
+            min-height: 20px;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .status-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #f1f5f9;
+            font-weight: 700;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #f1f5f9;
+            font-weight: 700;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-loading {
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            color: #f1f5f9;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(26, 11, 46, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .loading-overlay .spinner {
+            width: 48px;
+            height: 48px;
+            border-width: 4px;
+        }
+
+        .loading-text {
+            color: #f1f5f9;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        /* Referral Banner */
+        .referral-banner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+        }
+
+        .referral-banner strong {
+            display: block;
+            font-size: 1.1rem;
+            margin-bottom: 4px;
+        }
+
+        /* Security note */
+        .security-note {
+            margin-top: 20px;
+            padding: 12px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 10px;
+            color: rgba(241, 245, 249, 0.8);
+            font-size: 0.8rem;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .security-note::before {
+            content: '🔒 ';
+        }
+
+        /* Footer */
+        .footer-links {
+            text-align: center;
+            margin-top: 20px;
+            color: rgba(241, 245, 249, 0.5);
+            font-size: 0.8rem;
+        }
+
+        .footer-links a {
+            color: rgba(241, 245, 249, 0.7);
+            text-decoration: none;
+            margin: 0 10px;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: #f1f5f9;
+        }
+
+        /* Privy custom styles */
+        [data-testid="privy-login-button"],
+        .PrivyLoginButton {
+            width: 100% !important;
+            padding: 16px 24px !important;
+            background: linear-gradient(135deg, #ff8c00, #ff4500, #8b00ff) !important;
+            border: none !important;
+            border-radius: 12px !important;
+            font-size: 1rem !important;
+            font-weight: 700 !important;
+            color: white !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 8px 25px rgba(255, 140, 0, 0.4) !important;
+        }
+
+        [data-testid="privy-login-button"]:hover,
+        .PrivyLoginButton:hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 12px 35px rgba(99, 102, 241, 0.4) !important;
+        }
+
+        /* PWA Install Prompt */
+        #installPrompt {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            z-index: 10001;
+            max-width: 90%;
+            text-align: center;
+        }
+
+        #installPrompt button {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        #installPrompt .dismiss {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <div class="loading-text">Connecting...</div>
+    </div>
+
+    <!-- PWA Install Prompt -->
+    <div id="installPrompt">
+        <span>📱 Install GoodMarket for a better experience</span>
+        <button onclick="installPWA()">Install</button>
+        <button class="dismiss" onclick="dismissInstallPrompt()">Later</button>
+    </div>
+
+    <div class="login-container">
+        <div class="logo-section">
+            <div class="logo"></div>
+            <h1 class="title">Welcome to GoodMarket</h1>
+            <p class="subtitle">Learn, Earn, and Grow with GoodDollar</p>
+            <div class="features">
+                <span class="feature-badge">📱 Email Login</span>
+                <span class="feature-badge">🔵 Google Sign-In</span>
+                <span class="feature-badge">👛 All Wallets</span>
+                <span class="feature-badge">🔐 Secure</span>
+            </div>
+        </div>
+
+        <!-- Referral Banner (shown if ref code in URL) -->
+        <div id="referralBanner" class="referral-banner" style="display: none;">
+            <strong>🎁 Referral Bonus!</strong>
+            <span id="referralCodeText">You were referred!</span>
+        </div>
+
+        <!-- Privy Login Container -->
+        <div id="privy-login-container"></div>
+
+        <!-- Status Message -->
+        <div id="status" class="status-message" style="display: none;"></div>
+
+        <!-- Security Note -->
+        <div class="security-note">
+            Your data is encrypted and secure. We never access your wallet or private keys.
+        </div>
+    </div>
+
+    <div class="footer-links">
+        <a href="/terms">Terms of Service</a>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/help">Help</a>
+    </div>
+
+    <script>
+        // Configuration
+        const PRIVY_APP_ID = '{{ privy_app_id }}';
+        const REFERRAL_CODE = '{{ referral_code }}';
+
+        // Show/hide loading overlay
+        function showLoading(message = 'Connecting...') {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.querySelector('.loading-text').textContent = message;
+            overlay.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        // Show status message
+        function showStatus(message, type = 'loading') {
+            const status = document.getElementById('status');
+            status.innerHTML = type === 'loading' ? 
+                `<span class="spinner"></span>${message}` : message;
+            status.className = `status-message status-${type}`;
+            status.style.display = 'block';
+        }
+
+        function showSuccess(message) {
+            showStatus(message, 'success');
+        }
+
+        function showError(message) {
+            showStatus(message, 'error');
+        }
+
+        // Handle referral code
+        function handleReferral() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const refCode = urlParams.get('ref');
+
+            if (refCode) {
+                const banner = document.getElementById('referralBanner');
+                const text = document.getElementById('referralCodeText');
+                banner.style.display = 'block';
+                text.textContent = `Referred with code: ${refCode.toUpperCase()}`;
+                return refCode;
+            }
+            return null;
+        }
+
+        // Authenticate with backend
+        async function authenticateWithBackend(privyUser) {
+            showLoading('Verifying...');
+
+            try {
+                const response = await fetch('/api/auth/privy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        id_token: privyUser.idToken,
+                        wallet_address: privyUser.wallet?.address || null,
+                        referral_code: REFERRAL_CODE || null,
+                    }),
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess('✅ Login successful! Redirecting...');
+                    
+                    // Track analytics
+                    try {
+                        await fetch('/track-analytics', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                event: 'login_success',
+                                wallet: data.wallet,
+                                auth_method: data.auth_method,
+                                timestamp: new Date().toISOString(),
+                            }),
+                        });
+                    } catch (e) {
+                        console.warn('Analytics error:', e);
+                    }
+
+                    // Redirect to dashboard
+                    setTimeout(() => {
+                        window.location.href = data.redirect_to || '/overview';
+                    }, 500);
+                } else {
+                    hideLoading();
+                    showError('❌ ' + (data.error || 'Login failed. Please try again.'));
+                }
+            } catch (error) {
+                hideLoading();
+                showError('❌ Network error. Please check your connection.');
+                console.error('Auth error:', error);
+            }
+        }
+
+        // Logout handler
+        async function handleLogout() {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+                window.location.href = '/';
+            } catch (e) {
+                console.error('Logout error:', e);
+            }
+        }
+
+        // PWA Install
+        let deferredPrompt;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const installPrompt = document.getElementById('installPrompt');
+            if (installPrompt) {
+                installPrompt.style.display = 'block';
+            }
+        });
+
+        async function installPWA() {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            document.getElementById('installPrompt').style.display = 'none';
+        }
+
+        function dismissInstallPrompt() {
+            document.getElementById('installPrompt').style.display = 'none';
+            localStorage.setItem('pwa_install_dismissed', Date.now());
+        }
+
+        // Initialize Privy
+        document.addEventListener('DOMContentLoaded', async function() {
+            // Handle referral code
+            handleReferral();
+
+            // Check if Privy SDK is loaded
+            if (typeof window.PrivyManager === 'undefined' && typeof window.Privy === 'undefined') {
+                showStatus('Loading authentication...', 'loading');
+                
+                // Wait for Privy SDK
+                let attempts = 0;
+                const waitForPrivy = setInterval(() => {
+                    attempts++;
+                    if (typeof window.PrivyManager !== 'undefined' || typeof window.Privy !== 'undefined') {
+                        clearInterval(waitForPrivy);
+                        initPrivy();
+                    } else if (attempts > 50) {
+                        clearInterval(waitForPrivy);
+                        showError('Failed to load authentication. Please refresh the page.');
+                    }
+                }, 100);
+            } else {
+                initPrivy();
+            }
+        });
+
+        async function initPrivy() {
+            try {
+                const config = {
+                    // Required: Your Privy App ID
+                    appId: PRIVY_APP_ID,
+                    
+                    // Target container
+                    target: '#privy-login-container',
+                    
+                    // Login methods - ALL handled by Privy
+                    loginMethods: ['wallet', 'email', 'google'],
+                    
+                    // Connection configuration - uses Privy's built-in WalletConnect
+                    // No need for external WalletConnect Project ID!
+                    walletConnectProjectId: null, // Let Privy handle it
+                    
+                    // Supported chains
+                    supportedChains: [1, 42220], // Ethereum, Celo
+                    
+                    // Customization
+                    appearance: {
+                        theme: 'dark',
+                        accentColor: '#6366f1',
+                        logo: '/static/icons/goodmarket-icon.png',
+                    },
+                    
+                    // Embedded wallet settings
+                    embeddedWallets: {
+                        // Show option to create embedded wallet for users without crypto wallet
+                        showWalletUIs: true,
+                        // Require user to explicitly create wallet
+                        requireUserLogin: true,
+                    },
+                    
+                    // Login callback
+                    onSuccess: async (user) => {
+                        console.log('✅ Privy login success:', user);
+                        await authenticateWithBackend(user);
+                    },
+                    
+                    // Error callback
+                    onError: (error) => {
+                        hideLoading();
+                        console.error('❌ Privy error:', error);
+                        showError('Authentication failed. Please try again.');
+                    },
+                    
+                    // Modal opened
+                    onModalOpen: () => {
+                        hideLoading();
+                    },
+                    
+                    // Modal closed without login
+                    onModalClose: () => {
+                        hideLoading();
+                    },
+                };
+
+                // Check for existing session
+                try {
+                    const statusRes = await fetch('/api/auth/status');
+                    const status = await statusRes.json();
+                    
+                    if (status.authenticated) {
+                        // Already logged in - redirect
+                        window.location.href = '/overview';
+                        return;
+                    }
+                } catch (e) {
+                    console.log('Session check skipped');
+                }
+
+                // Initialize Privy
+                if (typeof window.PrivyManager !== 'undefined') {
+                    window.PrivyManager.init(config);
+                } else if (typeof window.Privy !== 'undefined') {
+                    // Alternative initialization for different SDK versions
+                    window.Privy.init(config);
+                }
+
+            } catch (error) {
+                console.error('Failed to initialize Privy:', error);
+                showError('Failed to initialize. Please refresh the page.');
+            }
+        }
+
+        // Global error handler
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+            hideLoading();
+            
+            let errorMsg = '❌ An unexpected error occurred.';
+            if (event.reason?.message?.includes('network')) {
+                errorMsg = '⚠️ Network error. Please check your connection.';
+            }
+            showError(errorMsg);
+            event.preventDefault();
+        });
+
+        // Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/service-worker.js')
+                .then(registration => {
+                    console.log('✅ Service Worker registered');
+                    setInterval(() => registration.update(), 60000);
+                })
+                .catch(error => {
+                    console.error('❌ Service Worker failed:', error);
+                });
+        }
+    </script>
+</body>
+</html>

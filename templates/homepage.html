@@ -2234,12 +2234,16 @@
         }
 
         function openWalletModal() {
-            showWalletOptions();
-            document.getElementById('walletModal').classList.add('active');
-            // Re-apply any referral code captured from the URL / sessionStorage
-            // so the WalletConnect + Create Wallet referral inputs are pre-filled
-            // even if the modal was opened before DOMContentLoaded fully fired.
-            try { initReferralFromUrl(); } catch (e) {}
+            // NEW: Redirect to Privy login page
+            const urlParams = new URLSearchParams(window.location.search);
+            const refCode = urlParams.get('ref');
+            const redirectUrl = refCode ? `/login-privy?ref=${refCode}` : '/login-privy';
+            window.location.href = redirectUrl;
+            
+            // OLD FLOW COMMENTED OUT - Using Privy now
+            // showWalletOptions();
+            // document.getElementById('walletModal').classList.add('active');
+            // try { initReferralFromUrl(); } catch (e) {}
         }
 
         function closeWalletModal() {
