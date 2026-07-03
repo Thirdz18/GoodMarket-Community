@@ -14,14 +14,6 @@
     <link rel="icon" type="image/png" href="/static/icons/goodmarket-icon.png?v={{ ASSET_VERSION }}">
     <link rel="apple-touch-icon" href="/static/icons/icon-192x192.png?v={{ ASSET_VERSION }}">
 
-    <!-- Privy SDK -->
-    <script>
-        window.privyConfig = {
-            appId: '{{ privy_app_id }}',
-        };
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@privy-io/react-auth@1.78.1/embed/embed.iife.min.js" defer></script>
-
     <style>
         * {
             margin: 0;
@@ -475,7 +467,7 @@ PRIVY_APP_SECRET=your_secret</code>
 
             try {
                 // Extract user info from Privy user object
-                const idToken = privyUser.idToken || privyUser.id_token || privyUser.token;
+                const idToken = privyUser.idToken || privyUser.id_token || privyUser.token || privyUser.accessToken;
                 
                 // Try to get wallet address from linked accounts
                 let walletAddress = null;
@@ -575,93 +567,111 @@ PRIVY_APP_SECRET=your_secret</code>
             localStorage.setItem('pwa_install_dismissed', Date.now());
         }
 
-        // Initialize Privy
+        function renderPrivyLoadError(error) {
+            console.error('Privy SDK load error:', error);
+            showError('Failed to load Privy. Please check your connection and refresh the page.');
+        }
+
+        function getWalletAddressFromPrivyUser(user) {
+            if (user?.wallet?.address) return user.wallet.address;
+            const linkedAccounts = user?.linkedAccounts || user?.linked_accounts || [];
+            const walletAccount = linkedAccounts.find((account) => account.type === 'wallet');
+            return walletAccount?.address || walletAccount?.wallet?.address || null;
+        }
+
+        // Initialize the official Privy React SDK. Do not mount a custom wallet-provider form here;
+        // Privy's own modal owns email, Google, wallet selection, and embedded-wallet UX.
         document.addEventListener('DOMContentLoaded', async function() {
-            // Handle referral code
             handleReferral();
 
-            // Check if Privy is configured
             if (PRIVY_NOT_CONFIGURED) {
                 showConfigRequired();
-                return;
-            }
-
-            // Check if Privy SDK is loaded
-            if (typeof window.PrivyManager === 'undefined' && typeof window.Privy === 'undefined') {
-                showStatus('Loading authentication...', 'loading');
-                
-                // Wait for Privy SDK
-                let attempts = 0;
-                const waitForPrivy = setInterval(() => {
-                    attempts++;
-                    if (typeof window.PrivyManager !== 'undefined' || typeof window.Privy !== 'undefined') {
-                        clearInterval(waitForPrivy);
-                        initPrivy();
-                    } else if (attempts > 50) {
-                        clearInterval(waitForPrivy);
-                        showError('Failed to load authentication. Please refresh the page.');
-                    }
-                }, 100);
-            } else {
-                initPrivy();
-            }
-        });
-
-        async function initPrivy() {
-            // Check if Privy is configured
-            if (PRIVY_NOT_CONFIGURED) {
-                hideLoading();
-                showConfigRequired();
-                return;
-            }
-
-            // Wait for Privy Embed SDK to load
-            let attempts = 0;
-            while (typeof window.Privy === 'undefined' && attempts < 50) {
-                await new Promise(r => setTimeout(r, 100));
-                attempts++;
-            }
-
-            if (typeof window.Privy === 'undefined') {
-                showError('Failed to load Privy SDK. Please refresh the page.');
                 return;
             }
 
             try {
-                // Check for existing session
-                try {
-                    const statusRes = await fetch('/api/auth/status');
-                    const status = await statusRes.json();
-                    
-                    if (status.authenticated) {
-                        window.location.href = '/overview';
-                        return;
-                    }
-                } catch (e) {
-                    console.log('Session check skipped');
+                const statusRes = await fetch('/api/auth/status');
+                const status = await statusRes.json();
+                if (status.authenticated) {
+                    window.location.href = '/overview';
+                    return;
+                }
+            } catch (e) {
+                console.log('Session check skipped');
+            }
+
+            showStatus('Loading Privy...', 'loading');
+
+            Promise.all([
+                import('https://esm.sh/react@18.2.0'),
+                import('https://esm.sh/react-dom@18.2.0/client'),
+                import('https://esm.sh/@privy-io/react-auth@1.78.1?deps=react@18.2.0,react-dom@18.2.0'),
+            ]).then(([{ default: React, useEffect, useRef }, { createRoot }, { PrivyProvider, usePrivy }]) => {
+                function GoodMarketPrivyLogin() {
+                    const { ready, authenticated, user, login, getAccessToken } = usePrivy();
+                    const authStartedRef = useRef(false);
+
+                    useEffect(() => {
+                        if (!ready) return;
+                        document.getElementById('status').style.display = 'none';
+                    }, [ready]);
+
+                    useEffect(() => {
+                        if (!ready || !authenticated || !user || authStartedRef.current) return;
+                        authStartedRef.current = true;
+
+                        (async () => {
+                            try {
+                                const accessToken = await getAccessToken();
+                                await authenticateWithBackend({
+                                    ...user,
+                                    accessToken,
+                                    wallet: { address: getWalletAddressFromPrivyUser(user) },
+                                });
+                            } catch (error) {
+                                authStartedRef.current = false;
+                                hideLoading();
+                                console.error('Privy token error:', error);
+                                showError('❌ Could not verify your Privy login. Please try again.');
+                            }
+                        })();
+                    }, [ready, authenticated, user, getAccessToken]);
+
+                    return React.createElement(
+                        'button',
+                        {
+                            type: 'button',
+                            className: 'PrivyLoginButton',
+                            disabled: !ready,
+                            onClick: login,
+                        },
+                        ready ? 'Continue with Privy' : 'Loading Privy...'
+                    );
                 }
 
-                // Initialize Privy Embed
-                await window.Privy.init({
-                    appId: PRIVY_APP_ID,
-                });
-
-                // Show the login UI
-                window.Privy.showLoginWidget({
-                    target: '#privy-login-container',
-                });
-
-                // Listen for successful login
-                window.Privy.on('login', async (user) => {
-                    console.log('✅ Privy login success:', user);
-                    await authenticateWithBackend(user);
-                });
-
-            } catch (error) {
-                console.error('Failed to initialize Privy:', error);
-                showError('Failed to initialize. Please refresh the page.');
-            }
-        }
+                const root = createRoot(document.getElementById('privy-login-container'));
+                root.render(
+                    React.createElement(
+                        PrivyProvider,
+                        {
+                            appId: PRIVY_APP_ID,
+                            config: {
+                                loginMethods: ['email', 'google', 'wallet'],
+                                appearance: {
+                                    theme: 'dark',
+                                    accentColor: '#8b5cf6',
+                                    showWalletLoginFirst: false,
+                                },
+                                embeddedWallets: {
+                                    createOnLogin: 'users-without-wallets',
+                                },
+                            },
+                        },
+                        React.createElement(GoodMarketPrivyLogin)
+                    )
+                );
+            }).catch(renderPrivyLoadError);
+        });
 
         // Global error handler
         window.addEventListener('unhandledrejection', function(event) {
