@@ -383,6 +383,7 @@
         // Configuration
         const PRIVY_APP_ID = '{{ privy_app_id }}';
         const REFERRAL_CODE = '{{ referral_code }}';
+        const PRIVY_NOT_CONFIGURED = PRIVY_APP_ID === 'CONFIGURE_PRIVY' || !PRIVY_APP_ID;
 
         // Show/hide loading overlay
         function showLoading(message = 'Connecting...') {
@@ -410,6 +411,38 @@
 
         function showError(message) {
             showStatus(message, 'error');
+        }
+
+        // Show configuration required message
+        function showConfigRequired() {
+            const container = document.getElementById('privy-login-container');
+            container.innerHTML = `
+                <div style="text-align: center; padding: 30px 20px;">
+                    <div style="font-size: 3rem; margin-bottom: 16px;">⚙️</div>
+                    <h3 style="color: #f1f5f9; margin-bottom: 12px;">Configuration Required</h3>
+                    <p style="color: rgba(241, 245, 249, 0.7); margin-bottom: 20px; line-height: 1.6;">
+                        Privy authentication is not yet configured.<br>
+                        Please set your environment variables.
+                    </p>
+                    <div style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 12px; text-align: left; margin-bottom: 20px;">
+                        <code style="color: #a5b4fc; font-size: 0.85rem; display: block; white-space: pre-wrap;">
+PRIVY_APP_ID=your_app_id
+PRIVY_APP_SECRET=your_secret</code>
+                    </div>
+                    <p style="color: rgba(241, 245, 249, 0.6); font-size: 0.8rem; margin-bottom: 16px;">
+                        See <a href="https://dashboard.privy.io" target="_blank" style="color: #6366f1;">dashboard.privy.io</a> to get your credentials.
+                    </p>
+                    <button onclick="window.location.href='/'" style="
+                        background: rgba(99, 102, 241, 0.2);
+                        border: 1px solid rgba(99, 102, 241, 0.4);
+                        color: #a5b4fc;
+                        padding: 10px 20px;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        font-size: 0.9rem;
+                    ">← Back to Homepage</button>
+                </div>
+            `;
         }
 
         // Handle referral code
@@ -520,6 +553,12 @@
             // Handle referral code
             handleReferral();
 
+            // Check if Privy is configured
+            if (PRIVY_NOT_CONFIGURED) {
+                showConfigRequired();
+                return;
+            }
+
             // Check if Privy SDK is loaded
             if (typeof window.PrivyManager === 'undefined' && typeof window.Privy === 'undefined') {
                 showStatus('Loading authentication...', 'loading');
@@ -542,6 +581,13 @@
         });
 
         async function initPrivy() {
+            // Check if Privy is configured
+            if (PRIVY_NOT_CONFIGURED) {
+                hideLoading();
+                showConfigRequired();
+                return;
+            }
+
             try {
                 const config = {
                     // Required: Your Privy App ID

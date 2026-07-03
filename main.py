@@ -745,21 +745,19 @@ def login_privy():
     New Privy-based login page.
     Renders the simplified login UI with all auth methods handled by Privy.
     """
-    from privy_service import is_privy_configured
-    
-    if not is_privy_configured():
-        # Fallback to old login if Privy not configured
-        return redirect("/", code=302)
+    from privy_service import is_privy_configured, PRIVY_APP_ID
     
     # Get referral code from URL
     referral_code = request.args.get('ref', '')
     
-    # Get Privy App ID
-    from privy_service import PRIVY_APP_ID
+    if not is_privy_configured():
+        # Fallback: Show the Privy login page anyway with a demo/config message
+        # The page will show "Configure Privy" message instead of login buttons
+        logger.warning("⚠️ Privy not configured - showing config required page")
     
     return render_template(
         "login-privy.html",
-        privy_app_id=PRIVY_APP_ID,
+        privy_app_id=PRIVY_APP_ID or "CONFIGURE_PRIVY",
         referral_code=referral_code,
         ASSET_VERSION=os.getenv("ASSET_VERSION", "1.0.0"),
     )
