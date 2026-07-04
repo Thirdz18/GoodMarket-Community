@@ -1535,6 +1535,8 @@ def index():
     if session.get("verified") and session.get("wallet"):
         return redirect("/wallet")
     wc_project_id = os.environ.get("WALLETCONNECT_PROJECT_ID", "")
+    privy_app_id = os.environ.get("PRIVY_APP_ID", "")
+    privy_client_id = os.environ.get("PRIVY_CLIENT_ID", "")
     try:
         homepage_stats = analytics.get_homepage_public_stats()
     except Exception as e:
@@ -1550,6 +1552,8 @@ def index():
         "homepage.html",
         walletconnect_project_id=wc_project_id,
         walletconnect_sidecar_enabled=_is_walletconnect_sidecar_enabled(),
+        privy_app_id=privy_app_id,
+        privy_client_id=privy_client_id,
         homepage_stats=homepage_stats,
         google_client_id=google_client_id,
     )
