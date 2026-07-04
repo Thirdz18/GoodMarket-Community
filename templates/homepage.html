@@ -2115,14 +2115,14 @@
 
             <!-- Step 1: Privy-first login -->
             <div class="wallet-options" id="walletOptions">
-                <div class="wallet-option-card wc-option" aria-live="polite">
+                <button id="privyPrimaryButton" class="wallet-option-card wc-option" type="button" onclick="beginPrivyLogin(true)" aria-live="polite">
                     <div class="option-icon">✨</div>
                     <div class="option-text">
-                        <div class="option-title">Opening Privy…</div>
-                        <p class="option-desc">Email, Google, embedded wallet, or connect wallet</p>
+                        <div class="option-title" id="privyPrimaryTitle">Open Privy Login</div>
+                        <p class="option-desc" id="privyPrimaryDesc">Email, Google, embedded wallet, or connect wallet</p>
                     </div>
                     <span class="option-arrow">→</span>
-                </div>
+                </button>
                 <button id="privyRetryButton" class="wallet-option-card wc-option" type="button" onclick="beginPrivyLogin(true)" style="display:none">
                     <div class="option-icon">🔐</div>
                     <div class="option-text">
@@ -2179,14 +2179,17 @@
                         return;
                     }
                     if (!ready) {
-                        window.GMPrivyAutoOpenRequested = true;
-                        window.showWalletStatus?.('walletConnectStatus', '⏳ Loading Privy… it will open automatically.', 'info');
+                        window.GMPrivyAutoOpenRequested = false;
+                        window.showWalletStatus?.('walletConnectStatus', '⏳ Loading Privy… tap Open Privy Login again in a moment.', 'info');
+                        window.showPrivyRetry?.();
                         return;
                     }
                     window.GMPrivyAutoOpenRequested = false;
                     window.showWalletStatus?.('walletConnectStatus', '🔐 Opening Privy login…', 'info');
                     try {
                         const loginResult = loginRef.current();
+                        window.hideWalletModalForPrivy?.();
+                        window.watchPrivyOpen?.();
                         if (loginResult && typeof loginResult.catch === 'function') {
                             loginResult.catch((err) => {
                                 window.GMPrivyAutoOpenRequested = true;
@@ -2196,10 +2199,10 @@
                                 window.showPrivyRetry?.();
                             });
                         }
-                        // Keep the GoodMarket modal visible behind Privy's dialog.
-                        // Hiding it immediately can make the page look like nothing
-                        // happened when Privy is slow to mount or the browser blocks
-                        // the popup, and it also hides the retry button users need.
+                        // Privy's sheet is rendered outside this modal. Hide the
+                        // GoodMarket modal after a real user-triggered login so it
+                        // cannot sit above Privy's UI; a watchdog restores it with a
+                        // retry CTA if Privy was blocked or failed to render.
                         window.schedulePrivyRetry?.();
                     } catch (err) {
                         window.GMPrivyAutoOpenRequested = true;
@@ -2210,7 +2213,9 @@
                 };
 
                 if (ready && window.GMPrivyAutoOpenRequested && document.getElementById('walletModal')?.classList.contains('active')) {
-                    window.GMPrivyLogin(false);
+                    window.GMPrivyAutoOpenRequested = false;
+                    window.showWalletStatus?.('walletConnectStatus', '✅ Privy is ready. Tap Open Privy Login to continue.', 'success');
+                    window.showPrivyRetry?.();
                 }
             }, [ready]);
 
@@ -2382,6 +2387,40 @@
             if (retry) retry.style.display = 'none';
         }
 
+
+        function isPrivyUiVisible() {
+            const selectors = [
+                '[data-privy-dialog]',
+                '[data-testid*=privy i]',
+                '[aria-label*=privy i]',
+                'iframe[src*=privy]',
+                'div[id*=privy]:not(#privyLoginMount)',
+                'div[class*=privy]'
+            ];
+            try {
+                return selectors.some(selector => Array.from(document.querySelectorAll(selector)).some(el => {
+                    if (!el || el.id === 'privyLoginMount') return false;
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+                }));
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function watchPrivyOpen() {
+            clearTimeout(window.GMPrivyOpenWatchTimer);
+            window.GMPrivyOpenWatchTimer = setTimeout(function () {
+                if (isPrivyUiVisible()) return;
+                window.restoreWalletModalAfterPrivy?.(true);
+                window.showPrivyRetry?.();
+                showWalletStatus('walletConnectStatus', '⚠️ Privy did not appear. Tap Open Privy Login again, and allow popups/third-party cookies if your browser asks.', 'warning');
+            }, 3500);
+        }
+
+        window.watchPrivyOpen = watchPrivyOpen;
+
         window.showPrivyRetry = showPrivyRetry;
         window.schedulePrivyRetry = function () {
             clearTimeout(window.GMPrivyRetryTimer);
@@ -2401,11 +2440,8 @@
                 showWalletStatus('walletConnectStatus', '❌ Privy is not configured. Set PRIVY_APP_ID in the server environment.', 'error');
                 return;
             }
-            showWalletStatus('walletConnectStatus', '⏳ Loading Privy… it will open automatically.', 'info');
-            setTimeout(function () {
-                if (typeof window.GMPrivyLogin === 'function') window.GMPrivyLogin(false);
-            }, 250);
-            window.schedulePrivyRetry();
+            showWalletStatus('walletConnectStatus', '⏳ Loading Privy… tap Open Privy Login again in a moment.', 'info');
+            showPrivyRetry();
         }
 
 
