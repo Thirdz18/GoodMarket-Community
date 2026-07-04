@@ -2113,84 +2113,168 @@
                 <button class="close-modal" onclick="closeWalletModal()">×</button>
             </div>
 
-            <!-- Step 1: Choose login path -->
+            <!-- Step 1: Privy-first login -->
             <div class="wallet-options" id="walletOptions">
-                <button class="wallet-option-card wc-option" onclick="showWalletConnectOptions()">
-                    <div class="option-icon">🔗</div>
+                <div class="wallet-option-card wc-option" aria-live="polite">
+                    <div class="option-icon">✨</div>
                     <div class="option-text">
-                        <div class="option-title">Connect Existing Wallet</div>
-                        <p class="option-desc">MetaMask / Trust / MiniPay / WalletConnect</p>
+                        <div class="option-title">Opening Privy…</div>
+                        <p class="option-desc">Email, Google, embedded wallet, or connect wallet</p>
+                    </div>
+                    <span class="option-arrow">→</span>
+                </div>
+                <button id="privyRetryButton" class="wallet-option-card wc-option" type="button" onclick="beginPrivyLogin(true)" style="display:none">
+                    <div class="option-icon">🔐</div>
+                    <div class="option-text">
+                        <div class="option-title">Open Privy Login</div>
+                        <p class="option-desc">Tap here if the Privy window did not open automatically</p>
                     </div>
                     <span class="option-arrow">→</span>
                 </button>
+                <div id="privyLoginMount" style="display:none"></div>
+                <div id="walletConnectStatus" class="status-message" style="margin-top:0.85rem;"></div>
             </div>
 
 
-            <!-- Step 2A: WalletConnect / injected -->
-            <div class="wallet-form" id="walletConnectOptions">
-                <button class="back-btn" onclick="showWalletOptions()">← Back to login options</button>
-
-                <div id="wcReferralWrap" class="wallet-input-group" style="margin-bottom:0.85rem;">
-                    <label class="wallet-label" for="wcReferralCode">Referral Code <span style="font-weight:400;color:#9ca3af;">(Optional)</span></label>
-                    <input type="text" id="wcReferralCode" class="wallet-input" placeholder="Enter referral code if you have one" autocomplete="off" oninput="syncReferralInputs(this)" />
-                    <p style="font-size:0.72rem;color:#6b7280;margin-top:0.35rem;line-height:1.45;">Paste the 8-character code from the friend who invited you. Applies to Injected Wallet and WalletConnect login below.</p>
-                </div>
-
-                <div id="wcOptionCards" class="wallet-options">
-                    <button class="wallet-option-card" id="injectedWalletBtn" onclick="connectInjectedWallet()" style="border-color: rgba(249,115,22,0.5);display:none;">
-                        <div class="option-icon" id="injectedWalletIcon">👛</div>
-                        <div class="option-text">
-                            <div class="option-title" id="injectedWalletTitle">Injected Wallet</div>
-                            <p class="option-desc" id="injectedWalletDesc">Detecting MetaMask / Trust Wallet / MiniPay...</p>
-                        </div>
-                        <span class="option-arrow">→</span>
-                    </button>
-
-                    <button class="wallet-option-card wc-option" onclick="connectWalletConnect()">
-                        <div class="option-icon">📱</div>
-                        <div class="option-text">
-                            <div class="option-title">WalletConnect</div>
-                            <p class="option-desc">Scan QR / deeplink to connect external wallet</p>
-                        </div>
-                        <span class="option-arrow">→</span>
-                    </button>
-
-                </div>
-                <div id="wcQrWrap" style="display:none;margin-top:1rem;text-align:center;">
-                    <div id="wcInstructionsBanner" style="display:none;background:linear-gradient(135deg,#4f46e5,#6366f1);color:white;padding:0.75rem 1rem;border-radius:10px;margin-bottom:1rem;font-size:0.73rem;line-height:1.6;position:relative;text-align:left;">
-                        <button id="wcBannerCloseBtn" style="position:absolute;top:0.5rem;right:0.5rem;background:rgba(255,255,255,0.2);border:none;color:white;cursor:pointer;padding:0.3rem 0.6rem;border-radius:6px;font-size:0.9rem;transition:all 0.2s;">×</button>
-                        <div style="font-weight:600;margin-bottom:0.6rem;padding-right:1.5rem;">💡 Better Experience with Native Wallets</div>
-                        <div style="margin-bottom:0.6rem;"><strong>Trust Wallet Mobile:</strong><br>• Open Trust Wallet app<br>• Tap "Discover" button (bottom right)<br>• Search for or click goodmarket.live</div>
-                        <div><strong>MetaMask Mobile:</strong><br>• Open MetaMask app<br>• Tap "Explore" tab<br>• Paste https://goodmarket.live</div>
-                    </div>
-                    <button id="wcBackBtn" style="display:none;background:rgba(0,0,0,0.05);border:none;color:#6b7280;padding:0.5rem;border-radius:8px;cursor:pointer;font-size:1.2rem;margin-bottom:0.8rem;transition:all 0.2s;">←</button>
-                    <div style="display:flex;flex-direction:column;align-items:center;gap:0.8rem;" id="wcQrContainer">
-                        <div id="wcQrCode" style="display:flex;justify-content:center;"></div>
-                        <div id="wcCopyBtnContainer" style="width:100%;"></div>
-                    </div>
-                    <p style="font-size:0.78rem;color:#6b7280;margin-top:0.8rem;">Scan using GoodWallet, MetaMask, Trust Wallet, Valora, Rainbow, etc.</p>
-                    <div id="wcInstructions" style="display:none;margin-top:1rem;text-align:left;font-size:0.7rem;line-height:1.6;color:rgba(0,0,0,0.75);">
-                        <div style="margin-bottom:1rem;padding-bottom:1rem;border-bottom:1px solid #e5e7eb;">
-                            <strong style="color:#1f2937;font-size:0.75rem;">1. Trust Wallet</strong><br>
-                            • Open Trust Wallet app<br>
-                            • Tap "Discover" button (bottom right)<br>
-                            • Search for or tap "goodmarket.live"
-                        </div>
-                        <div>
-                            <strong style="color:#1f2937;font-size:0.75rem;">2. MetaMask Mobile</strong><br>
-                            • Open MetaMask wallet app<br>
-                            • Tap "Explore" icon<br>
-                            • Paste https://goodmarket.live
-                        </div>
-                    </div>
-                </div>
-
-                <div id="walletConnectStatus" class="status-message"></div>
-            </div>
+            <!-- Legacy WalletConnect / injected wallet picker removed from the user-facing homepage.
+                 Privy now owns email, Google, embedded wallet creation, and external wallet connect. -->
 
 
         </div>
     </div>
+
+    <script>
+        window.GM_PRIVY_CONFIG = {
+            appId: {{ privy_app_id|default('', true)|tojson }},
+            clientId: {{ privy_client_id|default('', true)|tojson }}
+        };
+    </script>
+    <script type="module">
+        import React, {useEffect, useRef} from 'https://esm.sh/react@18.3.1';
+        import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
+        import {PrivyProvider, usePrivy, useWallets} from 'https://esm.sh/@privy-io/react-auth@3.32.2?deps=react@18.3.1,react-dom@18.3.1';
+
+        const CELO_MAINNET = {
+            id: 42220,
+            name: 'Celo',
+            network: 'celo',
+            nativeCurrency: {name: 'CELO', symbol: 'CELO', decimals: 18},
+            rpcUrls: {default: {http: ['https://forno.celo.org']}},
+            blockExplorers: {default: {name: 'Celoscan', url: 'https://celoscan.io'}}
+        };
+
+        function PrivyLoginController() {
+            const {ready, authenticated, login, signMessage} = usePrivy();
+            const {ready: walletsReady, wallets} = useWallets();
+            const processingRef = useRef(false);
+            const walletWaitTimerRef = useRef(null);
+            const loginRef = useRef(login);
+
+            useEffect(() => { loginRef.current = login; }, [login]);
+
+            useEffect(() => {
+                window.GMPrivyLogin = async function (fromUserTap) {
+                    if (!window.GM_PRIVY_CONFIG.appId) {
+                        window.showWalletStatus?.('walletConnectStatus', '❌ Privy is not configured. Set PRIVY_APP_ID in the server environment.', 'error');
+                        return;
+                    }
+                    if (!ready) {
+                        window.GMPrivyAutoOpenRequested = true;
+                        window.showWalletStatus?.('walletConnectStatus', '⏳ Loading Privy… it will open automatically.', 'info');
+                        return;
+                    }
+                    window.GMPrivyAutoOpenRequested = false;
+                    window.showWalletStatus?.('walletConnectStatus', '🔐 Opening Privy login…', 'info');
+                    try {
+                        loginRef.current();
+                        window.hideWalletModalForPrivy?.();
+                    } catch (err) {
+                        window.GMPrivyAutoOpenRequested = true;
+                        window.restoreWalletModalAfterPrivy?.();
+                        window.showWalletStatus?.('walletConnectStatus', '⚠️ Privy did not open automatically. Please tap Open Privy Login.', 'warning');
+                        window.showPrivyRetry?.();
+                    }
+                };
+
+                if (ready && window.GMPrivyAutoOpenRequested && document.getElementById('walletModal')?.classList.contains('active')) {
+                    window.GMPrivyLogin(false);
+                }
+            }, [ready]);
+
+            useEffect(() => {
+                async function completePrivyLogin() {
+                    if (!ready || !authenticated || !walletsReady || processingRef.current) return;
+                    if (!wallets || wallets.length === 0) {
+                        window.showWalletStatus?.('walletConnectStatus', '⏳ Creating your Privy wallet…', 'info');
+                        if (!walletWaitTimerRef.current) {
+                            walletWaitTimerRef.current = setTimeout(() => {
+                                walletWaitTimerRef.current = null;
+                                if (!processingRef.current) {
+                                    window.restoreWalletModalAfterPrivy?.(true);
+                                    window.showPrivyRetry?.();
+                                    window.showWalletStatus?.('walletConnectStatus', '⚠️ Privy authenticated you, but no EVM wallet address was returned. Please reopen Privy and choose Email/Google again, or use Connect Wallet.', 'warning');
+                                }
+                            }, 20000);
+                        }
+                        return;
+                    }
+                    if (walletWaitTimerRef.current) {
+                        clearTimeout(walletWaitTimerRef.current);
+                        walletWaitTimerRef.current = null;
+                    }
+                    processingRef.current = true;
+                    try {
+                        const wallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
+                        const address = wallet && wallet.address;
+                        if (!address) throw new Error('Privy did not return an EVM wallet address.');
+                        window.showWalletStatus?.('walletConnectStatus', '✍️ Sign the GoodMarket login message in Privy…', 'info');
+                        const provider = await wallet.getEthereumProvider();
+                        window.GMPrivyProvider = provider;
+                        window.GMPrivyWalletAddress = address;
+                        try { localStorage.setItem('privy_wallet_address', address); } catch (_) {}
+                        const message = window.makeLoginMessage(address);
+                        const sigResult = await signMessage({message}, {address});
+                        const signature = (typeof sigResult === 'string') ? sigResult : (sigResult && sigResult.signature);
+                        if (!signature) throw new Error('Privy did not return a login signature.');
+                        const verifyData = await window.postVerifyIdentity(address, signature, message, window.getPendingReferralCode?.() || '', 'privy');
+                        const okMsg = verifyData && verifyData.referral_warning
+                            ? ('✅ Privy login verified. ⚠️ ' + verifyData.referral_warning + ' Redirecting…')
+                            : '✅ Privy login verified. Redirecting…';
+                        window.showWalletStatus?.('walletConnectStatus', okMsg, verifyData && verifyData.referral_warning ? 'warning' : 'success');
+                        setTimeout(() => { window.location.href = '/wallet'; }, verifyData && verifyData.referral_warning ? 2400 : 900);
+                    } catch (err) {
+                        processingRef.current = false;
+                        const msg = err && err.message ? err.message : 'Privy login failed';
+                        const rejected = /reject|denied|cancel/i.test(msg);
+                        window.restoreWalletModalAfterPrivy?.();
+                        window.showWalletStatus?.('walletConnectStatus', (rejected ? '❌ Signature or login was cancelled. ' : '❌ ') + msg, rejected ? 'warning' : 'error');
+                        if (rejected) window.showPrivyRetry?.();
+                    }
+                }
+                completePrivyLogin();
+            }, [ready, authenticated, walletsReady, wallets]);
+
+            return null;
+        }
+
+        const cfg = window.GM_PRIVY_CONFIG || {};
+        const mount = document.getElementById('privyLoginMount');
+        if (mount && cfg.appId) {
+            createRoot(mount).render(
+                React.createElement(PrivyProvider, {
+                    appId: cfg.appId,
+                    clientId: cfg.clientId || undefined,
+                    config: {
+                        defaultChain: CELO_MAINNET,
+                        supportedChains: [CELO_MAINNET],
+                        loginMethods: ['email', 'google', 'wallet'],
+                        embeddedWallets: {ethereum: {createOnLogin: 'users-without-wallets'}},
+                        appearance: {theme: 'light', accentColor: '#10b981', logo: '/static/icons/goodmarket-icon.png'}
+                    }
+                }, React.createElement(PrivyLoginController))
+            );
+        }
+    </script>
 
     <script>
         // Check if user should return to community stories after login
@@ -2235,16 +2319,35 @@
 
         function openWalletModal() {
             showWalletOptions();
+            hidePrivyRetry();
+            window.restoreWalletModalAfterPrivy?.(false);
             document.getElementById('walletModal').classList.add('active');
             // Re-apply any referral code captured from the URL / sessionStorage
-            // so the WalletConnect + Create Wallet referral inputs are pre-filled
-            // even if the modal was opened before DOMContentLoaded fully fired.
+            // so the Privy login receives the same referral context.
             try { initReferralFromUrl(); } catch (e) {}
+            beginPrivyLogin(true);
         }
 
         function closeWalletModal() {
             document.getElementById('walletModal').classList.remove('active');
         }
+
+        function hideWalletModalForPrivy() {
+            const modal = document.getElementById('walletModal');
+            if (!modal) return;
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+
+        function restoreWalletModalAfterPrivy(showModal = true) {
+            const modal = document.getElementById('walletModal');
+            if (!modal) return;
+            modal.removeAttribute('aria-hidden');
+            if (showModal) modal.classList.add('active');
+        }
+
+        window.hideWalletModalForPrivy = hideWalletModalForPrivy;
+        window.restoreWalletModalAfterPrivy = restoreWalletModalAfterPrivy;
 
         function showWalletOptions() {
             document.getElementById('walletOptions').style.display = 'flex';
@@ -2252,7 +2355,42 @@
                 const el = document.getElementById(id);
                 if (el) el.classList.remove('visible');
             });
-            detectInjectedWallet();
+        }
+
+        function showPrivyRetry() {
+            const retry = document.getElementById('privyRetryButton');
+            if (retry) retry.style.display = 'flex';
+        }
+
+        function hidePrivyRetry() {
+            const retry = document.getElementById('privyRetryButton');
+            if (retry) retry.style.display = 'none';
+        }
+
+        window.showPrivyRetry = showPrivyRetry;
+        window.schedulePrivyRetry = function () {
+            clearTimeout(window.GMPrivyRetryTimer);
+            window.GMPrivyRetryTimer = setTimeout(function () {
+                if (document.getElementById('walletModal')?.classList.contains('active')) showPrivyRetry();
+            }, 2500);
+        };
+
+        function beginPrivyLogin(fromUserTap) {
+            hidePrivyRetry();
+            window.GMPrivyAutoOpenRequested = true;
+            if (typeof window.GMPrivyLogin === 'function') {
+                window.GMPrivyLogin(!!fromUserTap);
+                return;
+            }
+            if (!window.GM_PRIVY_CONFIG || !window.GM_PRIVY_CONFIG.appId) {
+                showWalletStatus('walletConnectStatus', '❌ Privy is not configured. Set PRIVY_APP_ID in the server environment.', 'error');
+                return;
+            }
+            showWalletStatus('walletConnectStatus', '⏳ Loading Privy… it will open automatically.', 'info');
+            setTimeout(function () {
+                if (typeof window.GMPrivyLogin === 'function') window.GMPrivyLogin(false);
+            }, 250);
+            window.schedulePrivyRetry();
         }
 
 
