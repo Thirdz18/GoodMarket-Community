@@ -2163,6 +2163,16 @@
             blockExplorers: {default: {name: 'Celoscan', url: 'https://celoscan.io'}}
         };
 
+        function isMiniPayDappBrowser() {
+            const ua = (navigator.userAgent || '').toLowerCase();
+            const eth = window.ethereum;
+            return !!(
+                (eth && eth.isMiniPay) ||
+                (eth && Array.isArray(eth.providers) && eth.providers.some(p => p && p.isMiniPay)) ||
+                ua.includes('minipay')
+            );
+        }
+
         function PrivyLoginController() {
             const {ready, authenticated, login, signMessage} = usePrivy();
             const {ready: walletsReady, wallets} = useWallets();
@@ -2289,7 +2299,14 @@
                     config: {
                         defaultChain: CELO_MAINNET,
                         supportedChains: [CELO_MAINNET],
-                        loginMethods: ['email', 'google', 'wallet'],
+                        // MiniPay's injected provider can return non-hex values for
+                        // some wallet-provider requests inside third-party auth
+                        // modals (for example values beginning with "L"), which
+                        // causes Privy's wallet connector stack to fail before the
+                        // email/Google embedded-wallet path can finish. In MiniPay
+                        // we therefore hide Privy's external-wallet connector and
+                        // let users create/sign with the Privy embedded wallet.
+                        loginMethods: isMiniPayDappBrowser() ? ['email', 'google'] : ['email', 'google', 'wallet'],
                         embeddedWallets: {ethereum: {createOnLogin: 'users-without-wallets'}},
                         appearance: {theme: 'light', accentColor: '#10b981', logo: '/static/icons/goodmarket-icon.png'}
                     }
@@ -2385,12 +2402,20 @@
 
         function showPrivyRetry() {
             const retry = document.getElementById('privyRetryButton');
+            const primary = document.getElementById('privyPrimaryButton');
+            // Do not show two visually identical Privy CTAs at the same time.
+            // Some in-app browsers (MiniPay/Trust/MetaMask) keep the GoodMarket
+            // modal visible while Privy's sheet is opening, so the retry CTA used
+            // to appear underneath the primary button and look duplicated.
+            if (primary) primary.style.display = 'none';
             if (retry) retry.style.display = 'flex';
         }
 
         function hidePrivyRetry() {
             const retry = document.getElementById('privyRetryButton');
+            const primary = document.getElementById('privyPrimaryButton');
             if (retry) retry.style.display = 'none';
+            if (primary) primary.style.display = 'flex';
         }
 
 
