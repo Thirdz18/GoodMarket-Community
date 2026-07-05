@@ -1592,6 +1592,17 @@ def verify_identity():
         login_method = (data.get('login_method') or 'injected').strip().lower()
         if login_method not in {'injected', 'walletconnect', 'manual', 'manual_address', 'privy'}:
             login_method = 'injected'
+        raw_referral_eligible = data.get('referral_eligible')
+        referral_eligible = (
+            raw_referral_eligible is True
+            or str(raw_referral_eligible).strip().lower() in {'1', 'true', 'yes'}
+        )
+        privy_wallet_client_type = (data.get('privy_wallet_client_type') or '').strip().lower()
+        is_privy_embedded_referee = (
+            login_method == 'privy'
+            and referral_eligible
+            and privy_wallet_client_type == 'privy'
+        )
 
         # Check if user is already verified in the session. Keep login_method fresh
         # because a user may re-enter through Privy after previously using another
@@ -1711,15 +1722,26 @@ def verify_identity():
         # ── REFERRAL PROCESSING ──────────────────────────────────────────────────
         # Rules:
         #  1. Referral only valid for NEW users (not yet in user_data)
-        #  2. Referral only valid if referee is NOT yet externally face-verified
-        #  3. Reward only disbursed after referee completes face verification
+        #  2. Referral only valid if the referee created/uses a Privy embedded
+        #     wallet (email/social Privy wallet), not WalletConnect/injected
+        #  3. Referral only valid if referee is NOT yet externally face-verified
+        #  4. Reward only disbursed after referee completes face verification
         referral_warning = None
         if referral_code:
             try:
                 from referral_program.referral_service import referral_service as ref_svc
                 from referral_program.blockchain import referral_blockchain_service as ref_bc_svc
 
-                if not is_new_user:
+                if not is_privy_embedded_referee:
+                    logger.info(
+                        "ℹ️ Referral ignored: referee must create/use a Privy embedded wallet "
+                        f"(login_method={login_method}, privy_wallet_client_type={privy_wallet_client_type or 'none'})"
+                    )
+                    referral_warning = (
+                        "Referral rewards only apply when the new user creates a Privy email/social wallet. "
+                        "WalletConnect, MiniPay, MetaMask, and other existing-wallet logins are not eligible."
+                    )
+                elif not is_new_user:
                     # Existing user — referral cannot apply
                     logger.info(f"ℹ️ Referral ignored: {wallet_address[:8]}... is an existing user")
                     referral_warning = "Referral rewards are only available for users joining the platform for the first time."
