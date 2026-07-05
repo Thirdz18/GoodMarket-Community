@@ -2169,7 +2169,10 @@
             return !!(
                 (eth && eth.isMiniPay) ||
                 (eth && Array.isArray(eth.providers) && eth.providers.some(p => p && p.isMiniPay)) ||
-                ua.includes('minipay')
+                ua.includes('minipay') ||
+                ua.includes('opr/mini') ||
+                ua.includes('opera mini') ||
+                typeof window.operamini !== 'undefined'
             );
         }
 
@@ -2297,7 +2300,16 @@
                     }
                     processingRef.current = true;
                     try {
-                        const wallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0];
+                        const privyEmbeddedWallet = wallets.find(w => w && w.walletClientType === 'privy');
+                        // In MiniPay, never fall back to the injected MiniPay wallet after
+                        // Privy auth. The GoodMarket session source must remain Privy and
+                        // the signing provider must be Privy's embedded EVM wallet; using
+                        // MiniPay here can re-trigger the non-hex provider error and saves
+                        // the wrong login source/account.
+                        const wallet = miniPayPrivyMode ? privyEmbeddedWallet : (privyEmbeddedWallet || wallets[0]);
+                        if (miniPayPrivyMode && !privyEmbeddedWallet) {
+                            throw new Error('Privy did not return an embedded wallet. Please reopen Privy and choose Email or Google, not an external wallet.');
+                        }
                         const address = wallet && wallet.address;
                         if (!address) throw new Error('Privy did not return an EVM wallet address.');
                         window.showWalletStatus?.('walletConnectStatus', '✍️ Sign the GoodMarket login message in Privy…', 'info');
@@ -2334,6 +2346,16 @@
 
         const cfg = window.GM_PRIVY_CONFIG || {};
         const mount = document.getElementById('privyLoginMount');
+        const miniPayPrivyMode = isMiniPayDappBrowser();
+        if (miniPayPrivyMode) {
+            // Hide MiniPay's injected provider before PrivyProvider mounts. Privy
+            // can probe injected wallets during initialization, before login() is
+            // called, and MiniPay may answer some probes with non-hex internal
+            // values (for example strings beginning with "L"). That causes the
+            // hex parser error seen in MiniPay before the email/Google choices
+            // render. We restore the provider after Privy auth or failed open.
+            suppressMiniPayProviderForPrivy();
+        }
         if (mount && cfg.appId) {
             createRoot(mount).render(
                 React.createElement(PrivyProvider, {
@@ -2349,7 +2371,7 @@
                         // email/Google embedded-wallet path can finish. In MiniPay
                         // we therefore hide Privy's external-wallet connector and
                         // let users create/sign with the Privy embedded wallet.
-                        loginMethods: isMiniPayDappBrowser() ? ['email', 'google'] : ['email', 'google', 'wallet'],
+                        loginMethods: miniPayPrivyMode ? ['email', 'google'] : ['email', 'google', 'wallet'],
                         embeddedWallets: {ethereum: {createOnLogin: 'users-without-wallets'}},
                         appearance: {theme: 'light', accentColor: '#10b981', logo: '/static/icons/goodmarket-icon.png'}
                     }
