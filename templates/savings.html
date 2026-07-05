@@ -146,6 +146,49 @@
     </style>
     <!-- WalletConnect bridge for users without injected wallet -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
+    <div id="privyWalletMount" style="display:none"></div>
+    <script type="module">
+        import React, {useEffect} from 'https://esm.sh/react@18.3.1';
+        import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
+        import {PrivyProvider, usePrivy, useWallets} from 'https://esm.sh/@privy-io/react-auth@3.32.2?deps=react@18.3.1,react-dom@18.3.1';
+
+        const privyConfig = {
+            appId: {{ privy_app_id|default('', true)|tojson }},
+            clientId: {{ privy_client_id|default('', true)|tojson }}
+        };
+
+        function PrivyWalletBridge() {
+            const {ready, authenticated, login} = usePrivy();
+            const {wallets} = useWallets();
+
+            useEffect(() => {
+                window.GMPrivyReady = !!ready;
+                window.GMPrivyAuthenticated = !!authenticated;
+                window.GMPrivyLogin = login;
+                window.GMPrivyWallets = wallets || [];
+                window.dispatchEvent(new CustomEvent('gm:privy-wallets-updated'));
+            }, [ready, authenticated, login, wallets]);
+
+            return null;
+        }
+
+        if (privyConfig.appId) {
+            const mount = document.getElementById('privyWalletMount');
+            if (mount) {
+                createRoot(mount).render(
+                    React.createElement(PrivyProvider, {
+                        appId: privyConfig.appId,
+                        clientId: privyConfig.clientId || undefined,
+                        config: {
+                            loginMethods: ['email', 'google', 'wallet'],
+                            embeddedWallets: {ethereum: {createOnLogin: 'users-without-wallets'}},
+                            appearance: {theme: 'dark', accentColor: '#7f8cff'}
+                        }
+                    }, React.createElement(PrivyWalletBridge))
+                );
+            }
+        }
+    </script>
     <script>
         if (typeof GMWalletConnect !== "undefined") {
             GMWalletConnect.configure({
@@ -560,6 +603,7 @@
         "https://celo.publicnode.com"
     ];
     const LOGIN_METHOD = "{{ login_method }}";
+    const IS_PRIVY_LOGIN = (LOGIN_METHOD || '').toLowerCase() === 'privy';
     // Pure self-custody mode: never use server-side signing.
     // Robust WalletConnect detection: LOGIN_METHOD is primary, but sessions
     // created before login_method was persisted report "injected" for
@@ -1528,9 +1572,67 @@
         throw richErr;
     }
 
+
+    async function _getPrivyProviderIfPreferred(options = {}) {
+        if (!IS_PRIVY_LOGIN) return null;
+        const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 4000;
+        const start = Date.now();
+        const wait = (ms) => new Promise(r => setTimeout(r, ms));
+        while (Date.now() - start < timeoutMs) {
+            try {
+                const wallets = Array.isArray(window.GMPrivyWallets) ? window.GMPrivyWallets : [];
+                const sessionWallet = (WALLET || '').toLowerCase();
+                const wallet = wallets.find(w => (w.address || '').toLowerCase() === sessionWallet)
+                    || wallets.find(w => w.walletClientType === 'privy')
+                    || wallets[0];
+                if (wallet && typeof wallet.getEthereumProvider === 'function') {
+                    const provider = await wallet.getEthereumProvider();
+                    if (provider && typeof provider.request === 'function') {
+                        provider.__gmPrivyProvider = true;
+                        return provider;
+                    }
+                }
+                if (window.GMPrivyReady && !window.GMPrivyAuthenticated && typeof window.GMPrivyLogin === 'function' && options.promptLogin) {
+                    await window.GMPrivyLogin();
+                }
+            } catch (err) {
+                if (err && (err.code === 4001 || /reject|cancel/i.test(String(err.message || '')))) throw err;
+                console.warn('[privy] provider lookup failed:', err);
+            }
+            await wait(150);
+        }
+        return null;
+    }
+
     async function getSigner() {
         if (window.useServerSigning) {
             throw new Error('This account uses server-side signing. Please continue with automatic server signing.');
+        }
+        if (IS_PRIVY_LOGIN) {
+            const privyProvider = await _getPrivyProviderIfPreferred({ promptLogin: true, timeoutMs: 10000 });
+            if (privyProvider) {
+                const currentChain = await privyProvider.request({ method: 'eth_chainId' }).catch(() => null);
+                if (!currentChain || parseInt(currentChain, 16) !== CHAIN_ID) {
+                    try {
+                        await privyProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x' + CHAIN_ID.toString(16) }] });
+                    } catch (_) {
+                        await privyProvider.request({ method: 'wallet_addEthereumChain', params: [{
+                            chainId: '0x' + CHAIN_ID.toString(16),
+                            chainName: 'Celo Mainnet',
+                            nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                            rpcUrls: CELO_RPC_URLS,
+                            blockExplorerUrls: ['https://celoscan.io']
+                        }] });
+                    }
+                }
+                const provider = new ethers.BrowserProvider(privyProvider);
+                const signer = await provider.getSigner();
+                const addr = await signer.getAddress();
+                if ((addr || '').toLowerCase() !== (WALLET || '').toLowerCase()) {
+                    throw new Error('Wrong Privy wallet connected. Please use your GoodMarket wallet.');
+                }
+                return signer;
+            }
         }
         // If user logged in via WalletConnect, restore and use WC session as signer
         // regardless of any browser extension that may be installed
@@ -2090,7 +2192,8 @@
     }
 
     async function ensureCeloNetwork() {
-        const ep = _getEthProvider();
+        const privyProvider = await _getPrivyProviderIfPreferred({ promptLogin: false, timeoutMs: 1000 });
+        const ep = privyProvider || _getEthProvider();
         if (!ep) return; // WalletConnect — assume wallet is on Celo
         const chainIdHex = await ep.request({ method: 'eth_chainId' });
         if (parseInt(chainIdHex, 16) !== CHAIN_ID) {
