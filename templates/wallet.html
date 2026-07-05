@@ -133,6 +133,47 @@
         }
         .icon-btn:hover { background: rgba(255,255,255,0.12); }
 
+        .private-key-export-card {
+            margin-bottom: 1.25rem;
+            background: rgba(250,204,21,0.06);
+            border: 1px solid rgba(250,204,21,0.26);
+            border-radius: 12px;
+            padding: 0.9rem 0.95rem;
+        }
+        .private-key-export-card .warning-title {
+            color: #facc15;
+            font-size: 0.88rem;
+            font-weight: 800;
+            margin-bottom: 0.45rem;
+        }
+        .private-key-export-card .warning-copy {
+            color: rgba(255,255,255,0.78);
+            font-size: 0.82rem;
+            line-height: 1.55;
+            margin-bottom: 0.75rem;
+        }
+        .private-key-export-card .confirm-phrase {
+            display: block;
+            padding: 0.55rem 0.65rem;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.18);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 0.76rem;
+            line-height: 1.45;
+            word-break: break-word;
+            margin: 0.45rem 0 0.65rem;
+        }
+        .private-key-export-card .export-status {
+            display: none;
+            margin-top: 0.65rem;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+        .private-key-export-card .export-status.show { display: block; }
+        .private-key-export-card .export-status.error { color: #ff8a8a; }
+        .private-key-export-card .export-status.info { color: #93c5fd; }
+
         /* ── Portfolio Card (credit-card style) ── */
         .balance-card {
             margin: 0.5rem 1.25rem 1.25rem;
@@ -1749,6 +1790,19 @@
                 <div style="font-family:monospace;font-size:0.8rem;color:var(--text-dim);background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.75rem;word-break:break-all;line-height:1.6;">{{ wallet }}</div>
             </div>
 
+            <div class="private-key-export-card" id="privateKeyExportCard">
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Private Key Export</div>
+                <div class="warning-title">⚠️ Security warning</div>
+                <div class="warning-copy">
+                    Exporting your private key can be safe only if you never share it with anyone. If it is leaked, shared, screenshotted, or typed into a fake website, your funds can be stolen permanently.
+                    Before continuing, type this exact sentence:
+                    <span class="confirm-phrase" id="privateKeyConfirmPhrase">I agree that if my private key is shared with anyone my funds may be lost, and GoodMarket is not responsible.</span>
+                </div>
+                <input class="form-input" id="privateKeyConfirmInput" type="text" autocomplete="off" spellcheck="false" placeholder="Type the exact sentence above">
+                <button class="btn-primary" id="privateKeyExportBtn" type="button" style="margin-top:0.7rem;" disabled onclick="handlePrivateKeyExport()">Reveal Private Key in Privy</button>
+                <div class="export-status" id="privateKeyExportStatus" aria-live="polite"></div>
+            </div>
+
             <div style="margin-bottom:1.25rem;">
                 <div style="font-size:0.82rem;font-weight:600;color:var(--text-dim);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em;">Face Verification</div>
                 <div id="fvStatusCard" style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:0.85rem 0.95rem;font-size:0.85rem;line-height:1.6;">
@@ -1951,7 +2005,7 @@
     <script type="module">
         import React, {useEffect} from 'https://esm.sh/react@18.3.1';
         import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
-        import {PrivyProvider, usePrivy, useWallets} from 'https://esm.sh/@privy-io/react-auth@3.32.2?deps=react@18.3.1,react-dom@18.3.1';
+        import {PrivyProvider, useExportWallet, usePrivy, useWallets} from 'https://esm.sh/@privy-io/react-auth@3.32.2?deps=react@18.3.1,react-dom@18.3.1';
 
 
         const CELO_PRIVY_CHAIN = {
@@ -2019,15 +2073,17 @@
 
         function PrivyWalletBridge() {
             const {ready, authenticated, login} = usePrivy();
+            const {exportWallet} = useExportWallet();
             const {wallets} = useWallets();
 
             useEffect(() => {
                 window.GMPrivyReady = !!ready;
                 window.GMPrivyAuthenticated = !!authenticated;
                 window.GMPrivyLogin = login;
+                window.GMPrivyExportWallet = exportWallet;
                 window.GMPrivyWallets = wallets || [];
                 window.dispatchEvent(new CustomEvent('gm:privy-wallets-updated'));
-            }, [ready, authenticated, login, wallets]);
+            }, [ready, authenticated, login, exportWallet, wallets]);
 
             return null;
         }
@@ -2922,6 +2978,56 @@
         }
         navigateWithFeedback('/reloadly/#topup', 'Opening Mobile Top-Up…');
     }
+
+    const PRIVATE_KEY_EXPORT_CONFIRMATION = 'I agree that if my private key is shared with anyone my funds may be lost, and GoodMarket is not responsible.';
+
+    function setPrivateKeyExportStatus(message, type) {
+        const status = document.getElementById('privateKeyExportStatus');
+        if (!status) return;
+        status.textContent = message || '';
+        status.className = 'export-status' + (message ? ' show' : '') + (type ? ' ' + type : '');
+    }
+
+    function refreshPrivateKeyExportState() {
+        const input = document.getElementById('privateKeyConfirmInput');
+        const btn = document.getElementById('privateKeyExportBtn');
+        if (!input || !btn) return;
+        const confirmed = input.value.trim() === PRIVATE_KEY_EXPORT_CONFIRMATION;
+        btn.disabled = !confirmed;
+        btn.textContent = confirmed ? 'Reveal Private Key in Privy' : 'Type the warning exactly to continue';
+    }
+
+    async function handlePrivateKeyExport() {
+        const input = document.getElementById('privateKeyConfirmInput');
+        if (!input || input.value.trim() !== PRIVATE_KEY_EXPORT_CONFIRMATION) {
+            setPrivateKeyExportStatus('Type the warning sentence exactly before exporting your private key.', 'error');
+            refreshPrivateKeyExportState();
+            return;
+        }
+
+        try {
+            if (window.GMPrivyReady && !window.GMPrivyAuthenticated && typeof window.GMPrivyLogin === 'function') {
+                setPrivateKeyExportStatus('Opening Privy login before export…', 'info');
+                await window.GMPrivyLogin();
+            }
+            if (typeof window.GMPrivyExportWallet !== 'function') {
+                throw new Error('Privy private key export is not available for this wallet session. Please log in with your GoodMarket Privy embedded wallet.');
+            }
+            setPrivateKeyExportStatus('Opening Privy secure export screen. GoodMarket will not see or store your private key.', 'info');
+            await window.GMPrivyExportWallet();
+        } catch (err) {
+            const msg = err && err.message ? err.message : 'Private key export was cancelled or failed.';
+            setPrivateKeyExportStatus(msg, 'error');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const input = document.getElementById('privateKeyConfirmInput');
+        const phrase = document.getElementById('privateKeyConfirmPhrase');
+        if (phrase) phrase.textContent = PRIVATE_KEY_EXPORT_CONFIRMATION;
+        if (input) input.addEventListener('input', refreshPrivateKeyExportState);
+        refreshPrivateKeyExportState();
+    });
 
     // ── Modal ────────────────────────────────────────────────
     function openModal(id) {
