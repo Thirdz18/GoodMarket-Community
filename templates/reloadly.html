@@ -1051,14 +1051,22 @@ function gdToWei(amountGd) {
 }
 
 function encodeGdTransfer(toAddress, amountGd) {
-    // Build calldata for ERC-20 transfer(address,uint256)
-    // to:   GD_CONTRACT (token contract)
-    // data: transfer(MERCHANT_ADDRESS, amount)
+    // Build calldata for ERC-20 transfer(address,uint256). The amount comes
+    // from /order/prepare and is kept as a decimal string all the way into
+    // BigInt encoding so Privy decodes the same G$ amount shown in checkout.
     const selector = 'a9059cbb'; // keccak256("transfer(address,uint256)")[0:4]
-    const paddedTo = toAddress.replace(/^0x/i, '').toLowerCase().padStart(64, '0');
+    const cleanTo = String(toAddress || '').replace(/^0x/i, '').toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(cleanTo)) throw new Error('Invalid merchant address');
+    const paddedTo = cleanTo.padStart(64, '0');
     const amountWei = gdToWei(amountGd);
     const paddedAmt = amountWei.toString(16).padStart(64, '0');
     return '0x' + selector + paddedTo + paddedAmt;
+}
+
+function decodeGdTransferAmount(data) {
+    const hex = String(data || '').replace(/^0x/i, '');
+    if (!hex.startsWith('a9059cbb') || hex.length < 136) throw new Error('Invalid G$ transfer data');
+    return BigInt('0x' + hex.slice(72, 136));
 }
 
 function gdToWeiHex(amountGd) {
@@ -1516,6 +1524,9 @@ async function dappSendPayment() {
         } catch (_) { /* Balance check failed — proceed anyway */ }
 
         const data = encodeGdTransfer(MERCHANT_ADDRESS, gdNeeded);
+        if (decodeGdTransferAmount(data) !== gdToWei(gdNeeded)) {
+            throw new Error('Payment amount mismatch. Please reopen checkout and try again.');
+        }
 
         // ── Server-side mode (server-signing flow): sign server-side, no wallet popup ──
         if (window.useServerSigning) {
@@ -1561,7 +1572,8 @@ async function dappSendPayment() {
                     to: GD_CONTRACT,
                     data: data,
                     gas: '0x3D090',
-                    value: '0x0'
+                    value: '0x0',
+                    chainId: '0x' + CELO_CHAIN_ID.toString(16)
                 }]
             });
         } else {
@@ -1570,7 +1582,8 @@ async function dappSendPayment() {
                 to: GD_CONTRACT,
                 data: data,
                 gas: '0x3D090',
-                value: '0x0'
+                value: '0x0',
+                chainId: '0x' + CELO_CHAIN_ID.toString(16)
             });
         }
 
