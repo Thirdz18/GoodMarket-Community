@@ -311,6 +311,55 @@
 
         .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     </style>
+    <div id="privyWalletMount" style="display:none"></div>
+    <script type="module">
+        import React, {useEffect} from 'https://esm.sh/react@18.3.1';
+        import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
+        import {PrivyProvider, usePrivy, useWallets} from 'https://esm.sh/@privy-io/react-auth@3.32.2?deps=react@18.3.1,react-dom@18.3.1';
+
+        const CELO_PRIVY_CHAIN = {
+            id: 42220,
+            name: 'Celo',
+            network: 'celo',
+            nativeCurrency: {name: 'CELO', symbol: 'CELO', decimals: 18},
+            rpcUrls: {default: {http: ['https://forno.celo.org']}, public: {http: ['https://forno.celo.org']}},
+            blockExplorers: {default: {name: 'CeloScan', url: 'https://celoscan.io'}}
+        };
+        const privyConfig = {
+            appId: {{ privy_app_id|default('', true)|tojson }},
+            clientId: {{ privy_client_id|default('', true)|tojson }}
+        };
+        function PrivyWalletBridge() {
+            const {ready, authenticated, login} = usePrivy();
+            const {wallets} = useWallets();
+            useEffect(() => {
+                window.GMPrivyReady = !!ready;
+                window.GMPrivyAuthenticated = !!authenticated;
+                window.GMPrivyLogin = login;
+                window.GMPrivyWallets = wallets || [];
+                window.dispatchEvent(new CustomEvent('gm:privy-wallets-updated'));
+            }, [ready, authenticated, login, wallets]);
+            return null;
+        }
+        if (privyConfig.appId) {
+            const mount = document.getElementById('privyWalletMount');
+            if (mount) {
+                createRoot(mount).render(
+                    React.createElement(PrivyProvider, {
+                        appId: privyConfig.appId,
+                        clientId: privyConfig.clientId || undefined,
+                        config: {
+                            loginMethods: ['email', 'google', 'wallet'],
+                            defaultChain: CELO_PRIVY_CHAIN,
+                            supportedChains: [CELO_PRIVY_CHAIN],
+                            embeddedWallets: {ethereum: {createOnLogin: 'users-without-wallets'}},
+                            appearance: {theme: 'dark', accentColor: '#7f8cff'}
+                        }
+                    }, React.createElement(PrivyWalletBridge))
+                );
+            }
+        }
+    </script>
     <!-- WalletConnect bridge for users without injected wallet -->
     <script src="{{ url_for('static', filename='js/wc-bridge.js', v=ASSET_VERSION) }}"></script>
     <script>
@@ -616,6 +665,7 @@ const CELO_CHAIN_ID = 42220;
 const WC_PROJECT_ID = "{{ walletconnect_project_id }}";
 const WALLET_ADDRESS = "{{ wallet }}";
 const LOGIN_METHOD = "{{ login_method }}";
+const IS_PRIVY_LOGIN = (LOGIN_METHOD || "").toLowerCase() === "privy";
 // Robust WalletConnect detection: the server-rendered LOGIN_METHOD is primary,
 // but pre-existing sessions created before login_method was persisted report
 // "injected" for WalletConnect users too. GMWalletConnect.prefersWcSigning()
@@ -1012,6 +1062,52 @@ function gdToWeiHex(amountGd) {
     return '0x' + gdToWei(amountGd).toString(16);
 }
 
+
+async function _getPrivyProviderIfPreferred(options = {}) {
+    if (!IS_PRIVY_LOGIN) return null;
+    const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 4000;
+    const start = Date.now();
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    while (Date.now() - start < timeoutMs) {
+        try {
+            const wallets = Array.isArray(window.GMPrivyWallets) ? window.GMPrivyWallets : [];
+            const sessionWallet = (WALLET_ADDRESS || '').toLowerCase();
+            const wallet = wallets.find(w => (w.address || '').toLowerCase() === sessionWallet)
+                || wallets.find(w => w.walletClientType === 'privy')
+                || wallets[0];
+            if (wallet && typeof wallet.getEthereumProvider === 'function') {
+                const provider = await wallet.getEthereumProvider();
+                if (provider && typeof provider.request === 'function') {
+                    provider.__gmPrivyProvider = true;
+                    return provider;
+                }
+            }
+            if (window.GMPrivyReady && !window.GMPrivyAuthenticated && typeof window.GMPrivyLogin === 'function' && options.promptLogin) {
+                await window.GMPrivyLogin();
+            }
+        } catch (err) {
+            if (err && (err.code === 4001 || /reject|cancel/i.test(String(err.message || '')))) throw err;
+            console.warn('[privy] provider lookup failed:', err);
+        }
+        await wait(150);
+    }
+    return null;
+}
+
+async function _ensureCeloNetwork(ep) {
+    if (!ep || ep.isGoodMarketWcBridge) return;
+    const chainHex = await ep.request({ method: 'eth_chainId' }).catch(() => null);
+    if (chainHex && parseInt(chainHex, 16) === CELO_CHAIN_ID) return;
+    try {
+        await ep.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x' + CELO_CHAIN_ID.toString(16) }] });
+    } catch (_) {
+        await ep.request({
+            method: 'wallet_addEthereumChain',
+            params: [{ chainId: '0x' + CELO_CHAIN_ID.toString(16), chainName: 'Celo Mainnet', nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 }, rpcUrls: ['https://forno.celo.org'], blockExplorerUrls: ['https://celoscan.io'] }]
+        });
+    }
+}
+
 // ─── DApp Browser (window.ethereum) ───────���──────────────────────────────────
 // Handles multi-wallet injections: prefer MiniPay in MiniPay dApp browser,
 // then Trust Wallet, then MetaMask (excluding Brave), then first provider.
@@ -1021,7 +1117,7 @@ function _getEthProvider() {
     // GoodMarket wallet, so signing fails with "Wrong wallet connected". Block
     // injected discovery so all flows route through the WalletConnect signer.
     // LOGIN_METHOD is Jinja-rendered and always reliable here.
-    if (PREFER_WC_SIGNING) return null;
+    if (PREFER_WC_SIGNING || IS_PRIVY_LOGIN) return null;
     if (!window.ethereum) return null;
     if (window.ethereum.providers && window.ethereum.providers.length) {
         const miniPay = window.ethereum.providers.find(p => p && p.isMiniPay);
@@ -1328,6 +1424,17 @@ async function dappConnect() {
     if (window.useServerSigning) {
         throw new Error('This account uses server-side signing. Please continue with automatic server signing.');
     }
+    if (IS_PRIVY_LOGIN) {
+        const privyProvider = await _getPrivyProviderIfPreferred({ promptLogin: true, timeoutMs: 10000 });
+        if (!privyProvider) throw new Error('Privy wallet is not ready. Please sign in again.');
+        await _ensureCeloNetwork(privyProvider);
+        const accounts = await privyProvider.request({ method: 'eth_requestAccounts' });
+        if (!accounts || !accounts[0]) throw new Error('No Privy wallet account found.');
+        if (WALLET_ADDRESS && accounts[0].toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+            throw new Error('Wrong Privy wallet connected. Please use your GoodMarket wallet.');
+        }
+        return accounts[0];
+    }
     // Always try injected wallet first (MiniPay, Trust Wallet, MetaMask)
     // Only fall back to WalletConnect if no injected provider is available
     let ep = _getEthProvider();
@@ -1400,9 +1507,9 @@ async function dappSendPayment() {
             return;
         }
 
-        // Always try injected wallet first (MiniPay, Trust Wallet, MetaMask)
-        // Only fall back to WalletConnect if no injected provider is available
-        const ep = _getEthProvider();
+        // Privy email/social embedded-wallet logins must sign with Privy.
+        const privyProvider = await _getPrivyProviderIfPreferred({ promptLogin: true, timeoutMs: 10000 });
+        const ep = privyProvider || _getEthProvider();
         let from;
         if (ep) {
             from = await dappConnect();
@@ -1421,6 +1528,7 @@ async function dappSendPayment() {
 
         let txHash;
         if (ep) {
+            await _ensureCeloNetwork(ep);
             txHash = await ep.request({
                 method: 'eth_sendTransaction',
                 params: [{
@@ -1562,16 +1670,25 @@ async function openPayModal(order) {
 
     showStep('stepPay');
 
-    if (isDAppBrowser() || PREFER_WC_SIGNING) {
-        // DApp browser — direct payment via window.ethereum
+    const hasInjectedWallet = isDAppBrowser();
+    const shouldUseSigningFlow = hasInjectedWallet || PREFER_WC_SIGNING || IS_PRIVY_LOGIN;
+    if (shouldUseSigningFlow) {
+        // DApp browser / WalletConnect / Privy embedded wallets — collect payment
+        // through an actual signed ERC-20 transfer. Privy email/social users do
+        // not have an injected window.ethereum provider, so they must not fall
+        // back to the manual merchant-address instructions.
         document.getElementById('dappFlow').style.display = 'block';
         document.getElementById('dappGdAmt').textContent = order.gd_amount;
-        setDappStatus('info', isDAppBrowser()
-            ? '<i class="fas fa-mobile-alt"></i> Wallet detected! Click below to pay.'
-            : '<i class="fas fa-link"></i> WalletConnect signing ready. Click below to connect and pay.');
+        let signingMessage = '<i class="fas fa-mobile-alt"></i> Wallet detected! Click below to pay.';
+        if (IS_PRIVY_LOGIN) {
+            signingMessage = '<i class="fas fa-shield-alt"></i> Privy wallet ready. Click below to sign and pay.';
+        } else if (!hasInjectedWallet && PREFER_WC_SIGNING) {
+            signingMessage = '<i class="fas fa-link"></i> WalletConnect signing ready. Click below to connect and pay.';
+        }
+        setDappStatus('info', signingMessage);
         document.getElementById('dappPayBtn').disabled = false;
     } else {
-        // Regular browser — manual send to merchant address
+        // Regular browser without an app wallet — manual send to merchant address.
         document.getElementById('merchantFlow').style.display = 'block';
         document.getElementById('merchantGdAmt').textContent = order.gd_amount;
     }
