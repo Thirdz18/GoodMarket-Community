@@ -2011,6 +2011,18 @@ def ubi_tracker_page():
 
 @routes.route("/logout")
 def logout():
+    if request.args.get("complete") != "1":
+        response = make_response(render_template(
+            "logout_privy.html",
+            privy_app_id=os.environ.get("PRIVY_APP_ID", ""),
+            privy_client_id=os.environ.get("PRIVY_CLIENT_ID", ""),
+            logout_complete_url=url_for("routes.logout", complete=1),
+        ))
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+
     wallet = session.get("wallet")
     if wallet:
         # Log logout to Supabase
