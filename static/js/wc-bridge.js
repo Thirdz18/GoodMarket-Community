@@ -58,54 +58,6 @@
         "https://celo.publicnode.com"
     ];
 
-    function _clearGoodMarketAuthStorage() {
-        try {
-            [
-                'privy_wallet_address',
-                'wallet_address',
-                'wallet',
-                'verified',
-                'login_method',
-                'wc_session_topic',
-                'wc_session_address',
-                'wc_session_data',
-                'wc_session_timestamp',
-                'wc_session_chains'
-            ].forEach(function (k) {
-                localStorage.removeItem(k);
-                sessionStorage.removeItem(k);
-            });
-        } catch (_) {}
-    }
-
-    function _goToLogout() {
-        _clearGoodMarketAuthStorage();
-        global.location.href = '/logout';
-    }
-
-    function _installLogoutInterceptor() {
-        if (global.__GMLogoutInterceptorInstalled) return;
-        global.__GMLogoutInterceptorInstalled = true;
-
-        document.addEventListener('click', function (event) {
-            var target = event.target && event.target.closest
-                ? event.target.closest('a[href="/logout"], a[href^="/logout?"], a[href$="/logout"]')
-                : null;
-            if (!target) return;
-
-            event.preventDefault();
-            _goToLogout();
-        }, true);
-
-        global.GMLogout = _goToLogout;
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', _installLogoutInterceptor, {once: true});
-    } else {
-        _installLogoutInterceptor();
-    }
-
     // Supported networks for WalletConnect chain switching
     var SUPPORTED_NETWORKS = {
         "0xa4ec": { // Celo Mainnet
@@ -1346,7 +1298,12 @@
     var _BANNER_ID = 'gmWcExpiryBanner';
 
     function _guardClearWcStorage() {
-        _clearGoodMarketAuthStorage();
+        try {
+            ['wc_session_topic', 'wc_session_address', 'wc_session_data',
+             'wc_session_timestamp', 'wc_session_chains'].forEach(function (k) {
+                localStorage.removeItem(k);
+            });
+        } catch (_) {}
     }
 
     function _guardGetOrCreateBanner() {
@@ -1396,7 +1353,7 @@
         var x   = document.getElementById(_BANNER_ID + '_x');
         if (btn) btn.addEventListener('click', function () {
             _guardClearWcStorage();
-            _goToLogout();
+            window.location.href = '/logout';
         });
         if (x) x.addEventListener('click', function () {
             div.classList.remove('gm-wc-warn', 'gm-wc-expired');
@@ -1422,7 +1379,7 @@
             }
             if (remaining <= 0) {
                 _guardClearWcStorage();
-                _goToLogout();
+                window.location.href = '/logout';
                 return;
             }
             remaining--;
