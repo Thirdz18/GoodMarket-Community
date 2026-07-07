@@ -327,11 +327,40 @@ class MinigamesBlockchainService:
             recipient_checksum = Web3.to_checksum_address(wallet_address)
             amount_wei = int(amount * (10 ** 18))
 
+            # Preflight contract liquidity before signing. If the rewards contract
+            # cannot cover the withdrawal, fail without creating a misleading tx.
+            try:
+                contract_balance = self.rewards_contract.functions.getContractBalance().call()
+            except Exception as balance_error:
+                logger.warning(
+                    f"⚠️ getContractBalance failed, falling back to token balance: {balance_error}"
+                )
+                contract_balance = self.token_contract.functions.balanceOf(
+                    self.games_rewards_address
+                ).call()
+
+            if contract_balance < amount_wei:
+                available_g = contract_balance / (10 ** 18)
+                logger.error(
+                    f"❌ GamesRewards contract has insufficient G$: "
+                    f"needed={amount}, available={available_g}"
+                )
+                return {
+                    "success": False,
+                    "error": "Withdrawal vault has insufficient G$ right now. Please try again later. Your balance is safe.",
+                    "error_type": "insufficient_contract_balance",
+                    "balance_safe": True,
+                    "contract_balance": available_g,
+                    "required_amount": amount
+                }
+
             # Build transaction via contract
             nonce = self.w3.eth.get_transaction_count(self.server_address)
             gas_price = int(self.w3.eth.gas_price * 1.2)  # Add 20% buffer
 
-            # Estimate gas for contract call
+            # Estimate gas for contract call. Do not send if estimation fails: on
+            # Celo this usually means the call would revert (paused, limits, bad
+            # config, etc.), and sending anyway creates confusing failed hashes.
             try:
                 estimated_gas = self.rewards_contract.functions.disburseReward(
                     recipient_checksum,
@@ -344,10 +373,27 @@ class MinigamesBlockchainService:
                     f"(using limit: {gas_limit})"
                 )
             except Exception as estimate_error:
-                logger.warning(
-                    f"⚠️ Gas estimation failed, falling back to 200000: {estimate_error}"
+                logger.error(f"❌ Withdrawal preflight failed during gas estimate: {estimate_error}")
+                return {
+                    "success": False,
+                    "error": "Withdrawal could not be sent because the contract preflight failed. Please try again later. Your balance is safe.",
+                    "error_type": "contract_preflight_failed",
+                    "balance_safe": True
+                }
+
+            required_gas_wei = gas_limit * gas_price
+            server_gas_balance = self.w3.eth.get_balance(self.server_address)
+            if server_gas_balance < required_gas_wei:
+                logger.error(
+                    f"❌ Server wallet has insufficient CELO for gas: "
+                    f"needed={required_gas_wei}, available={server_gas_balance}"
                 )
-                gas_limit = 200000
+                return {
+                    "success": False,
+                    "error": "Withdrawal signer needs gas refill. Please try again later. Your balance is safe.",
+                    "error_type": "insufficient_gas",
+                    "balance_safe": True
+                }
 
             transaction = self.rewards_contract.functions.disburseReward(
                 recipient_checksum,
@@ -391,7 +437,12 @@ class MinigamesBlockchainService:
                 }
             else:
                 logger.error(f"❌ Withdrawal failed on-chain: {tx_hash_hex}")
-                return {"success": False, "error": "Transaction failed on blockchain", "tx_hash": tx_hash_hex}
+                return {
+                    "success": False,
+                    "error": "Transaction failed on blockchain. Your balance is safe.",
+                    "error_type": "onchain_reverted",
+                    "balance_safe": True
+                }
 
         except Exception as e:
             import traceback
@@ -409,7 +460,12 @@ class MinigamesBlockchainService:
                     "balance_safe": True
                 }
             
-            return {"success": False, "error": "Withdrawal failed. Please try again later."}
+            return {
+                "success": False,
+                "error": "Withdrawal failed. Please try again later. Your balance is safe.",
+                "error_type": "withdrawal_exception",
+                "balance_safe": True
+            }
 
     async def disburse_game_reward(self, wallet_address: str, amount: float, game_type: str, session_id: str) -> dict:
         """
