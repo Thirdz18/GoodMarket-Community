@@ -415,8 +415,9 @@
                     const txHashMatch = rawTxHash.match(/0x[a-fA-F0-9]{64}/);
                     const txHashSource = txHashMatch ? txHashMatch[0] : rawTxHash.split('/tx/').pop().split(/[?#]/)[0].replace(/\/$/, '');
                     const txHash = txHashSource && !txHashSource.startsWith('0x') ? `0x${txHashSource}` : txHashSource;
-                    const shortTx = txHash ? txHash.slice(0, 10) + '...' + txHash.slice(-6) : '—';
-                    const explorerUrl = txHash ? `https://explorer.celo.org/mainnet/tx/${txHash}` : null;
+                    const validTxHash = /^0x[a-fA-F0-9]{64}$/.test(txHash) ? txHash : '';
+                    const shortTx = validTxHash ? validTxHash.slice(0, 10) + '...' + validTxHash.slice(-6) : '—';
+                    const explorerUrl = validTxHash ? `https://explorer.celo.org/mainnet/tx/${validTxHash}` : null;
                     return `
                         <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: rgba(255,255,255,0.04); border-radius: 12px; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
                             <div>
