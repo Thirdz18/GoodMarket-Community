@@ -129,6 +129,15 @@ _balance_cache: dict = {}
 _balance_cache_lock = threading.Lock()
 BALANCE_CACHE_TTL = 120  # 2 minutes
 
+
+def invalidate_balance_cache(wallet_address: str) -> bool:
+    """Clear cached Celo token balances for a wallet after a known balance-changing tx."""
+    key = (wallet_address or "").lower()
+    if not key:
+        return False
+    with _balance_cache_lock:
+        return _balance_cache.pop(key, None) is not None
+
 # Transfer history cache: {wallet_lower: {"transfers": [...], "expires_at": float}}
 _transfer_history_cache: dict = {}
 _transfer_history_cache_lock = threading.Lock()
