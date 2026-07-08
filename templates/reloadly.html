@@ -658,6 +658,7 @@
 </div>
 
 <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
+<script src="{{ url_for('static', filename='js/minipay-fee-currency.js', v=ASSET_VERSION) }}"></script>
 <script>
 let GD_PRICE = {{ gd_price }};
 const MERCHANT_ADDRESS = "{{ merchant_address }}";
@@ -1092,6 +1093,46 @@ function formatGdAmount(amountGd) {
     return decPart ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
+
+
+function _isMiniPayProvider(provider) {
+    return !!(provider && (provider.isMiniPay || provider.isMiniPayWallet || provider.isOperaMiniPay));
+}
+function _isMiniPayContext(provider) {
+    if (_isMiniPayProvider(provider)) return true;
+    if (_isMiniPayProvider(window.ethereum)) return true;
+    if (window.ethereum && Array.isArray(window.ethereum.providers)
+        && window.ethereum.providers.some(p => _isMiniPayProvider(p))) return true;
+    return typeof navigator !== 'undefined' && /minipay|OPR.*Mini|Opera.*Mini/i.test(navigator.userAgent || '');
+}
+async function _sendReloadlyMiniPayTx(ep, txParams) {
+    if (!txParams.gas) txParams.gas = '0x3D090';
+    const feeCurrencies = (window.GMMinipayFeeCurrencies && window.GMMinipayFeeCurrencies.orderByBalances)
+        ? await window.GMMinipayFeeCurrencies.orderByBalances(ep, txParams.from, { includePlain: true })
+        : [
+            '0x765DE816845861e75A25fCA122bb6898B8B1282a',
+            '0x0E2A3e05bc9A16F5292A6170456A710cb89C6f72',
+            '0x2F25deB3848C207fc8E0c34035B3Ba7fC157602B',
+            null,
+        ];
+    let lastErr;
+    for (const fc of feeCurrencies) {
+        const params = { ...txParams };
+        if (fc) params.feeCurrency = fc;
+        else delete params.feeCurrency;
+        try {
+            return await ep.request({ method: 'eth_sendTransaction', params: [params] });
+        } catch (err) {
+            lastErr = err;
+            const code = err && err.code;
+            const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+            if (code === 4001 || /reject|denied by user|user denied/i.test(msg)) throw err;
+            if (/revert/i.test(msg) && !/insufficient|funds|balance|fee/i.test(msg)) throw err;
+            console.warn('[MiniPay] Reloadly tx attempt failed with feeCurrency=' + fc + ':', msg || err);
+        }
+    }
+    throw lastErr || new Error('MiniPay transaction failed.');
+}
 
 async function _getPrivyProviderIfPreferred(options = {}) {
     if (!IS_PRIVY_LOGIN) return null;
@@ -1595,17 +1636,22 @@ async function dappSendPayment() {
             txHash = (receipt && (receipt.hash || receipt.transactionHash)) || (typeof receipt === 'string' ? receipt : null);
         } else if (ep) {
             await _ensureCeloNetwork(ep);
-            txHash = await ep.request({
-                method: 'eth_sendTransaction',
-                params: [{
-                    from: from,
-                    to: GD_CONTRACT,
-                    data: data,
-                    gas: '0x3D090',
-                    value: '0x0',
-                    chainId: '0x' + CELO_CHAIN_ID.toString(16)
-                }]
-            });
+            const txParams = {
+                from: from,
+                to: GD_CONTRACT,
+                data: data,
+                gas: '0x3D090',
+                value: '0x0',
+                chainId: '0x' + CELO_CHAIN_ID.toString(16)
+            };
+            if (_isMiniPayContext(ep)) {
+                txHash = await _sendReloadlyMiniPayTx(ep, txParams);
+            } else {
+                txHash = await ep.request({
+                    method: 'eth_sendTransaction',
+                    params: [txParams]
+                });
+            }
         } else {
             txHash = await wcSendTxReloadly({
                 from: from,
