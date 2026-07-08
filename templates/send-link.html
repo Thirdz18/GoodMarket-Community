@@ -196,6 +196,7 @@
             integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM"
             crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="{{ url_for('static', filename='js/tx-error.js', v=ASSET_VERSION) }}"></script>
+    <script src="{{ url_for('static', filename='js/minipay-fee-currency.js', v=ASSET_VERSION) }}"></script>
     <script>
         const CELO_CHAIN_ID = 42220;
         const CELO_RPC      = "https://forno.celo.org";
@@ -325,12 +326,14 @@
                 gasHex = '0x7A120';
             }
 
-            const attempts = [
-                MINIPAY_FEE_CURRENCY.USDM,
-                MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
-                MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
-                null,
-            ];
+            const attempts = (window.GMMinipayFeeCurrencies && window.GMMinipayFeeCurrencies.orderByBalances)
+                ? await window.GMMinipayFeeCurrencies.orderByBalances(ep, from, { includePlain: true })
+                : [
+                    MINIPAY_FEE_CURRENCY.USDM,
+                    MINIPAY_FEE_CURRENCY.USDT_ADAPTER,
+                    MINIPAY_FEE_CURRENCY.USDC_ADAPTER,
+                    null,
+                ];
             let lastErr;
             for (const fc of attempts) {
                 const txParams = { from, to: toAddr, data, value, gas: gasHex };
