@@ -2473,7 +2473,7 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
             <section id="daily-voucher-section" class="section">
                 <div class="page-header">
                     <h1 class="page-title">🎟️ Daily Voucher</h1>
-                    <p style="color: rgba(241, 245, 249, 0.7);">Set a payment link voucher — it will appear on all user dashboards immediately once saved</p>
+                    <p style="color: rgba(241, 245, 249, 0.7);">Set a payment link voucher — it will appear on the wallet page immediately once saved</p>
                 </div>
 
                 <!-- Current Status -->
@@ -2493,7 +2493,7 @@ CREATE INDEX IF NOT EXISTS idx_jumble_contents_created ON jumble_contents (creat
                 <div class="content-box">
                     <h2 style="margin-bottom: 0.5rem;">Set Voucher Link</h2>
                     <p style="color: rgba(241,245,249,0.6); font-size: 0.85rem; margin-bottom: 1.5rem;">
-                        Paste the payment link from <em>Send via Link</em> here. It will appear on all user dashboards immediately and disappear once someone claims it.
+                        Paste the payment link from <em>Send via Link</em> here. It will appear on the wallet page immediately and disappear once someone claims it.
                     </p>
 
                     <div style="margin-bottom: 1.25rem;">
@@ -7046,7 +7046,7 @@ async function loadMinigamesMaintenance() {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    statusEl.textContent = `✅ Voucher saved for ${data.voucher_date}! It will appear on user dashboards immediately.`;
+                    statusEl.textContent = `✅ Voucher saved for ${data.voucher_date}! It will appear on the wallet page immediately.`;
                     statusEl.className = 'status-message success';
                     document.getElementById('voucherLinkInput').value = '';
                     adminLoadVoucherStatus();
@@ -7078,12 +7078,12 @@ async function loadMinigamesMaintenance() {
         }
 
         async function adminDeleteVoucher() {
-            if (!confirm('Delete today\'s voucher? It will be removed from all user dashboards immediately. Continue?')) return;
+            if (!confirm('Delete today\'s voucher? It will be removed from the wallet page immediately. Continue?')) return;
             try {
                 const res = await fetch('/api/admin/voucher/delete', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
-                    alert('✅ Voucher deleted successfully! It has been removed from all user dashboards.');
+                    alert('✅ Voucher deleted successfully! It has been removed from the wallet page.');
                     adminLoadVoucherStatus();
                 } else {
                     alert('❌ ' + (data.error || 'Delete failed.'));
