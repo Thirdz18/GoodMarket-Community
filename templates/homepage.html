@@ -2284,8 +2284,17 @@
                 <button class="close-modal" onclick="closeWalletModal()">×</button>
             </div>
 
-            <!-- Step 1: Privy-first login -->
+            <!-- Step 1: injected-wallet-first login -->
             <div class="wallet-options" id="walletOptions">
+                <button id="injectedWalletBtn" class="wallet-option-card primary" type="button" onclick="connectInjectedWallet()" style="display:none">
+                    <div class="option-icon" id="injectedWalletIcon">👛</div>
+                    <div class="option-text">
+                        <div class="option-title" id="injectedWalletTitle">Injected Wallet</div>
+                        <p class="option-desc" id="injectedWalletDesc">Connect with MiniPay, Trust Wallet, MetaMask, or another injected wallet</p>
+                    </div>
+                    <span class="option-arrow">→</span>
+                </button>
+                {% if enable_privy_login %}
                 <div id="privyReferralWrap" class="wallet-input-group">
                     <label class="wallet-label" for="privyReferralCode">Referral code <span style="font-weight:500;color:#9ca3af">(optional)</span></label>
                     <input
@@ -2314,6 +2323,7 @@
                     </div>
                     <span class="option-arrow">→</span>
                 </button>
+                {% endif %}
                 <button id="walletConnectPrimaryButton" class="wallet-option-card" type="button" onclick="showWalletConnectOptions()">
                     <div class="option-icon">📲</div>
                     <div class="option-text">
@@ -2332,7 +2342,11 @@
                 <button class="back-btn" type="button" onclick="showWalletOptions()">← Back to login options</button>
                 <p class="wc-panel-note">
                     Use this if your wallet connects better with a WalletConnect barcode/URI.
+                    {% if enable_privy_login %}
                     Privy remains available from the previous screen.
+                    {% else %}
+                    MiniPay, Trust Wallet, and MetaMask users should try the injected wallet option first.
+                    {% endif %}
                 </p>
                 <div id="wcOptionCards">
                     <button class="connect-btn" type="button" onclick="connectWalletConnect()">Show WalletConnect QR / URI</button>
@@ -2357,10 +2371,12 @@
 
     <script>
         window.GM_PRIVY_CONFIG = {
+            enabled: {{ enable_privy_login|default(false)|tojson }},
             appId: {{ privy_app_id|default('', true)|tojson }},
             clientId: {{ privy_client_id|default('', true)|tojson }}
         };
     </script>
+    {% if enable_privy_login %}
     <script type="module">
         import React, {useEffect, useRef} from 'https://esm.sh/react@18.3.1';
         import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
@@ -2557,6 +2573,7 @@
             );
         }
     </script>
+    {% endif %}
 
     <script>
         // Check if user should return to community stories after login
@@ -2615,10 +2632,11 @@
             // Re-apply any referral code captured from the URL / sessionStorage
             // so the Privy login receives the same referral context.
             try { initReferralFromUrl(); } catch (e) {}
-            if (window.GM_PRIVY_CONFIG && window.GM_PRIVY_CONFIG.appId) {
+            detectInjectedWallet(0);
+            if (window.GM_PRIVY_CONFIG && window.GM_PRIVY_CONFIG.enabled && window.GM_PRIVY_CONFIG.appId) {
                 showWalletStatus('walletConnectStatus', '🔐 Tap Open Privy Login to continue.', 'info');
             } else {
-                showWalletStatus('walletConnectStatus', '❌ Privy is not configured. Set PRIVY_APP_ID in the server environment.', 'error');
+                showWalletStatus('walletConnectStatus', '👛 Connect with MiniPay, Trust Wallet, MetaMask, or use WalletConnect QR / URI.', 'info');
             }
         }
 
@@ -2659,6 +2677,7 @@
         function showPrivyRetry() {
             const retry = document.getElementById('privyRetryButton');
             const primary = document.getElementById('privyPrimaryButton');
+            if (!window.GM_PRIVY_CONFIG || !window.GM_PRIVY_CONFIG.enabled) return;
             // Do not show two visually identical Privy CTAs at the same time.
             // Some in-app browsers (MiniPay/Trust/MetaMask) keep the GoodMarket
             // modal visible while Privy's sheet is opening, so the retry CTA used
@@ -2722,6 +2741,10 @@
         };
 
         function beginPrivyLogin(fromUserTap) {
+            if (!window.GM_PRIVY_CONFIG || !window.GM_PRIVY_CONFIG.enabled) {
+                showWalletStatus('walletConnectStatus', 'Privy login is temporarily hidden. Please use MiniPay, Trust Wallet, MetaMask, or WalletConnect.', 'info');
+                return;
+            }
             hidePrivyRetry();
             window.GMPrivyAutoOpenRequested = true;
             if (typeof window.GMPrivyLogin === 'function') {
