@@ -7393,8 +7393,13 @@ def wallet_balances():
             get_usdc_balance,
             _get_gd_usd_price,
             enrich_gd_balance_with_price,
+            invalidate_balance_cache,
         )
         from concurrent.futures import ThreadPoolExecutor
+
+        force_refresh = str(request.args.get("force", "")).strip().lower() in {"1", "true", "yes", "on"}
+        if force_refresh:
+            invalidate_balance_cache(wallet)
 
         with ThreadPoolExecutor(max_workers=6) as executor:
             gd_future = executor.submit(get_gooddollar_balance, wallet, False)
