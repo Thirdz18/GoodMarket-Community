@@ -914,6 +914,43 @@
             color: #c8d2ff;
         }
 
+        .cashout-summary {
+            background: rgba(34,197,94,0.08);
+            border: 1px solid rgba(34,197,94,0.24);
+            border-radius: 14px;
+            padding: 0.85rem;
+            margin-bottom: 1rem;
+        }
+        .cashout-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.35rem 0;
+            color: var(--text-dim);
+            font-size: 0.82rem;
+        }
+        .cashout-row strong { color: #fff; }
+        .cashout-notice {
+            border-radius: 12px;
+            padding: 0.75rem 0.85rem;
+            font-size: 0.82rem;
+            line-height: 1.45;
+            margin-bottom: 0.85rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04);
+            color: rgba(232,234,246,0.78);
+        }
+        .cashout-notice.warning {
+            background: rgba(250,204,21,0.1);
+            border-color: rgba(250,204,21,0.28);
+            color: #fde68a;
+        }
+        .cashout-notice.info {
+            background: rgba(59,130,246,0.1);
+            border-color: rgba(59,130,246,0.28);
+            color: #bfdbfe;
+        }
+
         /* Receive address display */
         .address-box {
             background: rgba(var(--accent-rgb),0.08);
@@ -1593,6 +1630,10 @@
                     <div class="action-circle">↑</div>
                     <span class="action-label">Send</span>
                 </div>
+                <div class="action-item" id="actionCashOut" onclick="openCashoutFlow()">
+                    <div class="action-circle" style="background:linear-gradient(135deg,#16a34a,#0f766e);color:#fff;">🏧</div>
+                    <span class="action-label">Cash Out</span>
+                </div>
                 <div class="claim-button-box" id="claimButtonBox" onclick="openModal('claimModal');">
                     <div class="claim-box-left">
                         <div class="claim-box-icon" id="claimBoxIcon">G$</div>
@@ -1895,6 +1936,51 @@
             <button class="btn-primary" id="sendBtn" onclick="doSend()">Send G$</button>
             <div class="alert" id="sendAlert"></div>
             <button class="btn-secondary" onclick="closeModal('sendModal')">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Cash Out Modal -->
+    <div class="modal-overlay" id="cashoutModal">
+        <div class="modal-sheet">
+            <div class="modal-handle"></div>
+            <div class="modal-title">🏧 Cash Out cUSD</div>
+
+            <div class="cashout-summary">
+                <div class="cashout-row"><span>Available cUSD</span><strong id="cashoutCusdBalance">—</strong></div>
+                <div class="cashout-row"><span>Available G$</span><strong id="cashoutGdBalance">—</strong></div>
+                <div class="cashout-row"><span>Minimum cashout</span><strong id="cashoutMinAmount">—</strong></div>
+            </div>
+
+            <div id="cashoutStateReady" style="display:none;">
+                <div class="cashout-notice info">
+Cashout is available for <strong>cUSD on Celo</strong>. GoodMarket will ask your wallet to sign the cUSD transfer to the configured cashout partner address, then open the partner flow for KYC/payout details. GoodMarket does not store ID documents.
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Amount to cash out (cUSD)</label>
+                    <div class="amount-row">
+                        <input class="form-input" id="cashoutAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">
+                        <button class="max-btn" type="button" onclick="setMaxCashout()">MAX</button>
+                    </div>
+                </div>
+                <button class="btn-primary" id="cashoutContinueBtn" onclick="continueCashout()">Sign & Continue to Cash Out</button>
+            </div>
+
+            <div id="cashoutStateSwap" style="display:none;">
+                <div class="cashout-notice warning">
+                    You need cUSD to cash out. You currently have G$ but not enough cUSD, so swap <strong>G$ → cUSD</strong> with GoodSwap first.
+                </div>
+                <button class="btn-primary" onclick="goToGoodSwapForCashout()">Swap G$ to cUSD</button>
+            </div>
+
+            <div id="cashoutStateEmpty" style="display:none;">
+                <div class="cashout-notice">
+                    You do not have enough cUSD to cash out yet. Receive cUSD or swap supported tokens to cUSD first.
+                </div>
+                <button class="btn-primary" onclick="copyWalletAddressForCashout()">Copy Wallet Address</button>
+            </div>
+
+            <div class="alert" id="cashoutAlert"></div>
+            <button class="btn-secondary" onclick="closeModal('cashoutModal')">Close</button>
         </div>
     </div>
 
@@ -2251,6 +2337,9 @@
 
     <script>
     const WALLET = "{{ wallet }}";
+    const CASHOUT_MIN_CUSD = {{ cashout_min_cusd|default(5, true)|tojson }};
+    const CASHOUT_PROVIDER_URL_TEMPLATE = {{ cashout_provider_url|default('', true)|tojson }};
+    const CASHOUT_CUSD_RECIPIENT_ADDRESS = {{ cashout_cusd_recipient_address|default('', true)|tojson }};
     var LOGIN_METHOD = '{{ login_method }}';
     const IS_PRIVY_LOGIN = (LOGIN_METHOD || '').toLowerCase() === 'privy';
     const SERVER_PRIVY_WALLET_CLIENT_TYPE = {{ privy_wallet_client_type|default('', true)|tojson }};
@@ -3483,6 +3572,222 @@
         }).catch(() => {
             showAlert('receiveAlert', 'alert-info', WALLET);
         });
+    }
+
+    // ── Cash Out guided flow ─────────────────────────────────
+    function _cashoutMin() {
+        const n = Number(CASHOUT_MIN_CUSD);
+        return Number.isFinite(n) && n > 0 ? n : 5;
+    }
+
+    function _updateCashoutSummary() {
+        const min = _cashoutMin();
+        const c = document.getElementById('cashoutCusdBalance');
+        const g = document.getElementById('cashoutGdBalance');
+        const m = document.getElementById('cashoutMinAmount');
+        if (c) c.textContent = fmt(cusdBal || 0, 4) + ' cUSD';
+        if (g) g.textContent = fmt(gdBal || 0, 4) + ' G$';
+        if (m) m.textContent = fmt(min, 2) + ' cUSD';
+    }
+
+    function _setCashoutState(state) {
+        ['Ready', 'Swap', 'Empty'].forEach(name => {
+            const el = document.getElementById('cashoutState' + name);
+            if (el) el.style.display = state === name.toLowerCase() ? '' : 'none';
+        });
+    }
+
+    async function openCashoutFlow() {
+        openModal('cashoutModal');
+        showAlert('cashoutAlert', 'alert-info', 'Refreshing balances…');
+        await loadBalances(true);
+        _updateCashoutSummary();
+        const min = _cashoutMin();
+        if ((cusdBal || 0) >= min) {
+            _setCashoutState('ready');
+            setMaxCashout();
+            showAlert('cashoutAlert', 'alert-success', '✅ cUSD is ready for cashout.');
+        } else if ((gdBal || 0) > 0) {
+            _setCashoutState('swap');
+            showAlert('cashoutAlert', 'alert-info', 'Swap G$ to cUSD first, then return here to cash out.');
+        } else {
+            _setCashoutState('empty');
+            showAlert('cashoutAlert', 'alert-info', 'No cashout-ready balance found.');
+        }
+    }
+
+    function setMaxCashout() {
+        const input = document.getElementById('cashoutAmount');
+        if (input) input.value = Math.max(0, Number(cusdBal || 0)).toFixed(2);
+    }
+
+    function copyWalletAddressForCashout() {
+        navigator.clipboard.writeText(WALLET).then(() => {
+            showAlert('cashoutAlert', 'alert-success', '✅ Wallet address copied.');
+        }).catch(() => {
+            showAlert('cashoutAlert', 'alert-info', WALLET);
+        });
+    }
+
+    function goToGoodSwapForCashout() {
+        const params = new URLSearchParams({
+            tab: 'goodswap',
+            pane: 'dex',
+            from: 'GD',
+            to: 'CUSD',
+            intent: 'cashout'
+        });
+        return navigateWithFeedback('/swap?' + params.toString(), 'Opening GoodSwap for G$ → cUSD…');
+    }
+
+    async function _cashoutResolveSigner() {
+        let provider = null;
+        if (_gmPreferWc()) {
+            provider = await _walletGetWcProviderIfPreferred();
+        }
+        if (!provider) provider = await _vAwaitEthProvider();
+        if (!provider) provider = await _walletGetWcProviderIfPreferred();
+        if (!provider) {
+            throw new Error('No wallet detected. Please connect your GoodMarket wallet via injected wallet or WalletConnect.');
+        }
+        return provider;
+    }
+
+    async function _cashoutSignCusdTransfer(amount) {
+        if (!CASHOUT_CUSD_RECIPIENT_ADDRESS || !CASHOUT_CUSD_RECIPIENT_ADDRESS.startsWith('0x') || CASHOUT_CUSD_RECIPIENT_ADDRESS.length !== 42) {
+            throw new Error('Cashout recipient address is not configured. Set CASHOUT_CUSD_RECIPIENT_ADDRESS to the TransFi/deposit wallet address.');
+        }
+
+        const prepRes = await fetch('/api/wallet/prepare-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: 'CUSD', to: CASHOUT_CUSD_RECIPIENT_ADDRESS, amount: amount.toFixed(2) })
+        });
+        const txData = await prepRes.json();
+        if (!txData.success) throw new Error(txData.error || 'Failed to prepare cUSD transfer.');
+
+        const provider = await _cashoutResolveSigner();
+        const accounts = await provider.request({ method: 'eth_requestAccounts' });
+        if (!accounts || !accounts.length) throw new Error('No wallet account available.');
+        const from = accounts[0];
+        if (from.toLowerCase() !== WALLET.toLowerCase()) {
+            throw new Error('Wrong wallet connected. Please switch to your GoodMarket wallet.');
+        }
+
+        const miniPay = (_isMiniPayProvider(provider) || _isMiniPay());
+        if (!miniPay) {
+            const currentChain = await provider.request({ method: 'eth_chainId' });
+            if (_normalizeChainIdHex(currentChain) !== '0xa4ec') {
+                try {
+                    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xa4ec' }] });
+                } catch (_) {
+                    await provider.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: '0xa4ec',
+                            chainName: 'Celo Mainnet',
+                            nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                            rpcUrls: ['https://forno.celo.org'],
+                            blockExplorerUrls: ['https://celoscan.io']
+                        }]
+                    });
+                }
+            }
+        }
+
+        const txParams = {
+            from,
+            to: txData.to,
+            data: txData.data || '0x',
+            value: txData.value || '0x0'
+        };
+        if (txData.gas) txParams.gas = txData.gas;
+        if (txData.gasPrice) txParams.gasPrice = txData.gasPrice;
+
+        if (miniPay) {
+            if (!txParams.gas) {
+                try {
+                    const est = await provider.request({ method: 'eth_estimateGas', params: [{ from, to: txParams.to, data: txParams.data, value: txParams.value }] });
+                    const estimated = typeof est === 'string' ? BigInt(est) : BigInt(Number(est));
+                    txParams.gas = '0x' + (estimated * 140n / 100n).toString(16);
+                } catch (_) {
+                    txParams.gas = '0x7A120';
+                }
+            }
+            const feeCurrencies = _miniPayFeeCurrenciesByBalance((txData && txData.minipay_fee_currencies) || {});
+            let lastErr;
+            for (const fc of feeCurrencies) {
+                const params = { ...txParams };
+                if (fc) params.feeCurrency = fc;
+                else delete params.feeCurrency;
+                try {
+                    const txHash = await provider.request({ method: 'eth_sendTransaction', params: [params] });
+                    await _miniPayWaitForReceipt(provider, txHash);
+                    return txHash;
+                } catch (err) {
+                    lastErr = err;
+                    const msg = ((err && (err.message || err.data && err.data.message)) || '').toLowerCase();
+                    if ((err && err.code === 4001) || /reject|denied by user|user denied/i.test(msg)) throw err;
+                    if (/revert/i.test(msg) && !/insufficient|funds|balance|fee/i.test(msg)) throw err;
+                }
+            }
+            throw lastErr || new Error('MiniPay cUSD transfer failed.');
+        }
+
+        return provider.request({ method: 'eth_sendTransaction', params: [txParams] });
+    }
+
+    function _cashoutProviderUrl(amount, txHash) {
+        if (!CASHOUT_PROVIDER_URL_TEMPLATE) return '';
+        return CASHOUT_PROVIDER_URL_TEMPLATE
+            .replaceAll('{wallet}', encodeURIComponent(WALLET))
+            .replaceAll('{amount}', encodeURIComponent(amount.toFixed(2)))
+            .replaceAll('{token}', 'cUSD')
+            .replaceAll('{network}', 'celo')
+            .replaceAll('{txHash}', encodeURIComponent(txHash || ''));
+    }
+
+    async function continueCashout() {
+        const amount = Number((document.getElementById('cashoutAmount') || {}).value || 0);
+        const min = _cashoutMin();
+        if (!Number.isFinite(amount) || amount <= 0) {
+            showAlert('cashoutAlert', 'alert-error', 'Enter a valid cUSD amount.');
+            return;
+        }
+        if (amount < min) {
+            showAlert('cashoutAlert', 'alert-error', `Minimum cashout is ${fmt(min, 2)} cUSD.`);
+            return;
+        }
+        if (amount > Number(cusdBal || 0)) {
+            showAlert('cashoutAlert', 'alert-error', 'Amount is higher than your cUSD balance.');
+            return;
+        }
+        const btn = document.getElementById('cashoutContinueBtn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Confirm cUSD transfer…';
+        }
+        try {
+            showAlert('cashoutAlert', 'alert-info', 'Please sign the cUSD transfer in your wallet. Injected users sign in their injected wallet; WalletConnect users sign through WalletConnect.');
+            const txHash = await _cashoutSignCusdTransfer(amount);
+            const txLink = `https://explorer.celo.org/mainnet/tx/${txHash}`;
+            const providerUrl = _cashoutProviderUrl(amount, txHash);
+            showAlert('cashoutAlert', 'alert-success', `✅ cUSD sent to cashout partner. <a style="color:var(--blue);" href="${txLink}" target="_blank" rel="noopener">View tx ↗</a>`);
+            await loadBalances(true);
+            if (providerUrl) {
+                setTimeout(() => { window.location.href = providerUrl; }, 900);
+            } else {
+                showAlert('cashoutAlert', 'alert-success', `✅ cUSD sent. Configure CASHOUT_PROVIDER_URL to open the TransFi/KYC payout flow automatically. <a style="color:var(--blue);" href="${txLink}" target="_blank" rel="noopener">View tx ↗</a>`);
+            }
+        } catch (err) {
+            const msg = (window.GMTxError && GMTxError.format) ? GMTxError.format(err) : (err.message || 'Cashout transfer failed');
+            showAlert('cashoutAlert', 'alert-error', '❌ ' + msg);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Sign & Continue to Cash Out';
+            }
+        }
     }
 
     // ── Tab switching ────────────────────────────────────────
