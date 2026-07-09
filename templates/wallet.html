@@ -1953,7 +1953,7 @@
 
             <div id="cashoutStateReady" style="display:none;">
                 <div class="cashout-notice info">
-Cashout is available through <strong>TransFi offramp</strong>. GoodMarket creates a TransFi order first, then asks your wallet to send stablecoin to the order-specific TransFi deposit address. GoodMarket does not store ID documents.
+Cashout is available through <strong>GoodMarket cashout</strong>. GoodMarket creates a cashout order first, then asks your wallet to send stablecoin to the configured deposit address. GoodMarket does not store ID documents.
                 </div>
                 <div class="form-group">
                     <label class="form-label">Payout method</label>
@@ -1970,7 +1970,7 @@ Cashout is available through <strong>TransFi offramp</strong>. GoodMarket create
                         <input class="form-input" id="cashoutAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">
                     </div>
                 </div>
-                <button class="btn-primary" id="cashoutContinueBtn" onclick="continueCashout()">Create TransFi Order & Sign</button>
+                <button class="btn-primary" id="cashoutContinueBtn" onclick="continueCashout()">Create Cashout Order & Sign</button>
             </div>
 
             <div id="cashoutStateSwap" style="display:none;">
@@ -3669,9 +3669,9 @@ Cashout is available through <strong>TransFi offramp</strong>. GoodMarket create
             body: JSON.stringify({ wallet: WALLET, amount: amount.toFixed(2), fiatCurrency: 'PHP', paymentCode })
         });
         const data = await res.json();
-        if (!data.success) throw new Error(data.error || 'Failed to create TransFi cashout order.');
+        if (!data.success) throw new Error(data.error || 'Failed to create cashout order.');
         if (!data.walletAddress || !data.walletAddress.startsWith('0x') || data.walletAddress.length !== 42) {
-            throw new Error('TransFi did not return a valid deposit wallet address.');
+            throw new Error('Cashout order did not return a valid deposit wallet address.');
         }
         return data;
     }
@@ -3679,7 +3679,7 @@ Cashout is available through <strong>TransFi offramp</strong>. GoodMarket create
     async function _cashoutSignCusdTransfer(order) {
         const transferAmount = Number(order.cryptoAmount || 0);
         if (!Number.isFinite(transferAmount) || transferAmount <= 0) {
-            throw new Error('TransFi did not return a valid crypto transfer amount.');
+            throw new Error('Cashout order did not return a valid crypto transfer amount.');
         }
 
         const prepRes = await fetch('/api/wallet/prepare-send', {
@@ -3784,17 +3784,17 @@ Cashout is available through <strong>TransFi offramp</strong>. GoodMarket create
             btn.innerHTML = '<span class="spinner"></span> Confirm cUSD transfer…';
         }
         try {
-            showAlert('cashoutAlert', 'alert-info', 'Creating TransFi cashout order…');
+            showAlert('cashoutAlert', 'alert-info', 'Creating cashout order…');
             const order = await _cashoutCreateTransFiOrder(amount);
             const cryptoAmount = Number(order.cryptoAmount || amount);
             if (cryptoAmount > Number(cusdBal || 0)) {
-                throw new Error(`TransFi requires ${fmt(cryptoAmount, 6)} cUSD for this order, but your wallet has ${fmt(Number(cusdBal || 0), 6)} cUSD.`);
+                throw new Error(`Cashout requires ${fmt(cryptoAmount, 6)} cUSD for this order, but your wallet has ${fmt(Number(cusdBal || 0), 6)} cUSD.`);
             }
-            showAlert('cashoutAlert', 'alert-info', `TransFi order ${order.orderId || ''} is ready. Please sign the ${fmt(cryptoAmount, 6)} cUSD transfer to TransFi's deposit address.`);
+            showAlert('cashoutAlert', 'alert-info', `${order.provider === 'manual' ? 'Cashout' : 'TransFi'} order ${order.orderId || ''} is ready. Please sign the ${fmt(cryptoAmount, 6)} cUSD transfer to the deposit address.`);
             const txHash = await _cashoutSignCusdTransfer(order);
             const txLink = `https://explorer.celo.org/mainnet/tx/${txHash}`;
             const providerUrl = _cashoutProviderUrl(amount, txHash);
-            showAlert('cashoutAlert', 'alert-success', `✅ cUSD sent to TransFi for order ${order.orderId || ''}. <a style="color:var(--blue);" href="${txLink}" target="_blank" rel="noopener">View tx ↗</a>`);
+            showAlert('cashoutAlert', 'alert-success', `✅ cUSD sent for cashout order ${order.orderId || ''}. <a style="color:var(--blue);" href="${txLink}" target="_blank" rel="noopener">View tx ↗</a>`);
             await loadBalances(true);
             if (providerUrl) {
                 setTimeout(() => { window.location.href = providerUrl.replaceAll('{orderId}', encodeURIComponent(order.orderId || '')); }, 900);
@@ -3805,7 +3805,7 @@ Cashout is available through <strong>TransFi offramp</strong>. GoodMarket create
         } finally {
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = 'Create TransFi Order & Sign';
+                btn.textContent = 'Create Cashout Order & Sign';
             }
         }
     }
