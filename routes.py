@@ -6917,6 +6917,9 @@ def wallet_page():
         privy_app_id=os.environ.get("PRIVY_APP_ID", ""),
         privy_client_id=os.environ.get("PRIVY_CLIENT_ID", ""),
         buy_eth_visible=buy_eth_visible,
+        cashout_min_cusd=_env_float("CASHOUT_MIN_CUSD", 5.0, minimum=0.01),
+        cashout_provider_url=os.getenv("CASHOUT_PROVIDER_URL", ""),
+        cashout_cusd_recipient_address=os.getenv("CASHOUT_CUSD_RECIPIENT_ADDRESS", ""),
     )
 
 
