@@ -258,32 +258,70 @@
         document.body.style.overflow = 'hidden';
 
         return new Promise((resolve, reject) => {
+            const confirmBtn = card.querySelector('#gm-txp-confirm');
+            const cancelBtn = card.querySelector('#gm-txp-cancel');
+            let settled = false;
+            const cleanupFns = [];
+
             const cleanup = () => {
                 overlay.classList.remove('show');
                 document.body.style.overflow = '';
                 document.removeEventListener('keydown', onKey);
                 overlay.removeEventListener('click', onOverlayClick);
+                while (cleanupFns.length) {
+                    try { cleanupFns.pop()(); } catch (_) { /* best-effort cleanup */ }
+                }
             };
-            const accept = () => { cleanup(); resolve(true); };
-            const reject_ = () => { cleanup(); reject(new Cancelled()); };
+            const accept = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve(true);
+            };
+            const reject_ = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(new Cancelled());
+            };
+            // Mobile wallet webviews (MiniPay/Opera in particular) can swallow
+            // synthetic `click` events after an overlay/button state transition.
+            // Bind pointer/touch activation as well as click so the preview's
+            // Confirm button reliably continues GoodReserve/Uniswap flows.
+            const bindActivation = (el, handler) => {
+                if (!el) return;
+                const events = ['pointerup', 'touchend', 'click'];
+                events.forEach((name) => {
+                    el.addEventListener(name, handler, { passive: false });
+                    cleanupFns.push(() => el.removeEventListener(name, handler));
+                });
+            };
             // Security-critical dialog: deliberately do NOT bind Enter to
             // accept. A user who holds Enter to fire the upstream "Swap"
             // button could keyrepeat into auto-confirming the preview, which
             // is the exact blind-signing pattern this dialog is meant to
             // prevent. Escape cancels; everything else requires an explicit
-            // mouse/touch click on the Confirm button.
+            // mouse/touch/pointer activation on the Confirm button.
             const onKey = (e) => {
-                if (e.key === 'Escape') reject_();
+                if (e.key === 'Escape') reject_(e);
             };
             // Outside-click cancels. Must NOT use { once: true } — clicks
             // bubbling up from non-button content inside the card would
             // otherwise consume the listener without dismissing, leaving the
             // dialog only closable via Escape/Cancel.
             const onOverlayClick = (e) => {
-                if (e.target === overlay) reject_();
+                if (e.target === overlay) reject_(e);
             };
-            card.querySelector('#gm-txp-confirm').addEventListener('click', accept, { once: true });
-            card.querySelector('#gm-txp-cancel').addEventListener('click', reject_, { once: true });
+            bindActivation(confirmBtn, accept);
+            bindActivation(cancelBtn, reject_);
             document.addEventListener('keydown', onKey);
             overlay.addEventListener('click', onOverlayClick);
         });
