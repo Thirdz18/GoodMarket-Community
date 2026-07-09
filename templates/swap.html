@@ -2059,8 +2059,14 @@
                         throw richErr;
                     }
 
-                    // On-chain revert — different feeCurrency won't fix it.
-                    if (/revert|insufficient|out of gas|allowance|stf|transferhelper/i.test(msg)) {
+                    // On-chain contract reverts won't be fixed by changing the fee token.
+                    // Do NOT treat generic "insufficient funds/balance" as a revert here:
+                    // MiniPay may surface fee-currency balance failures with that wording
+                    // (for example auto/cUSD fails while the user has USDT), so those must
+                    // continue to the explicit USDT/USDC/cUSD retry attempts.
+                    const isContractRevert = /revert|execution reverted|allowance|stf|transferhelper/i.test(msg);
+                    const isGasLimitFailure = /out of gas/i.test(msg) && !/fee|currency|fund|balance/i.test(msg);
+                    if (isContractRevert || isGasLimitFailure) {
                         const richErr = new Error(rawMsg || 'Transaction reverted.');
                         richErr._miniPayRevert = true;
                         richErr._miniPayDiag = { fn: opName, errorLog };
@@ -2832,6 +2838,7 @@
         let slippage        = 1.0;   // default 1% — 0.5% causes "Too little received" on multi-hop routes
         let currentQuote    = null;
         let quoteTimer      = null;
+        let _swapInFlight   = false; // blocks duplicate Uniswap V3 submits while async preflight starts
         // Monotonically increasing id for fetchQuote calls so a slow / stale
         // response from an earlier attempt can't overwrite the UI state set
         // by a newer attempt (causes "no liquidity pool" alert to linger
@@ -3394,8 +3401,15 @@
         // ─── Execute Swap ──────────────────────────────────────────────────────────
         async function startSwap() {
             console.log('[swap] startSwap called, currentQuote:', currentQuote ? 'present' : 'null');
+            if (_swapInFlight) {
+                showAlert("alert-info", `<span class="spinner-inline"></span> Swap is already being prepared. Please wait…`);
+                return;
+            }
             if (!currentQuote) { showAlert("alert-error", "Please enter an amount first."); return; }
 
+            _swapInFlight = true;
+            setSwapBtnState("loading", "Preparing swap…");
+            try {
             clearAlert();
             const from  = TOKENS[fromToken];
             const to    = TOKENS[toToken];
@@ -3411,9 +3425,9 @@
                 const hasStablecoin = await checkMiniPayStablecoinBalance();
                 if (!hasStablecoin) {
                     showSwapAlert('alert-error',
-                        '❌ Swap requires cUSD for gas<br><br>'
+                        '❌ Swap requires stablecoin for gas<br><br>'
                         + 'MiniPay uses stablecoins (cUSD/USDT/USDC) for transaction fees, not CELO.<br><br>'
-                        + 'Please claim your G$ on GoodMarket first to receive cUSD for gas.<br><br>'
+                        + 'Please claim your G$ on GoodMarket first to receive gas support, or keep at least ~0.015 cUSD/USDT/USDC for fees.<br><br>'
                         + '<button onclick="window.location.href=\'/wallet\'" '
                         + 'style="background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;border-radius:12px;'
                         + 'color:#fff;font-size:0.9rem;font-weight:700;padding:0.7rem 1.2rem;cursor:pointer;">'
@@ -3836,6 +3850,9 @@
                 showAlert("alert-error", `❌ Swap failed: ${friendly}`);
                 if (currentQuote) setSwapBtnState("ready");
                 else setSwapBtnState("enter");
+            }
+            } finally {
+                _swapInFlight = false;
             }
         }
 
@@ -4658,9 +4675,9 @@
                 const hasStablecoin = await checkMiniPayStablecoinBalance();
                 if (!hasStablecoin) {
                     showReserveAlert('alert-error',
-                        '❌ Swap requires cUSD for gas<br><br>'
+                        '❌ Swap requires stablecoin for gas<br><br>'
                         + 'MiniPay uses stablecoins (cUSD/USDT/USDC) for transaction fees, not CELO.<br><br>'
-                        + 'Please claim your G$ on GoodMarket first to receive cUSD for gas.<br><br>'
+                        + 'Please claim your G$ on GoodMarket first to receive gas support, or keep at least ~0.015 cUSD/USDT/USDC for fees.<br><br>'
                         + '<button onclick="window.location.href=\'/wallet\'" '
                         + 'style="background:linear-gradient(135deg,#7c3aed,#5b21b6);border:none;border-radius:12px;'
                         + 'color:#fff;font-size:0.9rem;font-weight:700;padding:0.7rem 1.2rem;cursor:pointer;">'
@@ -4679,10 +4696,86 @@
             const fromSym  = reserveDirection === "buy" ? "cUSD" : "G$";
 
             try {
-                const signer = await getConnectedSwapSigner();
                 const amountIn = reserveQuote.amountIn;
                 // Recompute minOut with safety margin from quoted amount
                 const minOut = (reserveQuote.amountOut * (10000n - RESERVE_SLIPPAGE_BPS)) / 10000n;
+
+                // MiniPay needs raw EIP-1193 sends so we can attach/fallback CIP-64
+                // feeCurrency hints. ethers.js BrowserProvider does not retry with
+                // USDT/USDC adapters, which made users with only USDT fail here.
+                if (_isMiniPay()) {
+                    const readProvider = new ethers.JsonRpcProvider(CELO_RPC);
+                    const tokenRead = new ethers.Contract(fromAddr, ERC20_ABI, readProvider);
+
+                    stepIndicators.className = "step-indicators show";
+                    step1.className = "step active";
+                    step2.className = "step";
+                    setReserveBtnState("loading", "Checking allowance…");
+                    showReserveAlert("alert-info", `<span class="spinner-inline"></span> Step 1/2 — Approving ${fromSym} for GoodReserve in MiniPay…`);
+
+                    const allowance = await tokenRead.allowance(WALLET_ADDRESS, RESERVE_BROKER);
+                    if (allowance < amountIn) {
+                        try {
+                            await GMTxPreview.confirm({
+                                action: 'approve',
+                                token: fromSym,
+                                amount: ethers.formatUnits(amountIn, 18),
+                                to: RESERVE_BROKER,
+                                toLabel: 'GoodReserve / Mento Broker',
+                                network: 'Celo',
+                                note: 'Exact-amount approval for the GoodReserve swap; MiniPay will pay gas from an available stablecoin.',
+                            });
+                        } catch (err) {
+                            if (GMTxPreview.isCancelled(err)) {
+                                setReserveBtnState("ready");
+                                stepIndicators.className = "step-indicators";
+                                showReserveAlert("alert-info", "Swap cancelled.");
+                                return;
+                            }
+                            throw err;
+                        }
+                        await _miniPayTx(
+                            fromAddr,
+                            "function approve(address spender, uint256 amount) returns (bool)",
+                            [RESERVE_BROKER, amountIn]
+                        );
+                    }
+                    step1.className = "step done";
+
+                    step2.className = "step active";
+                    setReserveBtnState("loading", reserveDirection === "buy" ? "Buying G$…" : "Selling G$…");
+                    showReserveAlert("alert-info", `<span class="spinner-inline"></span> Step 2/2 — Confirm GoodReserve swap in MiniPay…`);
+
+                    const brokerIface = new ethers.Interface(RESERVE_BROKER_ABI);
+                    const swapData = brokerIface.encodeFunctionData("swapIn", [
+                        RESERVE_PROVIDER,
+                        reserveQuote.exchangeId,
+                        fromAddr,
+                        toAddr,
+                        amountIn,
+                        minOut
+                    ]);
+                    const txHash = await _miniPayRawTx(RESERVE_BROKER, swapData, '0x0', 'reserve.swapIn');
+                    step2.className = "step done";
+                    setReserveBtnState("done");
+                    showReserveAlert("alert-success",
+                        `✅ ${reserveDirection === "buy" ? "Bought" : "Sold"} successfully! ` +
+                        `<a href="https://celoscan.io/tx/${txHash}" target="_blank" rel="noopener" style="color:#4ade80;text-decoration:underline;">View on CeloScan ↗</a>`);
+
+                    try { await loadBalances(); } catch (_) {}
+                    updateReserveBalanceDisplay();
+                    document.getElementById("reserveAmountIn").value = "";
+                    document.getElementById("reserveAmountOut").value = "";
+                    document.getElementById("reserveQuoteBox").classList.add("hidden");
+                    reserveQuote = null;
+                    setTimeout(() => {
+                        setReserveBtnState("enter");
+                        stepIndicators.className = "step-indicators";
+                    }, 4000);
+                    return;
+                }
+
+                const signer = await getConnectedSwapSigner();
 
                 // ── Step 1: ensure allowance for the broker ─────────────────────
                 stepIndicators.className = "step-indicators show";
