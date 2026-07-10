@@ -4513,6 +4513,57 @@
         }
     }
 
+    window.GoodMarketAI = window.GoodMarketAI || {};
+    window.GoodMarketAI.handleConfirmedAction = async function(action) {
+        if (!action || action.action_type !== 'send_gd') return false;
+        const payload = action.payload || {};
+        const recipient = payload.recipient || '';
+        const amount = payload.amount || '';
+        const gdChip = Array.from(document.querySelectorAll('#tokenSelector .token-chip'))
+            .find(chip => chip.textContent.trim() === 'G$');
+        if (gdChip) selectToken('GD', gdChip);
+        openModal('sendModal');
+        setTimeout(function() {
+            const toInput = document.getElementById('sendTo');
+            const amountInput = document.getElementById('sendAmount');
+            const alert = document.getElementById('sendAlert');
+            if (toInput) {
+                toInput.value = recipient;
+                toInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            if (amountInput) {
+                amountInput.value = amount;
+                amountInput.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            if (alert) {
+                alert.className = 'alert alert-success show';
+                alert.innerHTML = '✅ AI details loaded. Review the recipient and amount, then tap <strong>Send G$</strong> to sign in your wallet.';
+            }
+            if (toInput) toInput.focus();
+        }, 150);
+        return true;
+    };
+
+    async function openAiActionFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const actionId = params.get('ai_action');
+        if (!actionId) return;
+        try {
+            const res = await fetch('/api/ai-agent/actions/' + encodeURIComponent(actionId));
+            const data = await res.json();
+            if (data.success && data.action && window.GoodMarketAI.handleConfirmedAction) {
+                await window.GoodMarketAI.handleConfirmedAction(data.action);
+                params.delete('ai_action');
+                const nextUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + window.location.hash;
+                window.history.replaceState({}, '', nextUrl);
+            }
+        } catch (err) {
+            console.warn('[GoodMarketAI] failed to open confirmed action:', err);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', openAiActionFromUrl);
+
             // ── UBI Claim ─────────────────────────────────────────────
     (function() {
         const UBI_CONTRACT  = '0x43d72Ff17701B2DA814620735C39C620Ce0ea4A1';
