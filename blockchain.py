@@ -74,43 +74,76 @@ _identity_cache: dict = {}
 _identity_cache_lock = threading.Lock()
 IDENTITY_CACHE_TTL = 1800  # 30 minutes — identity whitelist rarely changes
 
-# G$ USD price cache — refreshed every 30 minutes from CoinGecko
-_gd_price_cache: dict = {"price": None, "expires_at": 0}
-_gd_price_lock = threading.Lock()
-
+# G$ USD price is intentionally operator-controlled. Do not fetch G$ market
+# data here; wallet USD values should use GD_USD_PRICE only for G$.
 def _get_gd_usd_price() -> float:
-    """Return the current G$ price in USD. Uses env var if set, else fetches from CoinGecko.
+    """Return the configured G$ price in USD.
 
-    Timeout is intentionally short (2s) so this never dominates the wallet balance
-    critical path. On timeout/error we fall back to the last cached value (or 0)
-    and shorten the cache to retry on the next request.
+    GoodDollar pricing is intentionally sourced only from the GD_USD_PRICE env
+    var so the app never silently switches to a market feed for G$.
+    """
+    return get_env_float("GD_USD_PRICE", 0.0)
+
+# Non-G$ market price cache — refreshed every 5 minutes from CoinGecko.
+_market_usd_price_cache: dict = {"prices": {}, "expires_at": 0}
+_market_usd_price_lock = threading.Lock()
+_MARKET_USD_PRICE_IDS = {
+    "celo": "celo",
+    "cusd": "celo-dollar",
+    "usdt": "tether",
+    "usdc": "usd-coin",
+}
+
+def _get_market_usd_prices() -> dict:
+    """Return live USD prices for non-G$ wallet assets from CoinGecko.
+
+    These prices do not require app-specific env vars. On a transient market API
+    failure, keep serving the last successful prices briefly instead of falling
+    back to hardcoded estimates.
     """
     import time
-    env_price = get_env_float("GD_USD_PRICE", 0.0)
-    if env_price > 0:
-        return env_price
-    with _gd_price_lock:
-        if _gd_price_cache["price"] is not None and _gd_price_cache["expires_at"] > time.time():
-            return _gd_price_cache["price"]
+    with _market_usd_price_lock:
+        if _market_usd_price_cache["prices"] and _market_usd_price_cache["expires_at"] > time.time():
+            return dict(_market_usd_price_cache["prices"])
         try:
             resp = requests.get(
                 "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "gooddollar", "vs_currencies": "usd"},
-                timeout=2
+                params={
+                    "ids": ",".join(_MARKET_USD_PRICE_IDS.values()),
+                    "vs_currencies": "usd",
+                },
+                timeout=5,
             )
-            if resp.status_code == 200:
-                price = resp.json().get("gooddollar", {}).get("usd", 0) or 0
-                _gd_price_cache["price"] = float(price)
-                _gd_price_cache["expires_at"] = time.time() + 1800
-                return float(price)
-        except Exception:
-            pass
-        # Fallback: keep any previously cached price so we don't show $0 on a
-        # transient CoinGecko hiccup. Shorten TTL so we retry sooner.
-        last_price = _gd_price_cache["price"] if _gd_price_cache["price"] is not None else 0.0
-        _gd_price_cache["price"] = last_price
-        _gd_price_cache["expires_at"] = time.time() + 300
-        return last_price
+            resp.raise_for_status()
+            data = resp.json() or {}
+            prices = {
+                symbol: float((data.get(coin_id) or {}).get("usd") or 0)
+                for symbol, coin_id in _MARKET_USD_PRICE_IDS.items()
+            }
+            prices = {symbol: price for symbol, price in prices.items() if price > 0}
+            if prices:
+                _market_usd_price_cache["prices"] = prices
+                _market_usd_price_cache["expires_at"] = time.time() + 300
+                return dict(prices)
+        except Exception as exc:
+            logger.warning(f"Market price fetch failed: {exc}")
+        last_prices = dict(_market_usd_price_cache["prices"] or {})
+        _market_usd_price_cache["expires_at"] = time.time() + 60
+        return last_prices
+
+def enrich_token_balance_with_price(token_result: dict, usd_price: float) -> dict:
+    """Return a token balance dict with USD price/value fields populated."""
+    if not token_result or not token_result.get("success"):
+        return token_result
+    enriched = dict(token_result)
+    price = float(usd_price or 0)
+    balance = float(enriched.get("balance") or 0)
+    usd_value = balance * price if price > 0 else None
+    enriched["usd_price"] = price
+    enriched["usd_value"] = usd_value if usd_value is not None else 0
+    if usd_value is not None:
+        enriched["usd_formatted"] = f"≈ ${usd_value:.4f} USD"
+    return enriched
 
 # Shared Web3 instance — reuse TCP connection instead of creating one per request
 _w3_singleton = None
