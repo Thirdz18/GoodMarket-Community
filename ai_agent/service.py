@@ -20,6 +20,8 @@ from typing import Any
 import requests
 from web3 import Web3
 
+from supabase_client import get_supabase_client, safe_supabase_operation
+
 logger = logging.getLogger(__name__)
 
 SUPPORTED_ACTIONS = {
@@ -44,6 +46,7 @@ AI_ACTION_SCHEMA: dict[str, Any] = {
         "fiat_amount": {"type": "string"},
         "fiat_currency": {"type": "string"},
         "recipient": {"type": "string"},
+        "recipient_username": {"type": "string"},
         "phone": {"type": "string"},
         "from_token": {"type": "string"},
         "to_token": {"type": "string"},
@@ -61,6 +64,7 @@ AI_ACTION_SCHEMA: dict[str, Any] = {
         "fiat_amount",
         "fiat_currency",
         "recipient",
+        "recipient_username",
         "phone",
         "from_token",
         "to_token",
@@ -187,7 +191,7 @@ def _parse_with_openai(message: str) -> dict[str, Any] | None:
 
     prompt = (
         "You classify GoodMarket wallet chat commands. Return only schema-valid JSON. "
-        "Never invent recipients, phone numbers, or amounts. Value-moving actions require confirmation and signature. "
+        "Never invent recipients, usernames, phone numbers, or amounts. For send_gd, accept either an EVM wallet address or a GoodMarket username as the recipient. Value-moving actions require confirmation and signature. "
         "Supported actions: check_balance, send_gd, mobile_load, swap, claim, transaction_history, help, unknown.\n\n"
         f"User message: {message}"
     )
@@ -277,7 +281,7 @@ def _parse_with_rules(message: str) -> dict[str, Any]:
         intent.update(
             action="send_gd",
             summary="Prepare a G$ transfer preview.",
-            recipient=address or "",
+            recipient=address or _send_recipient_candidate(message) or "",
             amount=amount or "",
             token="G$",
             requires_confirmation=True,
@@ -292,7 +296,7 @@ def _parse_with_rules(message: str) -> dict[str, Any]:
 
 def _normalise_intent(intent: dict[str, Any]) -> dict[str, Any]:
     normalised = _empty_intent(intent.get("action") if intent.get("action") in SUPPORTED_ACTIONS else "unknown", intent.get("summary") or "")
-    normalised.update({k: str(intent.get(k) or "").strip() for k in ["token", "amount", "fiat_amount", "fiat_currency", "recipient", "phone", "from_token", "to_token", "safety_note"]})
+    normalised.update({k: str(intent.get(k) or "").strip() for k in ["token", "amount", "fiat_amount", "fiat_currency", "recipient", "recipient_username", "phone", "from_token", "to_token", "safety_note"]})
     normalised["requires_confirmation"] = bool(intent.get("requires_confirmation"))
     normalised["requires_signature"] = bool(intent.get("requires_signature"))
     try:
@@ -317,6 +321,10 @@ def _supplement_intent_from_message(intent: dict[str, Any], message: str) -> Non
         address = _first_address(message)
         if address and not intent.get("recipient"):
             intent["recipient"] = address
+        elif not intent.get("recipient"):
+            username = _send_recipient_candidate(message)
+            if username:
+                intent["recipient"] = username
         amount = _first_amount(message)
         if amount and not intent.get("amount"):
             intent["amount"] = amount
@@ -332,8 +340,9 @@ def _apply_safety_policy(intent: dict[str, Any], wallet: str | None) -> None:
             intent["missing_fields"].append("amount")
         elif Decimal(intent["amount"]) > _MAX_SEND_GD:
             intent["missing_fields"].append(f"amount_at_or_below_{_MAX_SEND_GD}_G$")
+        _resolve_send_recipient(intent)
         if not intent["recipient"] or not Web3.is_address(intent["recipient"]):
-            intent["missing_fields"].append("valid_recipient_wallet")
+            intent["missing_fields"].append("valid_recipient_username_or_wallet")
         intent["requires_confirmation"] = True
         intent["requires_signature"] = True
     elif action == "mobile_load":
@@ -396,6 +405,7 @@ def _empty_intent(action: str, summary: str) -> dict[str, Any]:
         "fiat_amount": "",
         "fiat_currency": "",
         "recipient": "",
+        "recipient_username": "",
         "phone": "",
         "from_token": "",
         "to_token": "",
@@ -420,7 +430,7 @@ def _read_only_reply(intent: dict[str, Any], wallet: str | None) -> str:
         return "I can help show recent activity. This MVP can route you to the wallet transaction history without signing."
     if action == "help":
         return "You can ask me to prepare G$ sends, mobile load purchases, swaps, claims, balance checks, or transaction history. Value-moving actions always require confirmation and wallet signing."
-    return "I am not sure yet. Try: 'send 10 G$ to 0x...', 'load 09123456789 20', or 'check balance'."
+    return "I am not sure yet. Try: 'send 10 G$ to @username', 'load 09123456789 20', or 'check balance'."
 
 
 def _balance_reply(wallet: str | None) -> str:
@@ -442,6 +452,54 @@ def _balance_reply(wallet: str | None) -> str:
     if usd:
         return f"Your live GoodDollar balance is {balance} ({usd})."
     return f"Your live GoodDollar balance is {balance}."
+
+
+def _resolve_send_recipient(intent: dict[str, Any]) -> None:
+    recipient = (intent.get("recipient") or "").strip()
+    if not recipient or Web3.is_address(recipient):
+        return
+
+    username = _normalise_username(recipient)
+    if not username:
+        return
+
+    intent["recipient_username"] = username
+    wallet = _lookup_wallet_by_username(username)
+    if wallet:
+        intent["recipient"] = Web3.to_checksum_address(wallet)
+
+
+def _lookup_wallet_by_username(username: str) -> str | None:
+    supabase = get_supabase_client()
+    if not supabase:
+        return None
+    result = safe_supabase_operation(
+        lambda: supabase.table("user_data")
+            .select("wallet_address, username")
+            .ilike("username", username)
+            .limit(1)
+            .execute(),
+        operation_name="AI agent username recipient lookup",
+    )
+    if not result or not getattr(result, "data", None):
+        return None
+    wallet = (result.data[0].get("wallet_address") or "").strip()
+    return wallet if Web3.is_address(wallet) else None
+
+
+def _normalise_username(value: str) -> str | None:
+    candidate = value.strip().lstrip("@").lower()
+    return candidate if re.fullmatch(r"[a-z0-9_]{3,24}", candidate) else None
+
+
+def _send_recipient_candidate(text: str) -> str | None:
+    match = re.search(r"\b(?:to|kay|ni|user(?:name)?|@)\s*@?([A-Za-z0-9_]{3,24})\b", text, re.IGNORECASE)
+    if not match:
+        return None
+    candidate = match.group(1)
+    if candidate.lower() in {"wallet", "address", "goodmarket"}:
+        return None
+    return candidate
 
 
 def _first_address(text: str) -> str | None:
