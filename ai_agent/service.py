@@ -415,12 +415,33 @@ def _missing_details_reply(intent: dict[str, Any]) -> str:
 def _read_only_reply(intent: dict[str, Any], wallet: str | None) -> str:
     action = intent["action"]
     if action == "check_balance":
-        return "I can help check your balance. This MVP prepares the request; connect the wallet page balance view for live on-chain results."
+        return _balance_reply(wallet)
     if action == "transaction_history":
         return "I can help show recent activity. This MVP can route you to the wallet transaction history without signing."
     if action == "help":
         return "You can ask me to prepare G$ sends, mobile load purchases, swaps, claims, balance checks, or transaction history. Value-moving actions always require confirmation and wallet signing."
     return "I am not sure yet. Try: 'send 10 G$ to 0x...', 'load 09123456789 20', or 'check balance'."
+
+
+def _balance_reply(wallet: str | None) -> str:
+    if not wallet:
+        return "Please connect and verify your GoodMarket wallet so I can check your live G$ balance."
+    try:
+        from blockchain import get_gooddollar_balance
+
+        result = get_gooddollar_balance(wallet, include_price=True)
+    except Exception as exc:  # noqa: BLE001 - user-facing fallback keeps chat usable
+        logger.warning("AI balance check failed for %s: %s", wallet, exc)
+        return "I could not load your live G$ balance right now. Please try again in a moment or open the wallet balance card."
+
+    if not result or not result.get("success"):
+        return "I could not load your live G$ balance right now. Please try again in a moment or open the wallet balance card."
+
+    balance = result.get("balance_formatted") or f"{result.get('balance', 0):,.6f} G$"
+    usd = result.get("usd_formatted")
+    if usd:
+        return f"Your live GoodDollar balance is {balance} ({usd})."
+    return f"Your live GoodDollar balance is {balance}."
 
 
 def _first_address(text: str) -> str | None:
