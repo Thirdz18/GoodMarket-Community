@@ -922,7 +922,7 @@
                 projectId: "{{ walletconnect_project_id|default('', true) }}",
                 sidecarEnabled: false,
                 dappName: "GoodMarket — Swap",
-                dappDescription: "Swap tokens on Celo and Fuse",
+                dappDescription: "Swap tokens on Celo",
                 assetVersion: "{{ ASSET_VERSION }}",
             });
         }
@@ -966,7 +966,6 @@
 
             <div id="goodswapSubTabSwitcher" class="goodswap-sub-tabs" role="tablist" aria-label="GoodSwap mode">
                 <button type="button" id="goodswapSubBtnDex" class="goodswap-sub-tab-btn active" role="tab" aria-selected="true" onclick="setGoodSwapSubTab('dex')">Uniswap V3</button>
-                <button type="button" id="goodswapSubBtnFuse" class="goodswap-sub-tab-btn" role="tab" aria-selected="false" onclick="setGoodSwapSubTab('fuse')">Fuse Swap</button>
                 {% if reserve_swap_visible %}
                 <button type="button" id="goodswapSubBtnReserve" class="goodswap-sub-tab-btn" role="tab" aria-selected="false" onclick="setGoodSwapSubTab('reserve')">GoodReserve</button>
                 {% endif %}
@@ -1217,84 +1216,6 @@
             </div>
         </div><!-- /.goodswap-sub-pane-reserve -->
         {% endif %}
-
-        <!-- Fuse Voltage sub-pane: Fuse G$ -> native FUSE via Voltage Finance. -->
-        <div id="swapPaneFuse" class="goodswap-sub-pane goodswap-sub-pane-fuse hidden-tab">
-            <div class="swap-card" style="border:1px solid rgba(14,165,233,0.35); background: linear-gradient(135deg, rgba(14,165,233,0.12), rgba(37,99,235,0.05));">
-                <div class="network-badge">
-                    <span class="network-dot"></span>
-                    Fuse Mainnet · Voltage Finance
-                </div>
-
-                <div class="info-box-bridge" style="margin-bottom:0.9rem; padding:0.75rem 0.85rem; border-radius:10px; background:rgba(14,165,233,0.08); border:1px solid rgba(14,165,233,0.25); color:rgba(255,255,255,0.78); font-size:0.84rem; line-height:1.55;">
-                    Swap <strong>G$ on Fuse</strong> into native <strong>FUSE</strong> using the Voltage G$/WFUSE pool. You still need a small FUSE balance for the approve/swap gas fee.
-                </div>
-
-                <div class="token-box">
-                    <div class="token-box-label">You pay</div>
-                    <div class="token-row">
-                        <div class="token-selector" style="cursor:default;opacity:0.95;">
-                            <div class="token-icon gd">G$</div>
-                            <span>Fuse G$</span>
-                        </div>
-                        <input type="number" class="amount-input" id="fuseSwapAmountIn" placeholder="0.0" min="0" step="any" oninput="onFuseSwapAmountChange()">
-                    </div>
-                    <div class="token-balance">
-                        <span>Balance: <span id="fuseSwapGdBalance">—</span></span>
-                        <button type="button" class="max-btn" onclick="setFuseSwapMax()">MAX</button>
-                    </div>
-                </div>
-
-                <div class="swap-direction-wrap">
-                    <button class="swap-direction-btn" type="button" title="G$ to FUSE" style="cursor:default;">↓</button>
-                </div>
-
-                <div class="token-box">
-                    <div class="token-box-label">You receive (estimated)</div>
-                    <div class="token-row">
-                        <div class="token-selector" style="cursor:default;opacity:0.95;">
-                            <div class="token-icon fuse">FU</div>
-                            <span>FUSE</span>
-                        </div>
-                        <input type="text" class="amount-input" id="fuseSwapAmountOut" placeholder="—" readonly style="cursor:default;">
-                    </div>
-                    <div class="token-balance">
-                        <span>Balance: <span id="fuseSwapFuseBalance">—</span></span>
-                    </div>
-                </div>
-
-                <div class="slippage-box" style="margin-top:0.85rem;">
-                    <span>Max slippage</span>
-                    <div class="slippage-options">
-                        <button class="slippage-btn active" type="button" onclick="setFuseSwapSlippage(0.5, this)">0.5%</button>
-                        <button class="slippage-btn" type="button" onclick="setFuseSwapSlippage(1, this)">1%</button>
-                        <button class="slippage-btn" type="button" onclick="setFuseSwapSlippage(2, this)">2%</button>
-                    </div>
-                </div>
-
-                <div class="quote-box hidden" id="fuseSwapQuoteBox" style="margin-top:1rem;">
-                    <div class="quote-row"><span>Rate</span><strong id="fuseSwapRate">—</strong></div>
-                    <div class="quote-row"><span>Minimum received</span><strong id="fuseSwapMinOut">—</strong></div>
-                    <div class="quote-row"><span>Route</span><strong>G$ → WFUSE → FUSE</strong></div>
-                </div>
-
-                <div class="step-indicators" id="fuseSwapStepIndicators" style="margin-top:1rem;">
-                    <div class="step" id="fuseSwapStep1">1. Approve</div>
-                    <div class="step" id="fuseSwapStep2">2. Swap</div>
-                </div>
-
-                <button class="swap-btn" id="fuseSwapBtn" onclick="startFuseSwap()" disabled style="margin-top:1rem;">Enter an amount</button>
-                <div class="alert" id="fuseSwapAlert"></div>
-            </div>
-
-            <div class="info-card" style="margin-top:1rem;">
-                <div class="info-card-title">About Fuse Swap</div>
-                This swap is non-custodial and routes through <strong style="color:#e2e8f0;">Voltage Finance</strong> on Fuse Network.
-                The pool uses wrapped FUSE internally; the router unwraps it so your wallet receives native FUSE.
-                <br><br>
-                <a class="info-link" href="https://app.voltage.finance/#/swap" target="_blank" rel="noopener">Also available on Voltage ↗</a>
-            </div>
-        </div><!-- /.goodswap-sub-pane-fuse -->
 
         </div><!-- /.pane-goodswap -->
 
@@ -4405,11 +4326,11 @@
         }
 
         // Toggle the active sub-pane inside the GoodSwap tab. Each
-        // sub-pane keeps its existing design rhythm while owning its network:
-        // Uniswap V3 + GoodReserve use Celo; Fuse Swap uses Fuse Mainnet.
+        // sub-pane keeps its existing design rhythm while owning its network.
         function setGoodSwapSubTab(name) {
+            if (name === "fuse") name = "dex";
             const isReserve = name === "reserve";
-            const isFuse    = name === "fuse";
+            const isFuse    = false;
             const dexPane   = document.getElementById("swapPaneDex");
             const resPane   = document.getElementById("swapPaneReserve");
             const fusePane  = document.getElementById("swapPaneFuse");
@@ -4447,7 +4368,6 @@
                 fuseBtn.setAttribute("aria-selected", String(isFuse));
             }
             if (isReserve) updateReserveBalanceDisplay();
-            if (isFuse) loadFuseSwapBalances();
         }
 
         function refreshSquidWidget() {
