@@ -25,7 +25,11 @@
       return true;
     }
     if (action.action_type === 'mobile_load') {
-      return false;
+      const target = new URL('/reloadly/', window.location.origin);
+      if (actionId) target.searchParams.set('ai_action', actionId);
+      target.hash = 'topup';
+      window.location.href = target.toString();
+      return true;
     }
     return false;
   }
@@ -61,12 +65,7 @@
           if (handled) {
             button.textContent = 'Confirmed — signing in wallet…';
           } else if (confirmedAction.action_type === 'mobile_load') {
-            button.textContent = 'Confirmed — kept in chat';
-            const payload = confirmedAction.payload || {};
-            const phone = payload.phone || 'the phone number';
-            const amount = payload.fiat_amount || 'the selected amount';
-            const note = el('p', '', 'Mobile load preview confirmed for ' + phone + ' (' + amount + ' ' + (payload.fiat_currency || 'PHP') + '). Please continue here in GoodMarket Agent; no Reloadly redirect was opened.');
-            card.appendChild(note);
+            button.textContent = 'Confirmed — opening Reloadly signing…';
           } else {
             button.textContent = data.message || 'Confirmed — continue in wallet flow';
           }
@@ -125,6 +124,27 @@
       }
     });
   }
+
+
+  document.addEventListener('goodmarket:ai-tx-success', function (event) {
+    const detail = event.detail || {};
+    document.querySelectorAll('[data-ai-agent] .gm-ai-messages').forEach(function (messages) {
+      const txHash = detail.txHash || '';
+      const shortHash = txHash ? txHash.slice(0, 10) + '…' + txHash.slice(-6) : 'submitted';
+      const text = detail.message || ('✅ Transaction sent successfully. Tx hash: ' + shortHash);
+      addMessage(messages, 'bot', text);
+      if (detail.explorerUrl && messages.lastElementChild) {
+        const link = el('a', '', 'View on Celoscan ↗');
+        link.href = detail.explorerUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.style.color = '#86efac';
+        link.style.display = 'block';
+        link.style.marginTop = '6px';
+        messages.lastElementChild.appendChild(link);
+      }
+    });
+  });
 
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('[data-ai-agent]').forEach(initAgent);
