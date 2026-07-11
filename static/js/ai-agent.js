@@ -126,7 +126,7 @@
   }
 
 
-  document.addEventListener('goodmarket:ai-tx-success', function (event) {
+  function handleAiTxSuccess(event) {
     const detail = event.detail || {};
     document.querySelectorAll('[data-ai-agent] .gm-ai-messages').forEach(function (messages) {
       const txHash = detail.txHash || '';
@@ -144,7 +144,20 @@
         messages.lastElementChild.appendChild(link);
       }
     });
-  });
+  }
+
+  function handleAiTxFailed(event) {
+    const detail = event.detail || {};
+    document.querySelectorAll('[data-ai-agent] .gm-ai-messages').forEach(function (messages) {
+      const text = detail.message || ('❌ Transaction failed' + (detail.error ? ': ' + detail.error : '.'));
+      addMessage(messages, 'bot', text);
+    });
+  }
+
+  document.addEventListener('goodmarket:ai-tx-success', handleAiTxSuccess);
+  window.addEventListener('goodmarket:ai-tx-success', handleAiTxSuccess);
+  document.addEventListener('goodmarket:ai-tx-failed', handleAiTxFailed);
+  window.addEventListener('goodmarket:ai-tx-failed', handleAiTxFailed);
 
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('[data-ai-agent]').forEach(initAgent);
