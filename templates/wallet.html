@@ -4519,20 +4519,17 @@
         const payload = action.payload || {};
 
         if (action.action_type === 'mobile_load') {
-            const target = new URL('/reloadly/', window.location.origin);
-            target.hash = 'topup';
-            if (action.id) target.searchParams.set('ai_action', action.id);
-            window.location.href = target.toString();
-            return true;
+            return false;
         }
 
         if (action.action_type !== 'send_gd') return false;
         const recipient = payload.recipient || '';
         const amount = payload.amount || '';
-        const gdChip = Array.from(document.querySelectorAll('#tokenSelector .token-chip'))
-            .find(chip => chip.textContent.trim() === 'G$');
-        if (gdChip) selectToken('GD', gdChip);
-        openModal('sendModal');
+        const tokenLabel = String(payload.token || 'G$').trim().toLowerCase();
+        const tokenKey = tokenLabel === 'cusd' ? 'CUSD' : (tokenLabel === 'usdt' ? 'USDT' : 'GD');
+        const tokenChip = Array.from(document.querySelectorAll('#tokenSelector .token-chip'))
+            .find(chip => chip.textContent.trim().toLowerCase() === (tokenKey === 'GD' ? 'g$' : tokenKey.toLowerCase()));
+        if (tokenChip) selectToken(tokenKey, tokenChip);
         setTimeout(async function() {
             const toInput = document.getElementById('sendTo');
             const amountInput = document.getElementById('sendAmount');
@@ -4547,7 +4544,7 @@
             }
             if (alert) {
                 alert.className = 'alert alert-success show';
-                alert.innerHTML = '✅ AI details loaded. Opening your wallet signing prompt now. Review the recipient and amount before signing.';
+                alert.innerHTML = '✅ GoodMarket Agent prepared this send. Review the wallet prompt before signing.';
             }
             if (typeof doSend === 'function') await doSend();
         }, 150);
