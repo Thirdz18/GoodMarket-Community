@@ -101,11 +101,11 @@ Admins can show or hide the `/swap` and `/wallet` pages from the admin dashboard
 
 ## Daily Voucher Feature
 
-A daily payment link voucher that appears on all user dashboards every day at **2PM PHT** (UTC+8) and disappears the moment someone claims it.
+A daily payment link voucher that appears on the wallet page every day at **2PM PHT** (UTC+8) and disappears the moment someone claims it.
 
 ### How it works
 1. **Admin** goes to Admin Dashboard → **Daily Voucher** → pastes the payment link URL → clicks Save.
-2. At 2PM PHT, a golden animated banner appears on every logged-in user's dashboard with a **"Claim GoodMarket Voucher"** button.
+2. At 2PM PHT, a golden animated banner appears on every logged-in user's wallet page with a **"Claim GoodMarket Voucher"** button.
 3. The **first user** to click the button claims it — the banner immediately disappears for everyone.
 4. The admin can Reset the claim status to make it claimable again if needed.
 
@@ -270,8 +270,11 @@ The script writes the new contract address + ABI to
 `contracts/savings_deployment_info.json`. After a successful deploy:
 
 1. Update `SAVINGS_CONTRACT_ADDRESS` in the deployment environment.
-   If you are keeping the previous v5 vault withdrawable while v6 is live,
-   set `LEGACY_V5_CONTRACT_ADDRESS` to the old v5 address.
+   If unset, the app defaults to the custom-duration savings vault
+   `0x56Ae711E89389F324237a307132b2F397f5868Fd`. Keep previous vaults
+   withdrawable by setting `LEGACY_V5_CONTRACT_ADDRESS`; if unset, the app
+   defaults the legacy withdraw-only vault to
+   `0x772feE25Fe03B1B18b7A916fEE237333Ec2f217e`.
 2. Set `USDT_TOKEN_ADDRESS` to match the address used at deploy time
    (defaults match the script).
 3. If the new deploy block differs from the previous value (65917286),
