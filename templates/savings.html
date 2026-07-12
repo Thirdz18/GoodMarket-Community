@@ -702,11 +702,10 @@
         "event BonusPaid(address indexed user, address indexed token, uint256 indexed lockDays, uint256 bonusGd, uint256 timestamp)",
     ];
 
-    // Block height where the *current* (v5) GDSavings contract was deployed on
-    // Celo Mainnet (from contracts/savings_deployment_info.json). Used as the
-    // lower bound for the on-chain history reconstruction so we never miss a
-    // Saved or Withdrawn event. Bumped to v5 deploy block after redeploy.
-    const SAVINGS_DEPLOYMENT_BLOCK = 65917286;
+    // Block height where the current custom-duration GDSavings contract was
+    // deployed on Celo Mainnet. Used as the lower bound for on-chain history
+    // reconstruction so we never miss a Saved or Withdrawn event.
+    const SAVINGS_DEPLOYMENT_BLOCK = {{ savings_deployment_block }};
     const ERC20_ABI = [
         "function balanceOf(address owner) view returns (uint256)",
         "function allowance(address owner, address spender) view returns (uint256)",
