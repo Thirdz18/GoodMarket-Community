@@ -524,8 +524,24 @@ def _faq_reply(message: str) -> str | None:
         "who is developer": (
             "GoodMarket is developed by the Betz & Omar Team. The app also shows developer/profile information where configured by the admins."
         ),
+        "how to send tokens": _send_tokens_help_reply(),
+        "how to send token": _send_tokens_help_reply(),
+        "how to send g$ token": _send_tokens_help_reply(),
+        "how to send gd token": _send_tokens_help_reply(),
+        "send tokens": _send_tokens_help_reply(),
     }
     return replies.get(topic)
+
+def _send_tokens_help_reply() -> str:
+    return (
+        "How to send tokens with GoodMarket Agent:\n"
+        "1. Type a command like: send 10 G$ to @username or send 10 G$ to 0xWalletAddress.\n"
+        "2. You can also use cUSD or USDT, for example: send 1 cUSD to @username.\n"
+        "3. The agent prepares a review card only. No token moves yet.\n"
+        "4. Tap Confirm action, then sign in your wallet to actually send.\n"
+        "Make sure the amount, token, and recipient are correct before confirming."
+    )
+
 
 def _welcome_help_reply() -> str:
     return (
