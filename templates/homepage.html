@@ -7,7 +7,7 @@
     <!-- Telegram Mini App SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-    <!-- PWA Meta Tags -->a
+    <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#7c3aed">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -510,88 +510,184 @@
             font-weight: 800;
         }
 
-        /* Stats panel — floating cards over a glowing G$ orb */
+        /* App dashboard preview */
         .hero-stats-stage {
             position: relative;
             min-height: 460px;
             display: flex;
-            align-items: center;
+            align-items: stretch;
             justify-content: center;
         }
+
         .hero-orb {
             position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            pointer-events: none;
-        }
-        .hero-orb::before {
-            content: '';
-            position: absolute;
-            width: 320px;
-            height: 320px;
+            inset: -18% -10% auto auto;
+            width: 340px;
+            height: 340px;
             border-radius: 50%;
-            background: radial-gradient(circle at 35% 35%, rgba(167,139,250,0.55) 0%, rgba(124,58,237,0.32) 35%, rgba(124,58,237,0.0) 70%);
-            filter: blur(2px);
+            background: radial-gradient(circle at 35% 35%, rgba(167,139,250,0.42) 0%, rgba(20,184,166,0.18) 38%, rgba(124,58,237,0) 72%);
+            filter: blur(6px);
+            pointer-events: none;
             animation: heroOrbFloat 9s ease-in-out infinite;
         }
-        .hero-orb-symbol {
-            position: relative;
-            font-size: clamp(7rem, 14vw, 12rem);
-            font-weight: 800;
-            color: rgba(255,255,255,0.06);
-            letter-spacing: -0.04em;
-            line-height: 1;
-            text-shadow: 0 0 60px rgba(167,139,250,0.18);
-        }
+
+        .hero-orb-symbol { display: none; }
+
         @keyframes heroOrbFloat {
             0%, 100% { transform: translateY(-6px); }
             50% { transform: translateY(8px); }
         }
 
-        .hero-stat-card {
-            position: absolute;
-            background: rgba(15, 23, 42, 0.55);
+        .app-preview-card {
+            width: min(100%, 560px);
             border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 28px;
+            padding: 1rem;
+            background:
+                linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(17, 24, 39, 0.7)),
+                radial-gradient(circle at top right, rgba(124, 58, 237, 0.2), transparent 38%);
+            box-shadow: 0 32px 80px rgba(2, 6, 23, 0.48), inset 0 1px 0 rgba(255,255,255,0.08);
             backdrop-filter: blur(18px);
             -webkit-backdrop-filter: blur(18px);
-            border-radius: 18px;
-            padding: 1rem 1.15rem;
-            min-width: 220px;
-            box-shadow: 0 24px 48px rgba(8, 12, 32, 0.45);
-            z-index: 3;
+            z-index: 2;
         }
-        .hero-stat-card .stat-eyebrow {
+
+        .app-preview-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.35rem 0.35rem 0.95rem;
+        }
+
+        .app-preview-label {
+            display: block;
+            color: rgba(148, 163, 184, 0.92);
+            font-size: 0.74rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .app-preview-title {
+            display: block;
+            color: #fff;
+            font-size: 1.1rem;
+            font-weight: 800;
+            margin-top: 0.15rem;
+        }
+
+        .app-preview-live {
             display: inline-flex;
             align-items: center;
             gap: 0.45rem;
-            font-size: 0.7rem;
-            font-weight: 700;
+            color: #6ee7b7;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.22);
+            border-radius: 999px;
+            padding: 0.45rem 0.7rem;
+            font-size: 0.78rem;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .app-preview-live::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #22c55e;
+            box-shadow: 0 0 14px rgba(34, 197, 94, 0.8);
+        }
+
+        .quick-action-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .quick-action-card {
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            border-radius: 18px;
+            padding: 0.95rem;
+            background: rgba(15, 23, 42, 0.72);
+            text-decoration: none;
+            color: inherit;
+            transition: transform 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+        }
+
+        .quick-action-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(167, 139, 250, 0.45);
+            background: rgba(30, 41, 59, 0.78);
+        }
+
+        .quick-action-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 0.75rem;
+            background: rgba(124, 58, 237, 0.16);
+            font-size: 1.35rem;
+        }
+
+        .quick-action-title {
+            color: #f8fafc;
+            font-size: 0.95rem;
+            font-weight: 800;
+            margin-bottom: 0.25rem;
+        }
+
+        .quick-action-desc {
+            color: rgba(203, 213, 225, 0.68);
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+
+        .hero-stat-row {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .hero-stat-card {
+            position: static;
+            min-width: 0;
+            background: rgba(2, 6, 23, 0.36);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+            border-radius: 16px;
+            padding: 0.85rem;
+            box-shadow: none;
+        }
+        .hero-stat-card .stat-eyebrow {
+            display: block;
+            font-size: 0.61rem;
+            font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: rgba(226, 232, 240, 0.6);
-            margin-bottom: 0.5rem;
+            letter-spacing: 0.1em;
+            color: rgba(226, 232, 240, 0.56);
+            margin-bottom: 0.4rem;
         }
         .hero-stat-card .stat-value {
-            font-size: 1.85rem;
-            font-weight: 800;
+            font-size: clamp(1.25rem, 2.7vw, 1.8rem);
+            font-weight: 900;
             line-height: 1.05;
-            letter-spacing: -0.02em;
+            letter-spacing: -0.03em;
             color: #ffffff;
         }
         .hero-stat-card .stat-foot {
-            margin-top: 0.45rem;
-            font-size: 0.78rem;
-            font-weight: 600;
+            margin-top: 0.35rem;
+            font-size: 0.7rem;
+            font-weight: 700;
             color: rgba(148, 163, 184, 0.85);
         }
-        .hero-stat-card.stat-disbursed { top: 6%; right: 6%; }
         .hero-stat-card.stat-disbursed .stat-value { color: #67e8f9; }
         .hero-stat-card.stat-disbursed .stat-foot { color: #34d399; }
-        .hero-stat-card.stat-earners { top: 38%; right: -2%; border-color: rgba(124,58,237,0.32); }
         .hero-stat-card.stat-earners .stat-value { color: #34d399; }
-        .hero-stat-card.stat-tasks { bottom: 8%; left: 4%; }
         .hero-stat-card.stat-tasks .stat-value { color: #fbbf24; }
 
         /* Section Tab Navigation */
@@ -1023,6 +1119,25 @@
                 padding: 0.85rem 1rem;
             }
             .hero-stat-card .stat-value { font-size: 1.5rem; }
+
+            .app-preview-card {
+                border-radius: 22px;
+                padding: 0.85rem;
+            }
+
+            .quick-action-grid {
+                grid-template-columns: 1fr;
+                gap: 0.65rem;
+            }
+
+            .quick-action-card {
+                padding: 0.85rem;
+            }
+
+            .hero-stat-row {
+                grid-template-columns: 1fr;
+                gap: 0.65rem;
+            }
 
             .features-section {
                 padding: 2rem 1rem;
@@ -1819,63 +1934,97 @@
     <section class="hero-section" id="overview">
         <div class="hero-grid">
             <div class="hero-content">
-                <span class="hero-eyebrow"><span class="pulse-dot"></span>Community-powered · Live on Celo</span>
+                <span class="hero-eyebrow"><span class="pulse-dot"></span>Your GoodDollar command center</span>
                 <h1 class="hero-title">
-                    <span class="line">Earn <span class="highlight">G$</span>.</span>
-                    <span class="line">Learn Web3.</span>
-                    <span class="line">No experience needed.</span>
+                    <span class="line">Open GoodMarket.</span>
+                    <span class="line">Claim, learn, earn, and grow with <span class="highlight">G$</span>.</span>
                 </h1>
                 <p class="hero-description">
-                    Complete social tasks, quizzes, and minigames to earn real GoodDollar tokens. Built by the community, powered by Celo — open to everyone, no fees, no gas.
+                    A simple app-style hub for GoodDollar users: claim G$, finish Learn &amp; Earn quizzes, complete social tasks, explore savings, and get guided help from the GoodMarket Agent.
                 </p>
                 <p class="hero-disclaimer">
                     ⚠️ GoodMarket is a community initiative &mdash; not an official product of GoodDollar.
                 </p>
                 <p class="hero-community-note">
-                    🤝 <strong>Community tools that support GoodDollar users</strong> &mdash; easing G$ claims, swaps &amp; onboarding.
+                    🤝 <strong>Beginner-friendly Web3 tools</strong> &mdash; onboarding, rewards, wallet actions, and community activities in one place.
                 </p>
                 <div class="hero-buttons">
-                    <button class="btn-primary main-menu-btn" onclick="openWalletModal()">
-                        Launch App <span class="arrow">→</span>
+                    <button class="btn-primary" onclick="openWalletModal()">
+                        Open App <span class="arrow">→</span>
                     </button>
-                    <a class="btn-secondary" href="https://docs.gooddollar.org/" target="_blank" rel="noopener">
-                        <span aria-hidden="true">📖</span> Read the Docs
+                    <a class="btn-secondary" href="#main-menu-submenu" onclick="event.preventDefault(); document.getElementById('main-menu-submenu').style.display='block'; document.getElementById('main-menu-submenu').scrollIntoView({ behavior: 'smooth', block: 'start' });">
+                        <span aria-hidden="true">📱</span> View Features
                     </a>
                 </div>
                 <div class="hero-checks">
-                    <span class="hero-check">Gas-free claims</span>
-                    <span class="hero-check">Non-custodial</span>
-                    <span class="hero-check">Open source</span>
+                    <span class="hero-check">Claim-ready</span>
+                    <span class="hero-check">Learn &amp; Earn</span>
+                    <span class="hero-check">Wallet tools</span>
                 </div>
             </div>
 
-            <div class="hero-stats-stage" aria-label="Live platform statistics">
+            <div class="hero-stats-stage" aria-label="GoodMarket app preview and live platform statistics">
                 <div class="hero-orb" aria-hidden="true">
                     <span class="hero-orb-symbol">G$</span>
                 </div>
 
-                <div class="hero-stat-card stat-disbursed">
-                    <div class="stat-eyebrow">🌐 Total G$ Distributed</div>
-                    <div class="stat-value" id="heroStatDisbursed">{{ homepage_stats.total_g_disbursed_formatted }}</div>
-                    <div class="stat-foot" id="heroStatDisbursedFoot">
-                        {% if homepage_stats.total_g_disbursed_week_growth_pct is not none %}
-                            {% if homepage_stats.total_g_disbursed_week_growth_pct >= 0 %}+{% endif %}{{ homepage_stats.total_g_disbursed_week_growth_pct }}% this week
-                        {% else %}
-                            On-chain · Celo
-                        {% endif %}
+                <div class="app-preview-card">
+                    <div class="app-preview-topbar">
+                        <div>
+                            <span class="app-preview-label">GoodMarket Hub</span>
+                            <span class="app-preview-title">Choose your next action</span>
+                        </div>
+                        <span class="app-preview-live">Live on Celo</span>
                     </div>
-                </div>
 
-                <div class="hero-stat-card stat-earners">
-                    <div class="stat-eyebrow">👥 Active Earners</div>
-                    <div class="stat-value" id="heroStatEarners">{{ homepage_stats.active_earners_formatted }}</div>
-                    <div class="stat-foot">Across all features</div>
-                </div>
+                    <div class="quick-action-grid">
+                        <a class="quick-action-card" href="#main-menu-submenu" onclick="event.preventDefault(); document.getElementById('main-menu-submenu').style.display='block'; showSection('what-is');">
+                            <span class="quick-action-icon">💰</span>
+                            <div class="quick-action-title">Claim &amp; use G$</div>
+                            <div class="quick-action-desc">Start with GoodDollar claim support, wallet tools, and onboarding.</div>
+                        </a>
+                        <a class="quick-action-card" href="#main-menu-submenu" onclick="event.preventDefault(); document.getElementById('main-menu-submenu').style.display='block'; showSection('learn-earn');">
+                            <span class="quick-action-icon">🎓</span>
+                            <div class="quick-action-title">Learn &amp; Earn</div>
+                            <div class="quick-action-desc">Answer quizzes and collect rewards while learning Web3 basics.</div>
+                        </a>
+                        <a class="quick-action-card" href="#main-menu-submenu" onclick="event.preventDefault(); document.getElementById('main-menu-submenu').style.display='block'; showSection('daily-tasks');">
+                            <span class="quick-action-icon">📱</span>
+                            <div class="quick-action-title">Daily tasks</div>
+                            <div class="quick-action-desc">Complete social activities across Telegram, X, and Facebook.</div>
+                        </a>
+                        <a class="quick-action-card" href="#main-menu-submenu" onclick="event.preventDefault(); document.getElementById('main-menu-submenu').style.display='block'; showSection('ubi-tracker');">
+                            <span class="quick-action-icon">🤖</span>
+                            <div class="quick-action-title">Tools &amp; Agent</div>
+                            <div class="quick-action-desc">Use GoodMarket tools for tracking, guidance, and wallet actions.</div>
+                        </a>
+                    </div>
 
-                <div class="hero-stat-card stat-tasks">
-                    <div class="stat-eyebrow">✅ Tasks Completed This Month</div>
-                    <div class="stat-value" id="heroStatTasks">{{ homepage_stats.tasks_last_30_days_formatted }}</div>
-                    <div class="stat-foot">Last 30 days</div>
+                    <div class="hero-stat-row">
+                        <div class="hero-stat-card stat-disbursed">
+                            <div class="stat-eyebrow">🌐 Total G$</div>
+                            <div class="stat-value" id="heroStatDisbursed">{{ homepage_stats.total_g_disbursed_formatted }}</div>
+                            <div class="stat-foot" id="heroStatDisbursedFoot">
+                                {% if homepage_stats.total_g_disbursed_week_growth_pct is not none %}
+                                    {% if homepage_stats.total_g_disbursed_week_growth_pct >= 0 %}+{% endif %}{{ homepage_stats.total_g_disbursed_week_growth_pct }}% this week
+                                {% else %}
+                                    On-chain · Celo
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="hero-stat-card stat-earners">
+                            <div class="stat-eyebrow">👥 Earners</div>
+                            <div class="stat-value" id="heroStatEarners">{{ homepage_stats.active_earners_formatted }}</div>
+                            <div class="stat-foot">Across features</div>
+                        </div>
+
+                        <div class="hero-stat-card stat-tasks">
+                            <div class="stat-eyebrow">✅ Tasks</div>
+                            <div class="stat-value" id="heroStatTasks">{{ homepage_stats.tasks_last_30_days_formatted }}</div>
+                            <div class="stat-foot">Last 30 days</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
