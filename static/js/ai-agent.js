@@ -18,7 +18,7 @@
     if (window.GoodMarketAI && typeof window.GoodMarketAI.handleConfirmedAction === 'function') {
       return window.GoodMarketAI.handleConfirmedAction(action);
     }
-    if (action.action_type === 'send_gd') {
+    if (action.action_type === 'send_gd' || action.action_type === 'stream_gd') {
       const target = new URL('/wallet', window.location.origin);
       if (actionId) target.searchParams.set('ai_action', actionId);
       window.location.href = target.toString();
@@ -41,7 +41,7 @@
     const payload = action.payload || {};
     const rows = [
       ['Action', action.action_type],
-      ['Amount', payload.amount || payload.fiat_amount],
+      ['Amount', payload.flow_rate_per_day ? (payload.flow_rate_per_day + ' G$/day') : (payload.amount || payload.fiat_amount)],
       ['Token', payload.token || payload.from_token],
       ['To', payload.recipient_username ? ('@' + payload.recipient_username + ' (' + payload.recipient + ')') : (payload.recipient || payload.to_token || payload.phone)],
       ['Status', action.status]
@@ -100,21 +100,18 @@
       if (open) setTimeout(function () { input.focus(); }, 0);
     }
 
-    toggle.addEventListener('click', function () { setOpen(true); });
-    close.addEventListener('click', function () { setOpen(false); });
-    form.addEventListener('submit', async function (event) {
-      event.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
+    async function sendAgentMessage(text) {
+      const cleanText = (text || '').trim();
+      if (!cleanText) return;
       input.value = '';
-      addMessage(messages, 'user', text);
+      addMessage(messages, 'user', cleanText);
       addMessage(messages, 'bot', 'Thinking…');
       const pending = messages.lastElementChild;
       try {
         const res = await fetch('/api/ai-agent/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({ message: cleanText })
         });
         const data = await res.json();
         pending.remove();
@@ -122,6 +119,18 @@
       } catch (err) {
         pending.textContent = 'Sorry, the AI agent is unavailable right now.';
       }
+    }
+
+    toggle.addEventListener('click', function () { setOpen(true); });
+    close.addEventListener('click', function () { setOpen(false); });
+    messages.addEventListener('click', function (event) {
+      const button = event.target.closest('[data-gm-ai-command]');
+      if (!button) return;
+      sendAgentMessage(button.getAttribute('data-gm-ai-command') || button.textContent);
+    });
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      sendAgentMessage(input.value);
     });
   }
 
