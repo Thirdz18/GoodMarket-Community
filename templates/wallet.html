@@ -1452,6 +1452,110 @@
             font-size: 0.88rem;
         }
 
+
+        .savings-popup-sheet {
+            width: min(100%, 980px);
+            height: min(88vh, 860px);
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+            overflow: hidden;
+        }
+        .savings-popup-header {
+            padding: 0.9rem 1rem 0.75rem;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background:
+                radial-gradient(90% 120% at 0% 0%, rgba(0,230,118,0.12), transparent 55%),
+                rgba(12,18,40,0.96);
+        }
+        .savings-popup-title-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .savings-popup-title {
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 900;
+            letter-spacing: -0.02em;
+        }
+        .savings-popup-copy {
+            margin-top: 0.3rem;
+            color: rgba(232,234,246,0.7);
+            font-size: 0.76rem;
+            line-height: 1.45;
+        }
+        .savings-popup-fallback {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            margin-top: 0.55rem;
+            padding: 0.42rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid rgba(0,230,118,0.3);
+            background: rgba(0,230,118,0.1);
+            color: #86efac;
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-decoration: none;
+        }
+        .savings-popup-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.55rem;
+        }
+        .savings-popup-skip {
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            color: rgba(232,234,246,0.78);
+            cursor: pointer;
+            font: inherit;
+            font-size: 0.72rem;
+            font-weight: 800;
+            padding: 0.42rem 0.75rem;
+        }
+        .savings-popup-explainer {
+            margin-top: 0.75rem;
+            padding: 0.78rem 0.85rem;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.18);
+            color: rgba(232,234,246,0.78);
+            font-size: 0.72rem;
+            line-height: 1.5;
+            max-height: 168px;
+            overflow-y: auto;
+        }
+        .savings-popup-explainer strong { color: #fff; }
+        .savings-popup-explainer ul {
+            margin: 0.4rem 0 0;
+            padding-left: 1rem;
+        }
+        .savings-popup-explainer li + li { margin-top: 0.18rem; }
+        .savings-popup-close {
+            width: 34px;
+            height: 34px;
+            border: 0;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 1.15rem;
+            font-weight: 900;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .savings-popup-iframe {
+            width: 100%;
+            flex: 1;
+            border: 0;
+            background: #070b1a;
+        }
+
         /* Savings card */
         .savings-card {
             margin: 0 1.25rem 1rem;
@@ -2103,6 +2207,37 @@
             </div>
 
             <button class="btn-secondary" onclick="closeModal('claimModal')">Close</button>
+        </div>
+    </div>
+
+
+    <!-- Savings Popup Modal -->
+    <div class="modal-overlay" id="savingsPopupModal" aria-hidden="true">
+        <div class="modal-sheet savings-popup-sheet">
+            <div class="savings-popup-header">
+                <div class="savings-popup-title-row">
+                    <div>
+                        <div class="savings-popup-title">🏦 GoodMarket Savings – How It Works</div>
+                        <div class="savings-popup-copy">Savings is optional. Your Celo G$ claim was successful — you can save now, or skip and keep the G$ in your wallet.</div>
+                        <div class="savings-popup-actions">
+                            <a class="savings-popup-fallback" href="/savings?from=wallet_claim">Open full Savings page ↗</a>
+                            <button type="button" class="savings-popup-skip" onclick="closeSavingsPopup()">Skip for now</button>
+                        </div>
+                        <div class="savings-popup-explainer">
+                            <strong>Saving with GoodMarket is simple, transparent, and secure.</strong>
+                            <ul>
+                                <li><strong>One slot per duration:</strong> 30, 90, 180, and 360-day plans each have their own slot.</li>
+                                <li><strong>Same duration, same unlock date:</strong> if you create a 360-day slot on July 14, 2026, extra 360-day deposits on July 15, August 5, or November 14 still unlock on July 14, 2027.</li>
+                                <li><strong>Different duration, different slot:</strong> choosing another plan creates a separate unlock date, like a 40-day plan deposited on August 1, 2026 unlocking on September 10, 2026.</li>
+                                <li><strong>Safe and transparent:</strong> savings remain on-chain, smart contracts are open-source, no admin or developer can withdraw your funds, and only your wallet can withdraw after unlock.</li>
+                            </ul>
+                            Start saving today and build your future — one deposit at a time! 🚀
+                        </div>
+                    </div>
+                    <button type="button" class="savings-popup-close" onclick="closeSavingsPopup()" aria-label="Close savings popup">×</button>
+                </div>
+            </div>
+            <iframe id="savingsPopupFrame" class="savings-popup-iframe" title="GoodMarket Savings" loading="lazy"></iframe>
         </div>
     </div>
 
@@ -5428,6 +5563,24 @@
             if (el) el.textContent = d.balance_formatted || '—';
         }).catch(() => { const el = document.getElementById('ubiPoolBalance'); if (el) el.textContent = '—'; });
 
+
+        function openSavingsPopupAfterClaim() {
+            const modal = document.getElementById('savingsPopupModal');
+            const frame = document.getElementById('savingsPopupFrame');
+            if (!modal || !frame) return;
+            if (!frame.src) frame.src = '/savings?from=wallet_claim';
+            if (typeof closeModal === 'function') closeModal('claimModal');
+            modal.classList.add('open');
+            modal.setAttribute('aria-hidden', 'false');
+        }
+
+        window.closeSavingsPopup = function() {
+            const modal = document.getElementById('savingsPopupModal');
+            if (!modal) return;
+            modal.classList.remove('open');
+            modal.setAttribute('aria-hidden', 'true');
+        };
+
         function pollReceipt(txHash, attempts) {
             if (attempts <= 0) {
                 btn.disabled = false; label.textContent = 'Claim G$'; icon.textContent = '🪙';
@@ -5449,6 +5602,7 @@
                         startCountdown();
                         setTimeout(() => { loadBalances(true); fetchEntitlement(); }, 4000);
                         try { window.showClaimCelebration && window.showClaimCelebration({ networks: ['celo'] }); } catch (_) {}
+                        setTimeout(openSavingsPopupAfterClaim, 900);
                     } else {
                         btn.disabled = false; label.textContent = 'Claim G$'; icon.textContent = '🪙';
                         setStatus('Transaction failed. You may have already claimed today.', 'var(--red)');
