@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 SUPPORTED_ACTIONS = {
     "check_balance",
     "send_gd",
+    "stream_gd",
     "mobile_load",
     "swap",
     "claim",
@@ -50,6 +51,8 @@ AI_ACTION_SCHEMA: dict[str, Any] = {
         "phone": {"type": "string"},
         "from_token": {"type": "string"},
         "to_token": {"type": "string"},
+        "flow_rate_per_day": {"type": "string"},
+        "flow_rate_per_month": {"type": "string"},
         "requires_confirmation": {"type": "boolean"},
         "requires_signature": {"type": "boolean"},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
@@ -68,6 +71,8 @@ AI_ACTION_SCHEMA: dict[str, Any] = {
         "phone",
         "from_token",
         "to_token",
+        "flow_rate_per_day",
+        "flow_rate_per_month",
         "requires_confirmation",
         "requires_signature",
         "confidence",
@@ -76,8 +81,9 @@ AI_ACTION_SCHEMA: dict[str, Any] = {
     ],
 }
 
-_VALUE_ACTIONS = {"send_gd", "mobile_load", "swap", "claim"}
+_VALUE_ACTIONS = {"send_gd", "stream_gd", "mobile_load", "swap", "claim"}
 _MAX_SEND_GD = Decimal(os.getenv("AI_AGENT_MAX_SEND_GD", "100"))
+_MAX_STREAM_GD_PER_DAY = Decimal(os.getenv("AI_AGENT_MAX_STREAM_GD_PER_DAY", "100"))
 _MAX_MOBILE_LOAD_FIAT = Decimal(os.getenv("AI_AGENT_MAX_MOBILE_LOAD_FIAT", "100"))
 _ACTION_TTL_MINUTES = int(os.getenv("AI_AGENT_ACTION_TTL_MINUTES", "15"))
 _OPENAI_MODEL = os.getenv("AI_AGENT_OPENAI_MODEL", "gpt-5.5-mini")
@@ -114,6 +120,14 @@ def parse_and_plan(message: str, wallet: str | None, login_method: str | None) -
             status="needs_input",
             reply="Please type what you want to do, like 'send 10 G$ to 0x...' or 'load 09123456789 20'.",
             intent=_empty_intent("unknown", "No message provided."),
+        )
+
+    faq_reply = _faq_reply(clean_message)
+    if faq_reply:
+        return AgentResult(
+            status="answer",
+            reply=faq_reply,
+            intent=_empty_intent("help", clean_message),
         )
 
     intent = _parse_with_openai(clean_message) or _parse_with_rules(clean_message)
@@ -191,8 +205,8 @@ def _parse_with_openai(message: str) -> dict[str, Any] | None:
 
     prompt = (
         "You classify GoodMarket wallet chat commands. Return only schema-valid JSON. "
-        "Never invent recipients, usernames, phone numbers, or amounts. For send_gd, accept either an EVM wallet address or a GoodMarket username as the recipient and preserve supported token symbols G$, GD, cUSD, or USDT. Value-moving actions require confirmation and signature. "
-        "Supported actions: check_balance, send_gd, mobile_load, swap, claim, transaction_history, help, unknown.\n\n"
+        "Never invent recipients, usernames, phone numbers, or amounts. For send_gd, accept either an EVM wallet address or a GoodMarket username as the recipient and preserve supported token symbols G$, GD, cUSD, or USDT. For stream_gd, extract the receiver and the G$ flow amount; use flow_rate_per_day when the user says per day/daily, otherwise place the numeric value in amount. Value-moving actions require confirmation and signature. "
+        "Supported actions: check_balance, send_gd, stream_gd, mobile_load, swap, claim, transaction_history, help, unknown.\n\n"
         f"User message: {message}"
     )
     body = {
@@ -275,6 +289,21 @@ def _parse_with_rules(message: str) -> dict[str, Any]:
             confidence=0.82,
         )
         return intent
+    if "stream" in lower or "streaming" in lower:
+        address = _first_address(message)
+        amount = _first_amount(message)
+        intent.update(
+            action="stream_gd",
+            summary="Prepare a G$ stream preview.",
+            recipient=address or _send_recipient_candidate(message) or "",
+            amount=amount or "",
+            flow_rate_per_day=amount or "",
+            token="G$",
+            requires_confirmation=True,
+            requires_signature=True,
+            confidence=0.82,
+        )
+        return intent
     if any(word in lower for word in ["send", "transfer", "padala", "ipadala"]):
         address = _first_address(message)
         amount = _first_amount(message)
@@ -296,7 +325,7 @@ def _parse_with_rules(message: str) -> dict[str, Any]:
 
 def _normalise_intent(intent: dict[str, Any]) -> dict[str, Any]:
     normalised = _empty_intent(intent.get("action") if intent.get("action") in SUPPORTED_ACTIONS else "unknown", intent.get("summary") or "")
-    normalised.update({k: str(intent.get(k) or "").strip() for k in ["token", "amount", "fiat_amount", "fiat_currency", "recipient", "recipient_username", "phone", "from_token", "to_token", "safety_note"]})
+    normalised.update({k: str(intent.get(k) or "").strip() for k in ["token", "amount", "fiat_amount", "fiat_currency", "recipient", "recipient_username", "phone", "from_token", "to_token", "flow_rate_per_day", "flow_rate_per_month", "safety_note"]})
     normalised["requires_confirmation"] = bool(intent.get("requires_confirmation"))
     normalised["requires_signature"] = bool(intent.get("requires_signature"))
     try:
@@ -317,7 +346,7 @@ def _supplement_intent_from_message(intent: dict[str, Any], message: str) -> Non
         amount = _mobile_load_amount(message, phone)
         if amount and not intent.get("fiat_amount"):
             intent["fiat_amount"] = amount
-    elif intent["action"] == "send_gd":
+    elif intent["action"] in {"send_gd", "stream_gd"}:
         address = _first_address(message)
         if address and not intent.get("recipient"):
             intent["recipient"] = address
@@ -331,6 +360,10 @@ def _supplement_intent_from_message(intent: dict[str, Any], message: str) -> Non
         token = _send_token_candidate(message)
         if token:
             intent["token"] = token
+        if intent["action"] == "stream_gd":
+            daily = _stream_daily_amount(message)
+            if daily and not intent.get("flow_rate_per_day"):
+                intent["flow_rate_per_day"] = daily
 
 
 def _apply_safety_policy(intent: dict[str, Any], wallet: str | None) -> None:
@@ -346,6 +379,21 @@ def _apply_safety_policy(intent: dict[str, Any], wallet: str | None) -> None:
         _resolve_send_recipient(intent)
         if not intent["recipient"] or not Web3.is_address(intent["recipient"]):
             intent["missing_fields"].append("valid_recipient_username_or_wallet")
+        intent["requires_confirmation"] = True
+        intent["requires_signature"] = True
+    elif action == "stream_gd":
+        intent["token"] = "G$"
+        if not intent.get("flow_rate_per_day") and intent.get("amount"):
+            intent["flow_rate_per_day"] = intent["amount"]
+        if not _valid_decimal(intent.get("flow_rate_per_day")):
+            intent["missing_fields"].append("flow_rate_per_day")
+        elif Decimal(intent["flow_rate_per_day"]) > _MAX_STREAM_GD_PER_DAY:
+            intent["missing_fields"].append(f"flow_rate_at_or_below_{_MAX_STREAM_GD_PER_DAY}_G$_per_day")
+        _resolve_send_recipient(intent)
+        if not intent["recipient"] or not Web3.is_address(intent["recipient"]):
+            intent["missing_fields"].append("valid_recipient_username_or_wallet")
+        if _valid_decimal(intent.get("flow_rate_per_day")):
+            intent["flow_rate_per_month"] = str(Decimal(intent["flow_rate_per_day"]) * Decimal("30"))
         intent["requires_confirmation"] = True
         intent["requires_signature"] = True
     elif action == "mobile_load":
@@ -412,6 +460,8 @@ def _empty_intent(action: str, summary: str) -> dict[str, Any]:
         "phone": "",
         "from_token": "",
         "to_token": "",
+        "flow_rate_per_day": "",
+        "flow_rate_per_month": "",
         "requires_confirmation": False,
         "requires_signature": False,
         "confidence": 0,
@@ -437,14 +487,56 @@ def _read_only_reply(intent: dict[str, Any], wallet: str | None) -> str:
 
 
 
+
+def _faq_reply(message: str) -> str | None:
+    topic = re.sub(r"[^a-z0-9$& ]+", "", (message or "").lower()).strip()
+    topic = re.sub(r"\s+", " ", topic)
+    replies = {
+        "what is goodmarket": (
+            "GoodMarket is a Web3 earning platform in the GoodDollar ecosystem. "
+            "Users can claim and use G$, complete learning/play tasks, use wallet tools, savings, P2P, and other GoodMarket features."
+        ),
+        "what is gooddollar": (
+            "GoodDollar is the ecosystem behind G$, a Celo-based token focused on basic income and financial access. "
+            "GoodMarket helps users discover and use GoodDollar features from one place."
+        ),
+        "what is goodmarket savings": (
+            "GoodMarket Savings lets users lock or save G$ through the savings feature, depending on the active vault/settings. "
+            "You still confirm any savings transaction in your wallet before funds move."
+        ),
+        "what is p2p trading": (
+            "P2P trading means peer-to-peer trading: users can trade directly with another user, usually with an escrow or guided flow to make the exchange safer."
+        ),
+        "what is g$ stream": (
+            "A G$ stream is a continuous G$ payment flow, such as 5 G$ per day, sent over time instead of as one instant transfer. "
+            "The agent can prepare the stream preview, then your wallet must confirm and sign."
+        ),
+        "what is g stream": (
+            "A G$ stream is a continuous G$ payment flow, such as 5 G$ per day, sent over time instead of as one instant transfer. "
+            "The agent can prepare the stream preview, then your wallet must confirm and sign."
+        ),
+        "what is play & earn": (
+            "Play & Earn is GoodMarket's games/rewards area where users can complete supported games or activities and earn rewards when eligible."
+        ),
+        "what is play earn": (
+            "Play & Earn is GoodMarket's games/rewards area where users can complete supported games or activities and earn rewards when eligible."
+        ),
+        "who is developer": (
+            "GoodMarket is developed by the Betz & Omar Team. The app also shows developer/profile information where configured by the admins."
+        ),
+    }
+    return replies.get(topic)
+
 def _welcome_help_reply() -> str:
     return (
         "Hello, welcome to GoodMarket! I can help with commands like:\n"
         "• check balance\n"
-        "• send 10 G$ to bebet\n"
-        "• send 1 cUSD to bebet\n"
-        "• send 1 USDT to bebet\n"
+        "• send 10 G$ to @bebet or 0x wallet\n"
+        "• send 1 cUSD to @bebet or 0x wallet\n"
+        "• send 1 USDT to @bebet or 0x wallet\n"
+        "• stream 5 G$ per day to @bebet or 0x wallet\n"
         "• load 09653870395 20\n"
+        "For send and stream, username and wallet address are both supported. "
         "Value-moving actions stay in chat for review first, then require your confirmation and wallet signature."
     )
 
@@ -459,23 +551,39 @@ def _send_token_candidate(text: str) -> str | None:
 
 def _balance_reply(wallet: str | None) -> str:
     if not wallet:
-        return "Please connect and verify your GoodMarket wallet so I can check your live G$ balance."
+        return "Please connect and verify your GoodMarket wallet so I can check your live balances."
     try:
-        from blockchain import get_gooddollar_balance
+        from concurrent.futures import ThreadPoolExecutor
 
-        result = get_gooddollar_balance(wallet, include_price=True)
+        from blockchain import (
+            get_celo_balance,
+            get_cusd_balance,
+            get_gooddollar_balance,
+            get_usdt_balance,
+        )
+
+        balance_fetchers = {
+            "G$": lambda: get_gooddollar_balance(wallet, include_price=False),
+            "cUSD": lambda: get_cusd_balance(wallet),
+            "USDT": lambda: get_usdt_balance(wallet),
+            "CELO": lambda: get_celo_balance(wallet),
+        }
+        with ThreadPoolExecutor(max_workers=len(balance_fetchers)) as executor:
+            futures = {symbol: executor.submit(fetcher) for symbol, fetcher in balance_fetchers.items()}
+            results = {symbol: future.result() for symbol, future in futures.items()}
     except Exception as exc:  # noqa: BLE001 - user-facing fallback keeps chat usable
         logger.warning("AI balance check failed for %s: %s", wallet, exc)
-        return "I could not load your live G$ balance right now. Please try again in a moment or open the wallet balance card."
+        return "I could not load your live wallet balances right now. Please try again in a moment or open the wallet balance card."
 
-    if not result or not result.get("success"):
-        return "I could not load your live G$ balance right now. Please try again in a moment or open the wallet balance card."
+    lines: list[str] = []
+    for symbol in ["G$", "cUSD", "USDT", "CELO"]:
+        result = results.get(symbol) or {}
+        if result.get("success"):
+            lines.append(f"• {result.get('balance_formatted') or _format_balance_amount(result.get('balance'), symbol)}")
+        else:
+            lines.append(f"• {symbol}: unavailable")
 
-    balance = result.get("balance_formatted") or f"{result.get('balance', 0):,.6f} G$"
-    usd = result.get("usd_formatted")
-    if usd:
-        return f"Your live GoodDollar balance is {balance} ({usd})."
-    return f"Your live GoodDollar balance is {balance}."
+    return "Your live GoodMarket wallet balances are:\n" + "\n".join(lines)
 
 
 def _resolve_send_recipient(intent: dict[str, Any]) -> None:
@@ -563,3 +671,18 @@ def _valid_decimal(value: str) -> bool:
 
 def _valid_phone(value: str) -> bool:
     return bool(value and re.fullmatch(r"(?:\+?63|0)?9\d{9}", value))
+
+
+def _stream_daily_amount(text: str) -> str | None:
+    """Return the requested G$/day amount when a stream command includes one."""
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:g\$|gd|gooddollar)?\s*(?:/|per\s+)?(?:day|daily|d)", text, re.IGNORECASE)
+    if match:
+        return match.group(1)
+    return _first_amount(text)
+
+
+def _format_balance_amount(value: Any, symbol: str) -> str:
+    try:
+        return f"{float(value or 0):,.6f} {symbol}"
+    except (TypeError, ValueError):
+        return f"0.000000 {symbol}"
