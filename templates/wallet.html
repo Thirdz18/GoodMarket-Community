@@ -30,6 +30,10 @@
             --accent-secondary-rgb: 95,242,210;
             --green: #00e676;
             --green-dim: rgba(0,230,118,0.12);
+            --gold: #facc15;
+            --gold-rgb: 250,204,21;
+            --gold-deep: #f97316;
+            --primary-button-text: #1f1300;
             --red: #ff5252;
             --text: #e8eaf6;
             --text-dim: rgba(232,234,246,0.55);
@@ -712,8 +716,8 @@
             width: 100%;
             padding: 0.7rem 0.85rem;
             border-radius: 16px;
-            border: 1px solid rgba(var(--accent-rgb), 0.4);
-            background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.18) 0%, rgba(83, 42, 182, 0.25) 100%);
+            border: 1px solid rgba(var(--gold-rgb), 0.58);
+            background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.2) 0%, rgba(249, 115, 22, 0.18) 50%, rgba(var(--accent-rgb), 0.18) 100%);
             cursor: pointer;
             transition: all 0.25s ease;
             position: relative;
@@ -726,7 +730,7 @@
             left: -50%;
             width: 200%;
             height: 200%;
-            background: radial-gradient(circle, rgba(var(--accent-rgb), 0.15) 0%, transparent 60%);
+            background: radial-gradient(circle, rgba(var(--gold-rgb), 0.18) 0%, transparent 60%);
             animation: claimBoxGlow 3s ease-in-out infinite;
             pointer-events: none;
         }
@@ -735,10 +739,10 @@
             50% { opacity: 1; transform: scale(1.1); }
         }
         .claim-button-box:hover {
-            border-color: rgba(var(--accent-rgb), 0.6);
-            background: linear-gradient(135deg, rgba(var(--accent-rgb), 0.25) 0%, rgba(83, 42, 182, 0.35) 100%);
+            border-color: rgba(var(--gold-rgb), 0.82);
+            background: linear-gradient(135deg, rgba(var(--gold-rgb), 0.28) 0%, rgba(249, 115, 22, 0.28) 50%, rgba(var(--accent-rgb), 0.2) 100%);
             transform: translateY(-1px);
-            box-shadow: 0 4px 20px rgba(var(--accent-rgb), 0.3);
+            box-shadow: 0 4px 22px rgba(var(--gold-rgb), 0.28);
         }
         .claim-button-box:active {
             transform: translateY(0);
@@ -1137,9 +1141,9 @@
         /* Primary action button */
         .btn-primary {
             width: 100%;
-            background: linear-gradient(135deg, #6673ff, #4fdfc8);
-            color: #fff;
-            border: none;
+            background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+            color: var(--primary-button-text);
+            border: 1px solid rgba(255,255,255,0.18);
             border-radius: 14px;
             padding: 0.95rem;
             font-size: 1rem;
@@ -1149,7 +1153,7 @@
             margin-top: 0.5rem;
             font-family: inherit;
         }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(var(--accent-rgb),0.38); }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(var(--gold-rgb),0.34); }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 
         /* ─────────────────────────────────────────────────────────────
@@ -1208,8 +1212,8 @@
            code path leaves both states applied. */
         #ubiClaimBtn.is-hot:disabled {
             animation: none;
-            background: linear-gradient(135deg, #6673ff, #4fdfc8);
-            border: none;
+            background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+            border: 1px solid rgba(255,255,255,0.18);
             box-shadow: none;
             text-shadow: none;
         }
@@ -1245,9 +1249,9 @@
         }
         .btn-secondary {
             width: 100%;
-            background: rgba(255,255,255,0.06);
-            color: var(--text-dim);
-            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.08);
+            color: rgba(248,250,252,0.88);
+            border: 1px solid rgba(255,255,255,0.2);
             border-radius: 14px;
             padding: 0.8rem;
             font-size: 0.9rem;
@@ -1255,6 +1259,21 @@
             cursor: pointer;
             margin-top: 0.5rem;
             font-family: inherit;
+            transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.12);
+            border-color: rgba(var(--gold-rgb),0.35);
+            color: #fff;
+        }
+        #voucherDappClaimBtn,
+        #wcClaimBtn,
+        #fvStatusCta,
+        #ubiReVerifyHint button {
+            background: linear-gradient(135deg, var(--gold), var(--gold-deep)) !important;
+            border: 1px solid rgba(255,255,255,0.18) !important;
+            color: var(--primary-button-text) !important;
+            font-weight: 800 !important;
         }
         .btn-danger {
             background: rgba(255,82,82,0.12);
@@ -1748,12 +1767,12 @@
             margin-top: 0.9rem;
             font-size: 0.9rem;
             font-weight: 800;
-            color: #fff;
+            color: var(--primary-button-text);
             padding: 0.55rem 1.5rem;
             border-radius: 999px;
-            background: linear-gradient(135deg, rgba(var(--accent-rgb),0.9), rgba(83,42,182,0.95));
-            border: 1px solid rgba(var(--accent-rgb),0.6);
-            box-shadow: 0 6px 22px rgba(var(--accent-rgb),0.35);
+            background: linear-gradient(135deg, var(--gold), var(--gold-deep));
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 8px 26px rgba(var(--gold-rgb),0.34);
         }
         .ubi-hero-timer {
             margin-top: 0.6rem;
@@ -1773,10 +1792,11 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 0.2rem;
             padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
-            background: rgba(13,15,32,0.92);
+            background: rgba(9,12,28,0.96);
             backdrop-filter: blur(14px);
             -webkit-backdrop-filter: blur(14px);
-            border-top: 1px solid rgba(255,255,255,0.08);
+            border-top: 1px solid rgba(var(--gold-rgb),0.18);
+            box-shadow: 0 -10px 28px rgba(0,0,0,0.35);
             z-index: 1200;
         }
         .bn-item {
@@ -1790,13 +1810,14 @@
             background: transparent;
             border: none;
             cursor: pointer;
-            color: var(--text-dim);
+            color: rgba(232,234,246,0.72);
             font-family: inherit;
-            transition: background 0.2s ease, color 0.2s ease;
+            transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
         }
         .bn-item:hover, .bn-item.active {
-            background: rgba(var(--accent-rgb),0.12);
+            background: rgba(var(--gold-rgb),0.14);
             color: #fff;
+            box-shadow: inset 0 0 0 1px rgba(var(--gold-rgb),0.22);
         }
         .bn-icon { font-size: 1.25rem; line-height: 1; }
         .bn-label {
