@@ -515,6 +515,10 @@ def _faq_reply(message: str) -> str | None:
             "A G$ stream is a continuous G$ payment flow, such as 5 G$ per day, sent over time instead of as one instant transfer. "
             "The agent can prepare the stream preview, then your wallet must confirm and sign."
         ),
+        "how to stream g$": _stream_gd_help_reply(),
+        "how to stream g": _stream_gd_help_reply(),
+        "how to stream gd": _stream_gd_help_reply(),
+        "stream g$": _stream_gd_help_reply(),
         "what is play & earn": (
             "Play & Earn is GoodMarket's games/rewards area where users can complete supported games or activities and earn rewards when eligible."
         ),
@@ -531,6 +535,18 @@ def _faq_reply(message: str) -> str | None:
         "send tokens": _send_tokens_help_reply(),
     }
     return replies.get(topic)
+
+def _stream_gd_help_reply() -> str:
+    return (
+        "How to stream G$ inside GoodMarket Agent:\n"
+        "1. Connect and verify your GoodMarket wallet first.\n"
+        "2. Type a command like: stream 5 G$ per day to @username or stream 5 G$ per day to 0xWalletAddress.\n"
+        "3. The agent prepares a review card showing the receiver and daily G$ flow rate. No stream starts yet.\n"
+        "4. Check every detail, then tap Confirm action.\n"
+        "5. Sign the wallet transaction to start the G$ stream.\n"
+        "Tip: use a small daily amount first and make sure you have enough G$ and gas before confirming."
+    )
+
 
 def _send_tokens_help_reply() -> str:
     return (
