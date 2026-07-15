@@ -976,6 +976,7 @@
         .tx-badge.savings_deposit  { background: rgba(251,191,36,0.2);  color: #fde68a; }
         .tx-badge.savings_withdraw { background: rgba(251,146,60,0.2);  color: #fed7aa; }
         .tx-badge.xdc-net          { background: rgba(22,158,214,0.2);  color: #5bc8e8; }
+        .tx-badge.celo-net         { background: rgba(53,208,127,0.18); color: #7bf7a8; }
         .tx-addr {
             font-size: 0.72rem;
             color: var(--text-dim);
@@ -4438,7 +4439,7 @@
             const res  = await fetch(url);
             const data = await res.json();
             if (!data.success || !data.transactions || !data.transactions.length) {
-                list.innerHTML = '<li class="empty-state">No transactions found in the last 7 days.</li>';
+                list.innerHTML = '<li class="empty-state">No Celo or XDC transactions found in the last 14 days.</li>';
                 return;
             }
             list.innerHTML = '';
@@ -4476,13 +4477,14 @@
                 const typeBadge = cfg.badge
                     ? `<span class="tx-badge ${type}">${cfg.badge}</span>`
                     : '';
-                const networkBadge = tx.network === 'xdc'
+                const network = String(tx.network || 'celo').toLowerCase();
+                const networkBadge = network === 'xdc'
                     ? `<span class="tx-badge xdc-net">XDC</span>`
-                    : '';
+                    : `<span class="tx-badge celo-net">CELO</span>`;
 
                 // XDC API returns a Unix timestamp string; convert it to readable
                 let timeDisplay = tx.timestamp || '';
-                if (tx.network === 'xdc' && /^\d+$/.test(String(timeDisplay))) {
+                if (network === 'xdc' && /^\d+$/.test(String(timeDisplay))) {
                     const d = new Date(parseInt(timeDisplay) * 1000);
                     const diff = Math.floor((Date.now() - d) / 1000);
                     if (diff < 60) timeDisplay = diff + 's ago';
@@ -8882,6 +8884,10 @@
             <div class="bn-sheet-item" onclick="bnGo(function(){ navigateWithFeedback('/learn-earn?from=wallet', 'Opening Learn &amp; Earn…'); })">
                 <div class="bn-sheet-circle" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;">📚</div>
                 <div class="bn-sheet-name">Learn &amp; Earn</div>
+            </div>
+            <div class="bn-sheet-item" onclick="bnGo(function(){ handleDashboardFromWallet(); })">
+                <div class="bn-sheet-circle" style="background:linear-gradient(135deg,#6366f1,#2563eb);color:#fff;">📊</div>
+                <div class="bn-sheet-name">Dashboard</div>
             </div>
             <div class="bn-sheet-item" onclick="bnGo(function(){ openGdRafflePanel(); })">
                 <div class="bn-sheet-circle" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;">🎟️</div>
