@@ -2457,12 +2457,13 @@ def get_required_buffer(g_dollar_address: str, flow_rate: int) -> float:
         return buffer_raw / (10 ** 18)
     except Exception as e:
         logger.warning(f"get_required_buffer contract call failed: {e}, using fallback calculation")
-        # Fallback: Calculate buffer based on flow rate
-        # Buffer = 1 day's worth of flow + 10% safety margin
-        # This is a conservative estimate when contract call fails
+        # Fallback: Superfluid deposits are based on the network liquidation
+        # period, not on the displayed cadence amount. Celo's CFA buffer is
+        # about 4 hours of flow, so a 7,000 G$/day stream should require
+        # roughly 1,166.67 G$ instead of 7,700 G$.
         try:
-            flow_per_day = (flow_rate / (10 ** 18)) * 86400  # G$ per day
-            fallback_buffer = flow_per_day * 1.1  # 1 day + 10% safety
+            liquidation_period_seconds = 4 * 60 * 60
+            fallback_buffer = (flow_rate / (10 ** 18)) * liquidation_period_seconds
             logger.info(f"Calculated fallback buffer: {fallback_buffer} G$ for flow rate {flow_rate}")
             return fallback_buffer
         except Exception as fallback_err:
