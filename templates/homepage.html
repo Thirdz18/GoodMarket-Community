@@ -3136,7 +3136,9 @@
 
         function _isTrustWalletProvider(provider) {
             if (!provider) return false;
-            if (provider.isTrust) return true;
+            // Trust Wallet variants are inconsistent across platforms/builds:
+            // some expose `isTrust`, others `isTrustWallet`.
+            if (provider.isTrust || provider.isTrustWallet) return true;
             return _looksLikeTrustWalletInfo(_eip6963InfoForProvider(provider));
         }
 
@@ -3189,7 +3191,7 @@
             // Mobile dapp browsers: MiniPay > Trust Wallet > MetaMask > generic.
             const miniPayProvider = providers.find(p => p && p.isMiniPay);
             if (miniPayProvider) return miniPayProvider;
-            const trustProvider = providers.find(p => p && p.isTrust);
+            const trustProvider = providers.find(p => p && (p.isTrust || p.isTrustWallet));
             if (trustProvider) return trustProvider;
             const coinbaseProvider = providers.find(p => _isCoinbaseWalletProvider(p));
             if (coinbaseProvider) return coinbaseProvider;
