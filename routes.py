@@ -4915,7 +4915,7 @@ def add_module_link():
                     try:
                         json_resp = requests.get(json_url, timeout=15, headers=medium_headers, allow_redirects=True)
                         json_resp.raise_for_status()
-                        # Medium prepends '])}while(1);</x>' as XSSI protection — strip it
+                        # Medium prepends '])}while(1);</x>' as XSSI protection ��� strip it
                         raw = json_resp.text
                         json_start = raw.find('{')
                         if json_start != -1:
@@ -6919,6 +6919,9 @@ def wallet_page():
         gd_token_address=GOODDOLLAR_CONTRACTS.get("GOODDOLLAR_TOKEN", ""),
         raffle_contract_address=os.environ.get("GOODMARKET_RAFFLE_CONTRACT_ADDRESS", ""),
         buy_eth_visible=buy_eth_visible,
+        privy_app_id=os.environ.get("PRIVY_APP_ID", ""),
+        celo_rpc_url=os.environ.get("CELO_RPC_URL", "https://forno.celo.org"),
+        celo_explorer=os.environ.get("CELO_EXPLORER_URL", "https://celoscan.io"),
     )
 
 
