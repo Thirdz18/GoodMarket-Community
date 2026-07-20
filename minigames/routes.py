@@ -49,8 +49,8 @@ def check_game_limit(game_type):
         return jsonify({'error': maintenance_status.get('message', 'Minigames are temporarily under maintenance')}), 503
 
     try:
-        wallet = session.get('wallet')
-        if not wallet or not session.get('verified'):
+        wallet = session.get('wallet') or session.get('wallet_address')
+        if not wallet or not (session.get('verified') or session.get('ubi_verified')):
             return jsonify({'error': 'Not authenticated'}), 401
 
         # Removed coin_flip game type check
@@ -77,8 +77,8 @@ def start_game():
         return jsonify({'error': maintenance_status.get('message', 'Minigames are temporarily under maintenance')}), 503
 
     try:
-        wallet_address = session.get('wallet_address')
-        if not wallet_address:
+        wallet_address = session.get('wallet_address') or session.get('wallet')
+        if not wallet_address or not (session.get('verified') or session.get('ubi_verified')):
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
 
         data = request.json
@@ -103,8 +103,8 @@ def start_game():
 def complete_game():
     """Complete a game session"""
     try:
-        wallet = session.get('wallet')
-        if not wallet or not session.get('verified'):
+        wallet = session.get('wallet') or session.get('wallet_address')
+        if not wallet or not (session.get('verified') or session.get('ubi_verified')):
             return jsonify({'error': 'Not authenticated'}), 401
 
         data = request.get_json()
@@ -134,8 +134,8 @@ def complete_game():
 def get_user_stats():
     """Get user game statistics with total virtual tokens across all games"""
     try:
-        wallet = session.get('wallet')
-        if not wallet or not session.get('verified'):
+        wallet = session.get('wallet') or session.get('wallet_address')
+        if not wallet or not (session.get('verified') or session.get('ubi_verified')):
             logger.warning("⚠️ Unauthenticated request to /api/user-stats")
             return jsonify({'success': False, 'error': 'Not authenticated'}), 401
 
@@ -279,8 +279,8 @@ def withdrawal_history():
 def get_quiz_questions():
     """Get quiz questions"""
     try:
-        wallet = session.get('wallet')
-        if not wallet or not session.get('verified'):
+        wallet = session.get('wallet') or session.get('wallet_address')
+        if not wallet or not (session.get('verified') or session.get('ubi_verified')):
             return jsonify({'error': 'Not authenticated'}), 401
 
         difficulty = request.args.get('difficulty')
