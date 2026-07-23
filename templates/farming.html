@@ -67,16 +67,16 @@
             <div class="stat"><div class="label">30-Day Target</div><div class="value">+{{ farming_config.monthly_profit_percent }}%</div></div>
         </div>
         <div class="cta-row">
-            <button class="btn primary" type="button" id="connectWalletBtn">🔗 Connect wallet</button>
+            <a class="btn primary" href="#playFarm">🐣 Play farming now</a>
             <a class="btn secondary" href="/farming/api/config">View farming config</a>
         </div>
         <p class="notice">Contract address: <code>{{ farming_contract or 'Not deployed yet — set FARMING_CONTRACT_ADDRESS after deployment' }}</code></p>
     </section>
 
-    <section class="game-card" aria-labelledby="playTitle">
+    <section class="game-card" id="playFarm" aria-labelledby="playTitle">
         <div class="kicker">Play Farming</div>
         <h2 id="playTitle">Start, sell eggs, or close your farm</h2>
-        <p class="copy">Enter how many G$ you want to farm. The app will ask your wallet to approve G$ first, then start the farm contract.</p>
+        <p class="copy">Enter how many G$ you want to farm. Since you are already signed in, farm actions will open your wallet confirmation only when a transaction is needed.</p>
         <div class="form-row">
             <input class="input" id="farmAmount" type="number" min="{{ farming_config.min_farm_gd }}" step="{{ farming_config.chicken_price_gd }}" value="{{ farming_config.min_farm_gd }}" inputmode="decimal" aria-label="Farm amount in G$">
             <button class="btn primary" type="button" id="startFarmBtn">🐣 Approve & start farm</button>
@@ -87,12 +87,12 @@
             <button class="btn secondary" type="button" id="closeFarmBtn">💰 Close farm</button>
         </div>
         <div class="mini-stats">
-            <div class="mini-stat"><span class="label">Wallet</span><strong id="walletStatus">Not connected</strong></div>
+            <div class="mini-stat"><span class="label">Wallet</span><strong id="walletStatus">{{ wallet[:6] }}…{{ wallet[-4:] }}</strong></div>
             <div class="mini-stat"><span class="label">Chickens</span><strong id="chickenCount">—</strong></div>
             <div class="mini-stat"><span class="label">Eggs ready</span><strong id="eggsReady">—</strong></div>
             <div class="mini-stat"><span class="label">Egg value</span><strong id="eggValue">—</strong></div>
         </div>
-        <div class="status" id="farmStatus">Connect a wallet to begin. If you already have a farm, tap Refresh status.</div>
+        <div class="status" id="farmStatus">Choose an action below. If you already have a farm, tap Refresh status.</div>
     </section>
 
     <section class="panel">
@@ -146,10 +146,11 @@
         function gdToWei(amount) { return BigInt(Math.round(Number(amount) * 1e6)) * (UNIT / 1000000n); }
         function weiToGd(value) { return (Number(value) / 1e18).toLocaleString(undefined, { maximumFractionDigits: 4 }); }
 
-        async function connectWallet() {
+        async function getWalletAccount() {
             const eth = provider();
             if (!eth) throw new Error("No wallet provider found. Open this page inside MiniPay or another Web3 wallet browser.");
-            const accounts = await eth.request({ method: "eth_requestAccounts" });
+            const existing = await eth.request({ method: "eth_accounts" }).catch(() => []);
+            const accounts = existing.length ? existing : await eth.request({ method: "eth_requestAccounts" });
             selectedAccount = accounts[0];
             $("walletStatus").textContent = `${selectedAccount.slice(0, 6)}…${selectedAccount.slice(-4)}`;
             try { await eth.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CHAIN_ID_HEX }] }); } catch (_) {}
@@ -158,7 +159,7 @@
 
         async function sendTx(to, data) {
             const eth = provider();
-            if (!selectedAccount) await connectWallet();
+            if (!selectedAccount) await getWalletAccount();
             return eth.request({ method: "eth_sendTransaction", params: [{ from: selectedAccount, to, data, chainId: CHAIN_ID_HEX }] });
         }
 
@@ -177,7 +178,7 @@
         async function refreshFarm() {
             if (!FARMING_CONTRACT) return setStatus("Farming contract is not configured yet.", "error");
             const eth = provider();
-            if (!selectedAccount) await connectWallet();
+            if (!selectedAccount) await getWalletAccount();
             const data = SELECTORS.getFarm + addressArg(selectedAccount);
             const raw = await eth.request({ method: "eth_call", params: [{ to: FARMING_CONTRACT, data }, "latest"] });
             const words = raw.replace(/^0x/, "").match(/.{1,64}/g) || [];
@@ -195,7 +196,6 @@
             setStatus(`${label} submitted: ${hash}`, "ok");
         }
 
-        $("connectWalletBtn").addEventListener("click", () => connectWallet().then(() => setStatus("Wallet connected. You can now start or manage your farm.", "ok")).catch((e) => setStatus(e.message, "error")));
         $("startFarmBtn").addEventListener("click", () => startFarm().catch((e) => setStatus(e.message || "Unable to start farm.", "error")));
         $("refreshFarmBtn").addEventListener("click", () => refreshFarm().catch((e) => setStatus(e.message || "Unable to refresh farm.", "error")));
         $("sellEggsBtn").addEventListener("click", () => simpleAction(SELECTORS.sellEggs, "Sell eggs").catch((e) => setStatus(e.message || "Unable to sell eggs.", "error")));
