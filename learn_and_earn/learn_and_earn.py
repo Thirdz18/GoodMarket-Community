@@ -1528,17 +1528,33 @@ def start_quiz(current_user):
         # NOTE: Session clearing moved to AFTER validation passes
         # This prevents losing valid quiz session if validation fails
 
-        # Check if reward system is configured (safe check without exposing private key)
-        if not learn_blockchain_service.is_configured:
-            logger.error(f"❌ Reward system not configured")
+        # Check reward contract first. The private key is only the gas-signing
+        # operator for contract calls; users should not start a reward quiz when
+        # the Learn & Earn contract address itself is missing.
+        if not learn_blockchain_service.has_reward_contract:
+            logger.error("❌ Learn & Earn contract address not configured")
             return jsonify({
                 'success': False,
-                'error': 'Learn wallet not configured',
+                'error': 'Learn & Earn contract address not configured',
                 'show_notification': True,
-                'notification_type': 'wallet_not_configured',
-                'notification_message': 'Contact GIMT team to remind them to refill the token rewards',
-                'voice_message': 'Contact GIMT team to remind them to refill the token rewards',
-                'feature_status': 'wallet_not_configured'
+                'notification_type': 'contract_not_configured',
+                'notification_message': 'Learn & Earn rewards are temporarily unavailable because the contract address is not configured.',
+                'voice_message': 'Learn and Earn rewards are temporarily unavailable because the contract address is not configured.',
+                'feature_status': 'contract_not_configured'
+            }), 400
+
+        # The operator wallet is still required to pay gas/sign the contract
+        # disbursement transaction, but it is not the source-of-truth reward config.
+        if not learn_blockchain_service.has_operator_wallet:
+            logger.error("❌ Learn & Earn gas operator wallet not configured")
+            return jsonify({
+                'success': False,
+                'error': 'Learn & Earn gas operator wallet not configured',
+                'show_notification': True,
+                'notification_type': 'operator_wallet_not_configured',
+                'notification_message': 'Learn & Earn rewards are temporarily unavailable because the gas operator wallet is not configured.',
+                'voice_message': 'Learn and Earn rewards are temporarily unavailable because the gas operator wallet is not configured.',
+                'feature_status': 'operator_wallet_not_configured'
             }), 400
 
         # Check Learn wallet balance before allowing quiz
