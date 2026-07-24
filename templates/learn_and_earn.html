@@ -2785,7 +2785,24 @@
             }
         }
 
-        // Show quiz results with instant reward summary
+
+        function getRewardDeliveryTitle(data) {
+            const rewards = parseFloat(data && data.rewards ? data.rewards : 0);
+            if (!rewards) return 'No G$ reward was sent for this attempt.';
+            if (data && data.payout_mode === 'stream') return '1-day stream payout queued after quiz completion.';
+            return 'Instant reward sent after quiz completion.';
+        }
+
+        function getRewardDeliveryDetail(data) {
+            const rewards = parseFloat(data && data.rewards ? data.rewards : 0);
+            if (!rewards) return 'Your quiz result was still saved in your Learn & Earn history.';
+            if (data && data.payout_mode === 'stream') {
+                return 'Your G$ stream and quiz result are saved in GoodMarket Overview / Rewards History.';
+            }
+            return 'Rewards are credited directly in G$ and saved in GoodMarket Overview / Rewards History.';
+        }
+
+        // Show quiz results with payout-aware reward summary
         async function showQuizResults(data) {
             const container = document.getElementById('quiz-container');
 
@@ -2803,8 +2820,8 @@
                     </div>
 
                     <div style="background: rgba(16, 185, 129, 0.15); padding: 10px; border-radius: 10px; margin: 12px 0; border: 2px solid rgba(16, 185, 129, 0.45);">
-                        <p style="color: #86efac; font-weight: bold; font-size: 0.9rem;"><i class="fas fa-coins"></i> Instant reward sent after quiz completion.</p>
-                        <p style="color: rgba(255,255,255,0.75); font-size: 0.82rem; margin-top: 4px;">Rewards are credited directly in G$ once your quiz is submitted.</p>
+                        <p style="color: #86efac; font-weight: bold; font-size: 0.9rem;"><i class="fas fa-coins"></i> ${getRewardDeliveryTitle(data)}</p>
+                        <p style="color: rgba(255,255,255,0.75); font-size: 0.82rem; margin-top: 4px;">${getRewardDeliveryDetail(data)}</p>
                     </div>
 
                     <div style="margin-top: 14px;">
