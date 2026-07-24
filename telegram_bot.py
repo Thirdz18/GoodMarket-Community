@@ -1,13 +1,16 @@
 """
 Telegram Bot Webhook Handler
 Handles incoming Telegram bot updates, saves wallet-only Telegram logins,
-and opens GoodMarket as a Mini App.
+and keeps Learn & Earn interactions inside the Telegram chat.
 """
 import os
+import asyncio
+import html
 import json
 import logging
 import re
 import secrets
+import time
 import requests
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
@@ -25,6 +28,19 @@ TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 TELEGRAM_WEBHOOK_SECRET_TOKEN = os.getenv("TELEGRAM_WEBHOOK_SECRET_TOKEN", "")
 TELEGRAM_LOGIN_TOKEN_MAX_AGE_SECONDS = int(os.getenv("TELEGRAM_LOGIN_TOKEN_MAX_AGE_SECONDS", "900"))
 _WALLET_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+_TELEGRAM_LEARN_EARN_SESSIONS = {}
+
+
+def _run_async(coro):
+    """Run an async Learn & Earn helper from the sync Telegram webhook."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("Event loop is closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 
 def _normalize_base_url(url: str) -> str:
@@ -59,6 +75,23 @@ def _mask_wallet(wallet: str) -> str:
     if not normalized:
         return ""
     return f"{normalized[:6]}…{normalized[-4:]}"
+
+
+def _safe_text(value: str, limit: int = 700) -> str:
+    """Convert module HTML or arbitrary text to Telegram-safe plain text."""
+    text = re.sub(r"<[^>]+>", " ", value or "")
+    text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+    if len(text) > limit:
+        text = f"{text[:limit].rstrip()}…"
+    return text
+
+
+def _get_admin_dashboard_questions(quiz_manager):
+    """Fetch quiz questions from the admin-managed Supabase question bank."""
+    # Existing Learn & Earn behavior selects the quiz set from the Supabase
+    # `quiz_questions` bank that admins manage in the dashboard. The questions
+    # are not AI-generated and do not come from Telegram.
+    return _run_async(quiz_manager.get_random_questions(quiz_manager.questions_per_quiz))
 
 
 def _now_iso() -> str:
@@ -160,11 +193,11 @@ def _learn_earn_keyboard(telegram_user_id, wallet: str | None = None):
     keyboard = []
     if saved_wallet:
         keyboard.append([{
-            "text": "📚 Start Learn & Earn",
-            "web_app": {"url": _create_login_url(telegram_user_id, saved_wallet)},
+            "text": "📚 Start Learn & Earn chat",
+            "callback_data": "learn_earn_chat",
         }])
-        keyboard.append([{"text": "💰 Open Wallet", "web_app": {"url": f"{APP_URL}/wallet"}}])
-    keyboard.append([{"text": "🛒 Open GoodMarket", "web_app": {"url": APP_URL}}])
+        keyboard.append([{"text": "💰 Show saved wallet", "callback_data": "show_wallet"}])
+    keyboard.append([{"text": "🛒 Open GoodMarket", "url": APP_URL}])
     return {"inline_keyboard": keyboard}
 
 
@@ -185,6 +218,206 @@ def send_message(chat_id, text, reply_markup=None):
         return None
 
 
+def _question_keyboard(question_number: int):
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "A", "callback_data": f"le_ans:{question_number}:0"},
+                {"text": "B", "callback_data": f"le_ans:{question_number}:1"},
+                {"text": "C", "callback_data": f"le_ans:{question_number}:2"},
+                {"text": "D", "callback_data": f"le_ans:{question_number}:3"},
+            ]
+        ]
+    }
+
+
+def _module_keyboard(module_index: int, is_last: bool):
+    return {
+        "inline_keyboard": [[{
+            "text": "✅ Start quiz" if is_last else "➡️ Next module",
+            "callback_data": f"le_mod_next:{module_index}",
+        }]]
+    }
+
+
+def _start_questions_from_session(chat_id, telegram_user_id):
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.get(str(telegram_user_id))
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+
+    session_data["phase"] = "quiz"
+    session_data["current_index"] = 0
+    send_message(
+        chat_id,
+        "📝 <b>Quiz starts now.</b>\n\n"
+        f"You have <b>{int(session_data['time_per_question'])}s</b> per question. Tap A, B, C, or D.",
+    )
+    _send_current_question(chat_id, telegram_user_id)
+
+
+def _send_current_module(chat_id, telegram_user_id):
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.get(str(telegram_user_id))
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+
+    modules = session_data.get("modules") or []
+    module_index = session_data.get("current_module_index", 0)
+    if module_index >= len(modules):
+        _start_questions_from_session(chat_id, telegram_user_id)
+        return
+
+    module = modules[module_index]
+    title = html.escape(str(module.get("title") or f"Module {module_index + 1}"))
+    reading_time = module.get("reading_time_minutes") or 1
+    body = _safe_text(module.get("content") or module.get("description") or module.get("url") or "", limit=2200)
+    if not body:
+        body = "No module body was provided yet, but this module is active in the admin dashboard."
+    is_last = module_index == len(modules) - 1
+    text = (
+        f"📘 <b>Module {module_index + 1}/{len(modules)}: {title}</b>\n"
+        f"Estimated reading time: <b>{reading_time} min</b>\n\n"
+        f"{html.escape(body)}\n\n"
+        "Read this module, then tap the button below."
+    )
+    send_message(chat_id, text, _module_keyboard(module_index, is_last))
+
+
+def _send_current_question(chat_id, telegram_user_id):
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.get(str(telegram_user_id))
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+    if session_data.get("phase") != "quiz":
+        send_message(chat_id, "📘 Please finish the module step first, then the quiz will start.")
+        return
+
+    current_index = session_data["current_index"]
+    questions = session_data["questions"]
+    question = questions[current_index]
+    seconds = int(session_data["time_per_question"])
+    session_data["deadline"] = time.time() + seconds
+
+    options = question.get("options", [])
+    option_lines = "\n".join(
+        f"{chr(65 + idx)}. {html.escape(str(option))}"
+        for idx, option in enumerate(options[:4])
+    )
+    text = (
+        f"⏱️ <b>Question {current_index + 1}/{len(questions)}</b> — {seconds}s timer\n\n"
+        f"{html.escape(str(question.get('question', '')))}\n\n"
+        f"{option_lines}\n\n"
+        "Tap A, B, C, or D."
+    )
+    send_message(chat_id, text, _question_keyboard(current_index))
+
+
+def _finish_chat_quiz(chat_id, telegram_user_id):
+    from learn_and_earn.learn_and_earn import quiz_manager
+
+    session_key = str(telegram_user_id)
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.pop(session_key, None)
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+
+    quiz_result = quiz_manager.validate_and_score_quiz(
+        session_data["quiz_session_id"],
+        session_data["answers"],
+    )
+    if not quiz_result.get("valid"):
+        send_message(chat_id, f"⚠️ {html.escape(quiz_result.get('message', 'Quiz could not be scored.'))}")
+        return
+
+    wallet = session_data["wallet"]
+    reward_amount = quiz_result.get("reward_amount", 0)
+    try:
+        _run_async(quiz_manager.save_quiz_attempt(
+            wallet,
+            quiz_result.get("questions", session_data["questions"]),
+            session_data["answers"],
+            reward_amount,
+            {"verified": False, "source": "telegram_chat"},
+        ))
+    except Exception as save_error:
+        logger.error(f"❌ Telegram chat quiz save failed: {save_error}")
+
+    send_message(
+        chat_id,
+        "✅ <b>Learn &amp; Earn chat quiz complete!</b>\n\n"
+        f"Score: <b>{quiz_result.get('score')}/{quiz_result.get('total_questions')}</b>\n"
+        f"Reward earned: <b>{reward_amount} G$</b>\n\n"
+        "Your quiz attempt was recorded for your saved wallet. Type /earn to start again when eligible.",
+    )
+
+
+def handle_learn_earn_answer(chat_id, telegram_user_id, callback_data: str):
+    parts = callback_data.split(":")
+    if len(parts) != 3:
+        return
+
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.get(str(telegram_user_id))
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+
+    try:
+        question_index = int(parts[1])
+        answer_index = int(parts[2])
+    except ValueError:
+        return
+
+    if question_index != session_data["current_index"]:
+        send_message(chat_id, "ℹ️ That answer is for an old question. Please answer the latest question.")
+        return
+
+    timed_out = time.time() > session_data.get("deadline", 0)
+    if timed_out:
+        selected_answer = -1
+        send_message(chat_id, "⏱️ Time is up for that question. Marked as incorrect.")
+    else:
+        selected_answer = answer_index
+        send_message(chat_id, f"✅ Answer {chr(65 + answer_index)} received.")
+
+    session_data["answers"].append(selected_answer)
+    session_data["current_index"] += 1
+
+    if session_data["current_index"] >= len(session_data["questions"]):
+        _finish_chat_quiz(chat_id, telegram_user_id)
+    else:
+        _send_current_question(chat_id, telegram_user_id)
+
+
+def handle_learn_earn_module_next(chat_id, telegram_user_id, callback_data: str):
+    parts = callback_data.split(":")
+    if len(parts) != 2:
+        return
+
+    session_data = _TELEGRAM_LEARN_EARN_SESSIONS.get(str(telegram_user_id))
+    if not session_data:
+        send_message(chat_id, "📚 No active Learn &amp; Earn chat quiz. Type /earn to start.")
+        return
+    if session_data.get("phase") != "module":
+        send_message(chat_id, "📝 The quiz has already started. Please answer the current question.")
+        return
+
+    try:
+        module_index = int(parts[1])
+    except ValueError:
+        return
+
+    if module_index != session_data.get("current_module_index", 0):
+        send_message(chat_id, "ℹ️ That module button is old. Please use the latest module message.")
+        return
+
+    session_data["current_module_index"] = module_index + 1
+    if session_data["current_module_index"] >= len(session_data.get("modules") or []):
+        _start_questions_from_session(chat_id, telegram_user_id)
+    else:
+        _send_current_module(chat_id, telegram_user_id)
+
+
 def handle_start(chat_id, telegram_user):
     """Handle /start command — ask for wallet or open Learn & Earn."""
     first_name = telegram_user.get("first_name", "there")
@@ -195,7 +428,7 @@ def handle_start(chat_id, telegram_user):
         text = (
             f"👋 Hello, <b>{first_name}</b>!\n\n"
             f"Your saved GoodMarket wallet is <code>{_mask_wallet(saved_wallet)}</code>.\n\n"
-            "Tap <b>Start Learn & Earn</b> to continue without WalletConnect."
+            "Tap <b>Start Learn & Earn chat</b> to continue here in Telegram without Mini App or WalletConnect."
         )
         send_message(chat_id, text, _learn_earn_keyboard(telegram_user_id, saved_wallet))
         return
@@ -205,8 +438,8 @@ def handle_start(chat_id, telegram_user):
         "Welcome to <b>GoodMarket Learn &amp; Earn</b> 📚\n\n"
         "Please send your wallet address here in Telegram.\n"
         "Example: <code>0x1234...abcd</code>\n\n"
-        "This wallet will be saved as your GoodMarket login for Learn &amp; Earn, "
-        "so no WalletConnect step is needed."
+        "This wallet will be saved for chat-based Learn &amp; Earn, "
+        "so no Mini App or WalletConnect step is needed."
     )
     send_message(chat_id, text)
 
@@ -217,7 +450,7 @@ def handle_help(chat_id, telegram_user=None):
     text = (
         "🤖 <b>GoodMarket Bot Commands</b>\n\n"
         "/start — Save your wallet or open Learn &amp; Earn\n"
-        "/earn — Go to Learn &amp; Earn\n"
+        "/earn — Start Learn &amp; Earn in this chat\n"
         "/wallet — Show your saved wallet\n"
         "/change_wallet — Replace your saved wallet\n"
         "/market — Open GoodMarket\n"
@@ -226,7 +459,9 @@ def handle_help(chat_id, telegram_user=None):
 
 
 def handle_earn(chat_id, telegram_user):
-    """Handle /earn command — open Learn & Earn when wallet is saved."""
+    """Handle /earn command — start the chat-first Learn & Earn flow when wallet is saved."""
+    from learn_and_earn.learn_and_earn import quiz_manager
+
     telegram_user_id = telegram_user.get("id")
     saved_wallet = _get_saved_wallet(telegram_user_id)
     if not saved_wallet:
@@ -236,20 +471,65 @@ def handle_earn(chat_id, telegram_user):
         )
         return
 
+    try:
+        eligibility = _run_async(quiz_manager.check_quiz_eligibility(saved_wallet))
+        if not eligibility.get("eligible", True):
+            send_message(
+                chat_id,
+                "⏳ <b>Learn &amp; Earn is not available yet</b>\n\n"
+                f"{html.escape(str(eligibility.get('message', 'Please try again later.')))}",
+                _learn_earn_keyboard(telegram_user_id, saved_wallet),
+            )
+            return
+
+        modules = quiz_manager.get_module_links()
+        questions = _get_admin_dashboard_questions(quiz_manager)
+        if not questions:
+            send_message(chat_id, "⚠️ No Learn &amp; Earn quiz questions are available right now. Please try again later.")
+            return
+
+        quiz_session = quiz_manager.create_quiz_session(saved_wallet, questions)
+        _TELEGRAM_LEARN_EARN_SESSIONS[str(telegram_user_id)] = {
+            "wallet": saved_wallet,
+            "quiz_session_id": quiz_session["session_id"],
+            "modules": modules,
+            "questions": questions,
+            "phase": "module" if modules else "quiz",
+            "current_module_index": 0,
+            "answers": [],
+            "current_index": 0,
+            "time_per_question": quiz_manager.time_per_question,
+            "deadline": 0,
+        }
+    except Exception as e:
+        logger.error(f"❌ Telegram Learn & Earn chat start failed: {e}")
+        send_message(chat_id, "⚠️ Learn &amp; Earn chat quiz could not start. Please try again later.")
+        return
+
     text = (
-        "📚 <b>Learn &amp; Earn is ready</b>\n\n"
+        "📚 <b>Learn &amp; Earn chat quiz started</b>\n\n"
         f"Saved wallet: <code>{_mask_wallet(saved_wallet)}</code>\n"
-        "Modules will appear first, then the timed quiz questions from the admin dashboard."
+        f"Source: active modules from <code>learn_earn_module_links</code> and admin-dashboard questions from <code>quiz_questions</code>.\n"
+        f"Timer: <b>{quiz_manager.time_per_question}s per question</b>.\n\n"
+        + (
+            f"You have <b>{len(modules)}</b> module(s) to read first. The quiz starts after the module step."
+            if modules
+            else "No active module is available right now, so the quiz starts immediately."
+        )
     )
-    send_message(chat_id, text, _learn_earn_keyboard(telegram_user_id, saved_wallet))
+    send_message(chat_id, text)
+    if modules:
+        _send_current_module(chat_id, telegram_user_id)
+    else:
+        _start_questions_from_session(chat_id, telegram_user_id)
 
 
 def handle_market(chat_id):
     """Handle /market command — open Marketplace page."""
-    text = "🛒 <b>GoodMarket</b>\n\nOpen the marketplace inside Telegram."
+    text = "🛒 <b>GoodMarket</b>\n\nOpen the marketplace from Telegram."
     reply_markup = {
         "inline_keyboard": [
-            [{"text": "🛒 Open GoodMarket", "web_app": {"url": APP_URL}}]
+            [{"text": "🛒 Open GoodMarket", "url": APP_URL}]
         ]
     }
     send_message(chat_id, text, reply_markup)
@@ -306,7 +586,7 @@ def handle_wallet_text(chat_id, telegram_user, text):
     text_msg = (
         "✅ <b>Wallet saved!</b>\n\n"
         f"Wallet: <code>{_mask_wallet(wallet)}</code>\n\n"
-        "You can now start Learn &amp; Earn without connecting a wallet. "
+        "You can now start Learn &amp; Earn directly in this Telegram chat without opening a Mini App or connecting a wallet. "
         "Your rewards and quiz history will use this wallet in GoodMarket Overview."
     )
     send_message(chat_id, text_msg, _learn_earn_keyboard(telegram_user.get("id"), wallet))
@@ -393,11 +673,22 @@ def webhook():
                 handle_wallet_text(chat_id, telegram_user, text)
 
         if callback:
+            callback_user = callback.get("from", {})
+            callback_chat_id = (callback.get("message") or {}).get("chat", {}).get("id")
+            callback_data = callback.get("data", "")
             requests.post(
                 f"{TELEGRAM_API}/answerCallbackQuery",
                 json={"callback_query_id": callback["id"]},
                 timeout=5,
             )
+            if callback_chat_id and callback_data == "learn_earn_chat":
+                handle_earn(callback_chat_id, callback_user)
+            elif callback_chat_id and callback_data == "show_wallet":
+                handle_wallet(callback_chat_id, callback_user)
+            elif callback_chat_id and callback_data.startswith("le_mod_next:"):
+                handle_learn_earn_module_next(callback_chat_id, callback_user.get("id"), callback_data)
+            elif callback_chat_id and callback_data.startswith("le_ans:"):
+                handle_learn_earn_answer(callback_chat_id, callback_user.get("id"), callback_data)
 
     except Exception as e:
         logger.error(f"Telegram webhook error: {e}")
