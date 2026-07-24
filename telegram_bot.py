@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 from flask import Blueprint, current_app, redirect, request, jsonify, session, url_for
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from config import PRODUCTION_DOMAIN
-from supabase_client import get_supabase_client
+from supabase_client import get_supabase_admin_client, get_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def _get_saved_wallet(telegram_user_id) -> str:
     if not telegram_user_id:
         return ""
     try:
-        supabase = get_supabase_client()
+        supabase = get_supabase_admin_client() or get_supabase_client()
         if not supabase:
             return ""
         result = supabase.table("telegram_wallet_sessions")\
@@ -108,7 +108,11 @@ def _save_wallet_session(telegram_user, chat_id, wallet: str) -> bool:
         return False
 
     try:
-        supabase = get_supabase_client()
+        # Use the service-role client for server-side Telegram wallet capture so
+        # Supabase RLS policies for browser/anon clients do not block the bot.
+        # Fall back to the anon client for deployments that have not configured
+        # SUPABASE_SERVICE_ROLE_KEY yet.
+        supabase = get_supabase_admin_client() or get_supabase_client()
         if not supabase:
             logger.error("❌ Supabase unavailable; Telegram wallet session not saved")
             return False
@@ -286,10 +290,17 @@ def handle_wallet_text(chat_id, telegram_user, text):
         return
 
     if not _save_wallet_session(telegram_user, chat_id, wallet):
-        send_message(
-            chat_id,
-            "⚠️ I could not save your wallet right now. Please try again in a moment.",
+        logger.warning(
+            "Telegram wallet DB save failed; sending signed temporary Learn & Earn login "
+            f"for user {telegram_user.get('id')}"
         )
+        text_msg = (
+            "⚠️ <b>I could not permanently save your wallet yet.</b>\n\n"
+            f"Wallet: <code>{_mask_wallet(wallet)}</code>\n\n"
+            "You can still continue with this signed Telegram login button. "
+            "If the bot asks for your wallet again later, the database save still needs to be fixed."
+        )
+        send_message(chat_id, text_msg, _learn_earn_keyboard(telegram_user.get("id"), wallet))
         return
 
     text_msg = (
@@ -318,8 +329,15 @@ def telegram_learn_earn_login():
     wallet = _normalize_wallet(payload.get("wallet", ""))
     telegram_user_id = str(payload.get("telegram_user_id", ""))
     saved_wallet = _get_saved_wallet(telegram_user_id)
-    if not wallet or saved_wallet != wallet:
-        return "Telegram wallet session was not found. Please save your wallet in the bot again.", 403
+    if not wallet:
+        return "Invalid Telegram login link.", 400
+    if saved_wallet and saved_wallet != wallet:
+        return "Telegram wallet session does not match this login link. Please save your wallet in the bot again.", 403
+    if not saved_wallet:
+        logger.warning(
+            "Telegram Learn & Earn login proceeding from signed token without a saved DB row "
+            f"for user {telegram_user_id}"
+        )
 
     session["wallet_address"] = wallet
     session["wallet"] = wallet
