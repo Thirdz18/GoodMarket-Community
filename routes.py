@@ -4045,10 +4045,10 @@ def update_quiz_settings():
                 "error": "Time per question must be between 10 and 60 seconds"
             }), 400
 
-        if max_reward_per_quiz is not None and (max_reward_per_quiz < 500 or max_reward_per_quiz > 10000):
+        if max_reward_per_quiz is not None and (max_reward_per_quiz < 100 or max_reward_per_quiz > 10000):
             return jsonify({
                 "success": False,
-                "error": "Max reward must be between 500 and 10,000 G$"
+                "error": "Max reward must be between 100 and 10,000 G$"
             }), 400
 
         result = quiz_manager.update_quiz_settings(
